@@ -21,8 +21,7 @@
         "updateStreamId": 4,
         "environments": ["45", "46", "48", "49", "50"],
         "tokenItem": "CWM ARS API Token",
-        "tokenVault": "CWM",
-        "changelogUrl": "https://raw.githubusercontent.com/Joomla-Bible-Study/CWMScriptureLinks/main/build/cwmscripture-changelog.xml"
+        "tokenVault": "CWM"
     },
     "github": {
         "owner": "Joomla-Bible-Study",
@@ -30,6 +29,7 @@
         "releaseBranch": "main"
     },
     "changelog": {
-        "file": "build/cwmscripture-changelog.xml"
+        "file": "build/cwmscripture-changelog.xml",
+        "url":  "https://raw.githubusercontent.com/Joomla-Bible-Study/CWMScriptureLinks/main/build/cwmscripture-changelog.xml"
     }
 }

@@ -14,12 +14,20 @@
         "outputGlob": "build/dist/lib_cwmscripture-*.zip"
     },
     "ars": {
-        "endpoint": "https://www.christianwebministries.org/index.php?option=com_ars",
-        "category": "Scripture Library"
+        "endpoint": "https://www.christianwebministries.org",
+        "categoryId": 5,
+        "updateStreamId": 0,
+        "environments": ["45", "46", "48", "49", "50"],
+        "tokenItem": "CWM ARS API Token",
+        "tokenVault": "CWM"
     },
     "github": {
         "owner": "Joomla-Bible-Study",
         "repo": "lib_cwmscripture",
         "releaseBranch": "main"
+    },
+    "changelog": {
+        "file": "build/lib_cwmscripture-changelog.xml",
+        "url":  "https://raw.githubusercontent.com/Joomla-Bible-Study/lib_cwmscripture/main/build/lib_cwmscripture-changelog.xml"
     }
 }

@@ -16,10 +16,14 @@
 #                    If unset, the script reads the prefix from extension.name.
 #   aliasPrefix      Slug prefix for the ARS Release alias. Defaults to
 #                    extension.name with the "pkg_"/"com_"/"lib_" stripped.
-#   changelogUrl     Raw URL to the changelog XML; patched onto the update
-#                    stream so Joomla update notices show changelog details.
 #   itemDescription  HTML-friendly description for the download Item shown
 #                    on the ARS public page. Defaults to extension.name.
+#
+# Note: there is no `ars.changelogUrl` setting any longer. Modern ARS
+# (v7.x) does not expose a changelog field on update streams; Joomla
+# reads `<changelogurl>` from the installed extension manifest instead.
+# The URL belongs in the manifest XML and in `changelog.url` for the
+# publish helper, not on the ARS update stream.
 #
 # Required github.* fields:
 #   owner, repo                Used to resolve the GitHub release for the
@@ -83,7 +87,6 @@ TOKEN_ITEM=$(read_config "ars.tokenItem")
 TOKEN_VAULT=$(read_config "ars.tokenVault")
 ZIP_PREFIX=$(read_config "ars.zipPrefix")
 ALIAS_PREFIX=$(read_config "ars.aliasPrefix")
-CHANGELOG_URL=$(read_config "ars.changelogUrl")
 ITEM_DESCRIPTION=$(read_config "ars.itemDescription")
 
 EXT_NAME=$(read_config "extension.name")
@@ -316,22 +319,6 @@ else
     fi
 
     echo "Download item created (ID: ${ITEM_ID})."
-fi
-
-# --- Optionally patch update stream changelog URL ---
-if [ -n "$CHANGELOG_URL" ]; then
-    echo "Ensuring update stream has changelog URL..."
-    curl -s -X PATCH \
-        -H "X-Joomla-Token: ${TOKEN}" \
-        -H "Accept: application/vnd.api+json" \
-        -H "Content-Type: application/json" \
-        -d "{
-            \"id\": ${ARS_UPDATE_STREAM_ID},
-            \"changelogurl\": \"${CHANGELOG_URL}\"
-        }" \
-        "${API_BASE}/updatestreams/${ARS_UPDATE_STREAM_ID}" > /dev/null 2>&1 \
-        && echo "  Update stream changelog URL set." \
-        || echo "  Warning: Could not update stream changelog URL. Set it manually in ARS admin."
 fi
 
 echo ""

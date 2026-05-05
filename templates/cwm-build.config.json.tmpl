@@ -16,8 +16,13 @@
         "outputGlob": "build/dist/pkg_yourextension-*.zip"
     },
     "ars": {
-        "endpoint": "https://www.christianwebministries.org/index.php?option=com_ars",
-        "category": "Your Extension"
+        "endpoint": "https://www.christianwebministries.org",
+        "categoryId": 0,
+        "updateStreamId": 0,
+        "environments": ["45", "46", "48", "49", "50"],
+        "tokenItem": "CWM ARS API Token",
+        "tokenVault": "CWM",
+        "itemDescription": "One-paragraph description shown on the ARS public download page."
     },
     "github": {
         "owner": "Joomla-Bible-Study",
@@ -27,7 +32,8 @@
     },
     "versionsFile": "build/versions.json",
     "changelog": {
-        "command": "bash build/generate-changelog-entry.sh"
+        "file": "build/yourextension-changelog.xml",
+        "url":  "https://raw.githubusercontent.com/Joomla-Bible-Study/YourRepo/main/build/yourextension-changelog.xml"
     },
     "announcement": {
         "bulletsDir": "build",
