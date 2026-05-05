@@ -2,12 +2,23 @@
 #
 # Create a new ARS Update Stream under a given category, via the Joomla API.
 #
-# NOTE: Akeeba ARS' webservices plugin does not currently expose POST on
-# /updatestreams — listing and PATCH work, but creation returns 404.
-# Until upstream fixes this, create new update streams via the ARS admin
-# UI (System → Manage → Akeeba Release System → Update Streams → New),
-# then use cwm-ars-list to read back the id. This script is kept for the
-# day the API supports it; useful for upstream-tracking right now.
+# NOTE: plg_webservices_ars does not register a CRUD route for
+# /v1/ars/updatestreams — only /categories, /releases, and /items are
+# wired up in beforeAPIRoute(). Every verb on /updatestreams (GET list,
+# GET by id, POST, PATCH) therefore returns 404. cwm-ars-publish is
+# unaffected because it never touches /updatestreams (it embeds the
+# numeric id in the /items payload); only this script and
+# `cwm-ars-list streams` need the missing route.
+#
+# Until plg_webservices_ars adds the route, create the stream via the
+# admin UI (System → Manage → Akeeba Release System → Update Streams →
+# New) and read its id from the grid (enable the ID column via the
+# column picker, or hover the edit link to read it from the URL).
+# Paste that id into cwm-build.config.json under ars.updateStreamId.
+# This script is kept for the day the API supports creation again — a
+# one-line patch to plg_webservices_ars/src/Extension/Ars.php would fix
+# it: createCRUDRoutes('v1/ars/updatestreams', 'updatestreams',
+# ['component' => 'com_ars']).
 #
 # A typical Joomla extension package needs at least:
 #   - one stream per top-level extension that's installed standalone (e.g.

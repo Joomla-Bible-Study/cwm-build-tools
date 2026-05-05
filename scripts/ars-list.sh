@@ -64,10 +64,14 @@ list_categories() {
     echo "ARS Categories @ ${SITE_URL}"
     echo "============================"
     curl -s -H "X-Joomla-Token: ${TOKEN}" -H "Accept: application/vnd.api+json" \
-        "${API_BASE}/categories" \
+        "${API_BASE}/categories?page%5Blimit%5D=200" \
         | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
+if 'errors' in data:
+    for e in data['errors']:
+        print(f\"  API error: {e.get('code','?')} {e.get('title','')} {e.get('detail','')}\".rstrip())
+    sys.exit(2)
 rows = data.get('data', [])
 if not rows:
     print('  (no categories)')
@@ -89,10 +93,17 @@ list_streams() {
     echo "ARS Update Streams @ ${SITE_URL}"
     echo "================================"
     curl -s -H "X-Joomla-Token: ${TOKEN}" -H "Accept: application/vnd.api+json" \
-        "${API_BASE}/updatestreams" \
+        "${API_BASE}/updatestreams?page%5Blimit%5D=200" \
         | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
+if 'errors' in data:
+    for e in data['errors']:
+        print(f\"  API error: {e.get('code','?')} {e.get('title','')} {e.get('detail','')}\".rstrip())
+    print('  Note: some plg_webservices_ars versions do not expose /updatestreams.')
+    print('        Find the ID in the admin UI under System -> Manage ->')
+    print('        Akeeba Release System -> Update Streams.')
+    sys.exit(2)
 rows = data.get('data', [])
 if not rows:
     print('  (no update streams)')
@@ -125,10 +136,14 @@ list_releases() {
     # the filter. Fetch with a generous page size and filter client-side
     # so the output is always scoped to the requested category.
     curl -s -H "X-Joomla-Token: ${TOKEN}" -H "Accept: application/vnd.api+json" \
-        "${API_BASE}/releases?filter%5Bcategory_id%5D=${cat_id}&limit=200" \
+        "${API_BASE}/releases?filter%5Bcategory_id%5D=${cat_id}&page%5Blimit%5D=200" \
         | CAT_ID="$cat_id" python3 -c "
 import json, os, sys
 data = json.load(sys.stdin)
+if 'errors' in data:
+    for e in data['errors']:
+        print(f\"  API error: {e.get('code','?')} {e.get('title','')} {e.get('detail','')}\".rstrip())
+    sys.exit(2)
 target_cat = int(os.environ['CAT_ID'])
 rows = [r for r in data.get('data', [])
         if int(r.get('attributes', {}).get('category_id', -1)) == target_cat]
