@@ -117,6 +117,10 @@ HEADING_MAP = {
     'language': 'language', 'translations': 'language',
     'notes': 'note', 'note': 'note', 'upgrade notes': 'note',
     'requirements': 'note', 'testing': 'note',
+    # Less-conventional headings that show up in older release notes;
+    # treat as <note> so their bullets land somewhere instead of being
+    # silently dropped.
+    'highlights': 'note', 'overview': 'note', 'summary': 'note',
 }
 
 sections = {}

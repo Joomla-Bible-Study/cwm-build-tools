@@ -119,12 +119,19 @@ list_releases() {
     echo ""
     echo "ARS Releases in category ${cat_id} @ ${SITE_URL}"
     echo "================================================="
+    # The Joomla JSON:API filter[category_id] parameter is honored by
+    # categories/items but appears to be ignored by /releases on this
+    # ARS install — server returns the full release list regardless of
+    # the filter. Fetch with a generous page size and filter client-side
+    # so the output is always scoped to the requested category.
     curl -s -H "X-Joomla-Token: ${TOKEN}" -H "Accept: application/vnd.api+json" \
-        "${API_BASE}/releases?filter%5Bcategory_id%5D=${cat_id}" \
-        | python3 -c "
-import json, sys
+        "${API_BASE}/releases?filter%5Bcategory_id%5D=${cat_id}&limit=200" \
+        | CAT_ID="$cat_id" python3 -c "
+import json, os, sys
 data = json.load(sys.stdin)
-rows = data.get('data', [])
+target_cat = int(os.environ['CAT_ID'])
+rows = [r for r in data.get('data', [])
+        if int(r.get('attributes', {}).get('category_id', -1)) == target_cat]
 if not rows:
     print('  (no releases)')
 else:
