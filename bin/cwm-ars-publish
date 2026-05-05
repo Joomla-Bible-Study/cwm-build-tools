@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#
+# cwm-ars-publish — push a built artifact to Akeeba Release System.
+# Wraps scripts/ars-publish.sh.
+#
+# Usage from a consuming project:
+#   composer ars-publish -- -v 1.2.3 -f build/dist/pkg_myext-1.2.3.zip
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec bash "${TOOLS_DIR}/scripts/ars-publish.sh" "$@"

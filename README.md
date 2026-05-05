@@ -10,7 +10,7 @@ Across `Proclaim`, `lib_cwmscripture`, `CWMScriptureLinks`, and `plg_task_cwmscr
 
 | Surface | What | Where |
 |---|---|---|
-| **CLI tools** | `cwm-release`, `cwm-bump`, `cwm-package`, `cwm-sync-configs`, `cwm-sync-languages`, `cwm-init` | `bin/` |
+| **CLI tools** | `cwm-release`, `cwm-bump`, `cwm-package`, `cwm-sync-configs`, `cwm-sync-languages`, `cwm-ars-publish`, `cwm-changelog`, `cwm-init` | `bin/` |
 | **Scripts** | Generic 8-step release pipeline, multi-manifest version bumper, config syncer | `scripts/` |
 | **PHP library** | `ProjectConfig`, `ManifestReader`, `PackageBuilder`, `ArsPublisher`, `Bumper` | `src/` (PSR-4 `CWM\BuildTools\`) |
 | **Reusable GH Actions** | `joomla-package-ci.yml`, `joomla-library-ci.yml` (called via `workflow_call`) | `.github/workflows/` |

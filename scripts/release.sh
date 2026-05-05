@@ -165,21 +165,21 @@ gh release create "$TAG" "${ARTIFACTS[@]}" \
 
 echo ""
 
-# --- Step 5: Changelog (project-specific, optional) ---
+# --- Step 5: Changelog ---
 echo "[5/8] Updating changelog..."
-CHANGELOG_CMD=$(read_config "changelog.command")
-if [ -n "$CHANGELOG_CMD" ]; then
-    bash -c "$CHANGELOG_CMD '$VERSION'"
+CHANGELOG_FILE=$(read_config "changelog.file")
+if [ -n "$CHANGELOG_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
+    bash "${TOOLS_DIR}/scripts/generate-changelog-entry.sh" "$VERSION"
     if ! git diff --quiet 2>/dev/null; then
         git add -A
         git commit -m "chore: add changelog entry for ${VERSION}"
         git push
-        # Move tag to include changelog
+        # Move tag to include changelog commit
         git tag -af "$TAG" -m "$TAG"
         git push origin "$TAG" --force
     fi
 else
-    echo "  Skipped: no changelog.command configured."
+    echo "  Skipped: no changelog.file configured (or file missing)."
 fi
 echo ""
 
@@ -187,7 +187,7 @@ echo ""
 echo "[6/8] Publishing to ARS..."
 ARS_ENDPOINT=$(read_config "ars.endpoint")
 if [ -n "$ARS_ENDPOINT" ]; then
-    php "${TOOLS_DIR}/scripts/ars-publish.php" -v "$VERSION" -f "${ARTIFACTS[0]}"
+    bash "${TOOLS_DIR}/scripts/ars-publish.sh" -v "$VERSION" -f "${ARTIFACTS[0]}"
 else
     echo "  Skipped: no ars.endpoint configured."
 fi

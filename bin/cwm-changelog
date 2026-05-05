@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#
+# cwm-changelog — generate a Joomla changelog XML entry from a GitHub release
+# and insert it into the project's changelog file.
+# Wraps scripts/generate-changelog-entry.sh.
+#
+# Usage from a consuming project:
+#   composer changelog -- 1.2.3
+#   composer changelog -- 1.2.3 --dry-run
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec bash "${TOOLS_DIR}/scripts/generate-changelog-entry.sh" "$@"

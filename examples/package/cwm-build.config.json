@@ -1,5 +1,4 @@
 {
-    "_comment": "Example: CWMScriptureLinks. Package wrapping library + content plugin + task plugin.",
     "extension": {
         "type": "package",
         "name": "pkg_cwmscripture"
@@ -17,12 +16,20 @@
         "outputGlob": "build/dist/pkg_cwmscripture-*.zip"
     },
     "ars": {
-        "endpoint": "https://www.christianwebministries.org/index.php?option=com_ars",
-        "category": "Scripture Library"
+        "endpoint": "https://www.christianwebministries.org",
+        "categoryId": 3,
+        "updateStreamId": 4,
+        "environments": ["45", "46", "48", "49", "50"],
+        "tokenItem": "CWM ARS API Token",
+        "tokenVault": "CWM",
+        "changelogUrl": "https://raw.githubusercontent.com/Joomla-Bible-Study/CWMScriptureLinks/main/build/cwmscripture-changelog.xml"
     },
     "github": {
         "owner": "Joomla-Bible-Study",
         "repo": "CWMScriptureLinks",
         "releaseBranch": "main"
+    },
+    "changelog": {
+        "file": "build/cwmscripture-changelog.xml"
     }
 }
