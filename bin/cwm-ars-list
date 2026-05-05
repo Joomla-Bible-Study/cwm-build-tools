@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#
+# cwm-ars-list — list ARS categories, update streams, and releases.
+# Use to find the categoryId / updateStreamId values needed in
+# cwm-build.config.json when setting up a new project.
+#
+# Usage from a consuming project:
+#   composer ars-list                  # categories + streams
+#   composer ars-list -- categories
+#   composer ars-list -- streams
+#   composer ars-list -- releases 3    # releases in category 3
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec bash "${TOOLS_DIR}/scripts/ars-list.sh" "$@"

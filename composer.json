@@ -37,6 +37,7 @@
         "bin/cwm-sync-configs",
         "bin/cwm-sync-languages",
         "bin/cwm-ars-publish",
+        "bin/cwm-ars-list",
         "bin/cwm-changelog",
         "bin/cwm-init"
     ],
