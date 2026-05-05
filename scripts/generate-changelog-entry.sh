@@ -13,13 +13,13 @@
 #   github.owner / .repo Used to fetch release notes from GitHub.
 #
 # Parses the GitHub release body markdown into Joomla changelog types:
-#   ### Fixes / ### Bug Fixes        -> <fix>
-#   ### New Features / ### Features  -> <addition>
-#   ### Changes / ### Changed        -> <change>
-#   ### Security                     -> <security>
-#   ### Removed / ### Deprecated     -> <remove>
-#   ### Language / ### Translations  -> <language>
-#   ### Notes / ### Upgrade notes    -> <note>
+#   ### Fixes / Fixed / Bug Fixes      -> <fix>
+#   ### New Features / Features / Added -> <addition>
+#   ### Changes / Changed              -> <change>
+#   ### Security                       -> <security>
+#   ### Removed / Deprecated           -> <remove>
+#   ### Language / Translations        -> <language>
+#   ### Notes / Upgrade notes          -> <note>
 #
 # Usage:
 #   bash scripts/generate-changelog-entry.sh <version> [--dry-run]
@@ -109,7 +109,7 @@ ext_type = sys.argv[4]
 body    = os.environ.get('CHANGELOG_BODY', '')
 
 HEADING_MAP = {
-    'fixes': 'fix', 'fix': 'fix', 'bug fixes': 'fix', 'bug fix': 'fix',
+    'fixes': 'fix', 'fix': 'fix', 'fixed': 'fix', 'bug fixes': 'fix', 'bug fix': 'fix',
     'new features': 'addition', 'features': 'addition', 'additions': 'addition', 'added': 'addition',
     'changes': 'change', 'changed': 'change', 'modifications': 'change',
     'security': 'security', 'security fixes': 'security',
