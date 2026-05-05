@@ -29,20 +29,26 @@ Add as a Composer dev dependency:
   "require-dev": { "cwm/build-tools": "^1.0" },
   "scripts": {
     "release":      "vendor/bin/cwm-release",
-    "bump":         "vendor/bin/cwm-bump",
+    "bump-version": "vendor/bin/cwm-bump",
     "package":      "vendor/bin/cwm-package",
     "sync-configs": "vendor/bin/cwm-sync-configs"
   }
 }
 ```
 
+**Why `bump-version` and not `bump`:** Composer 2.4+ ships a built-in
+`composer bump` command (which bumps composer.json constraints to
+match installed versions) that takes priority over user-defined
+scripts of the same name. Using `bump-version` (or any other distinct
+alias) avoids the silent override.
+
 Drop a `cwm-build.config.json` at the project root describing the extension layout (see `examples/`). Then:
 
 ```bash
-composer release -- 1.2.0    # full pipeline: bump → build → tag → GH release → ARS publish
-composer bump -- 1.2.0       # version bump only
-composer package             # build zip(s) only
-composer sync-configs        # refresh managed config blocks
+composer release -- 1.2.0      # full pipeline: bump → build → tag → GH release → ARS publish
+composer bump-version -- 1.2.0 # version bump only (NOT 'bump' — that's a built-in Composer command)
+composer package               # build zip(s) only
+composer sync-configs          # refresh managed config blocks
 ```
 
 Reusable CI:
