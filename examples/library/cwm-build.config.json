@@ -1,0 +1,25 @@
+{
+    "_comment": "Example: lib_cwmscripture. Standalone library extension with its own release cadence.",
+    "extension": {
+        "type": "library",
+        "name": "lib_cwmscripture"
+    },
+    "manifests": {
+        "extensions": [
+            { "type": "library", "path": "cwmscripture.xml" }
+        ]
+    },
+    "build": {
+        "command": "npm run build && php build/build-package.php",
+        "outputGlob": "build/dist/lib_cwmscripture-*.zip"
+    },
+    "ars": {
+        "endpoint": "https://www.christianwebministries.org/index.php?option=com_ars",
+        "category": "Scripture Library"
+    },
+    "github": {
+        "owner": "Joomla-Bible-Study",
+        "repo": "lib_cwmscripture",
+        "releaseBranch": "main"
+    }
+}

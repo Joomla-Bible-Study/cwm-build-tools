@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#
+# cwm-bump — bump version across all manifests listed in cwm-build.config.json.
+#
+# Reads the project's cwm-build.config.json and writes the new version into
+# every manifest path under manifests.extensions[] plus manifests.package
+# (when present).
+#
+# Usage from a consuming project:
+#   composer bump -- 1.2.0
+#   composer bump -- 1.2.0 --component plugin   # bump only one component
+#
+set -euo pipefail
+
+PROJECT_ROOT="$(pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ ! -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
+    echo "Error: cwm-build.config.json not found in $PROJECT_ROOT"
+    exit 1
+fi
+
+exec php "${TOOLS_DIR}/scripts/bump.php" "$@"

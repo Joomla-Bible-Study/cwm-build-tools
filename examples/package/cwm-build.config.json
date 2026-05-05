@@ -1,0 +1,28 @@
+{
+    "_comment": "Example: CWMScriptureLinks. Package wrapping library + content plugin + task plugin.",
+    "extension": {
+        "type": "package",
+        "name": "pkg_cwmscripture"
+    },
+    "manifests": {
+        "package": "build/pkg_cwmscripture.xml",
+        "extensions": [
+            { "type": "library", "path": "libraries/lib_cwmscripture/cwmscripture.xml" },
+            { "type": "plugin",  "path": "scripturelinks.xml" },
+            { "type": "plugin",  "path": "plg_task_cwmscripture/cwmscripture.xml" }
+        ]
+    },
+    "build": {
+        "command": "php build/build-package.php",
+        "outputGlob": "build/dist/pkg_cwmscripture-*.zip"
+    },
+    "ars": {
+        "endpoint": "https://www.christianwebministries.org/index.php?option=com_ars",
+        "category": "Scripture Library"
+    },
+    "github": {
+        "owner": "Joomla-Bible-Study",
+        "repo": "CWMScriptureLinks",
+        "releaseBranch": "main"
+    }
+}

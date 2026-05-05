@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#
+# cwm-release — full release pipeline for a CWM Joomla extension.
+#
+# Reads cwm-build.config.json from the project root and runs the 8-step
+# release pipeline (bump → build → tag → GH release → ARS publish, etc.).
+#
+# Usage from a consuming project:
+#   composer release -- 1.2.0
+#   composer release -- 1.2.0-beta1
+#   composer release                     # prompts for version
+#
+set -euo pipefail
+
+PROJECT_ROOT="$(pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ ! -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
+    echo "Error: cwm-build.config.json not found in $PROJECT_ROOT"
+    echo "Run 'cwm-init' to scaffold one, or see"
+    echo "  ${TOOLS_DIR}/examples/ for reference configs."
+    exit 1
+fi
+
+exec bash "${TOOLS_DIR}/scripts/release.sh" "$@"

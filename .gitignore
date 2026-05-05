@@ -1,0 +1,21 @@
+# Dependencies
+/vendor/
+/node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tool caches
+.php-cs-fixer.cache
+.phpunit.cache
+.phpunit.result.cache
+
+# Local env
+.env
+.env.local

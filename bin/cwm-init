@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#
+# cwm-init — scaffold a cwm-build.config.json and run an initial config sync
+# in a project that's adopting cwm-build-tools.
+#
+# Interactive: prompts for extension type, name, manifest paths, ARS endpoint,
+# and GitHub repo info. Writes cwm-build.config.json, then runs cwm-sync-configs
+# to install managed blocks in .gitignore / .editorconfig / .php-cs-fixer.
+#
+set -euo pipefail
+
+PROJECT_ROOT="$(pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
+    echo "cwm-build.config.json already exists. Edit it directly, or delete it first."
+    exit 1
+fi
+
+exec php "${TOOLS_DIR}/scripts/init.php" "$@"

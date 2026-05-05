@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#
+# cwm-sync-configs — refresh managed config blocks in the consuming project.
+#
+# Updates the marked-block portions of:
+#   - .gitignore
+#   - .editorconfig
+#   - .php-cs-fixer.dist.php (regenerates the require-base wrapper)
+#
+# Lines outside the markers are never touched. Use --dry-run to preview.
+#
+# Usage from a consuming project:
+#   composer sync-configs              # apply changes
+#   composer sync-configs -- --dry-run # preview
+#   composer sync-configs -- --diff    # show drift since last sync
+#
+set -euo pipefail
+
+PROJECT_ROOT="$(pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+exec php "${TOOLS_DIR}/scripts/sync-configs.php" "$@"

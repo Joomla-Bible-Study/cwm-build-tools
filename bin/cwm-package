@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#
+# cwm-package — invoke the project's build command from cwm-build.config.json.
+#
+# This is a thin wrapper around build.command in the config file. The actual
+# zip-building logic stays project-specific for now (Phase 4 will introduce
+# a generic builder that can replace project-specific build-package.php
+# files where they're similar enough).
+#
+set -euo pipefail
+
+PROJECT_ROOT="$(pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ ! -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
+    echo "Error: cwm-build.config.json not found in $PROJECT_ROOT"
+    exit 1
+fi
+
+BUILD_CMD=$(php -r '$c = json_decode(file_get_contents("cwm-build.config.json"), true); echo $c["build"]["command"] ?? "";')
+
+if [ -z "$BUILD_CMD" ]; then
+    echo "Error: build.command not set in cwm-build.config.json"
+    exit 1
+fi
+
+echo "Running: $BUILD_CMD"
+exec bash -c "$BUILD_CMD"

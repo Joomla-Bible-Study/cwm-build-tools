@@ -1,0 +1,154 @@
+name: Joomla Package CI (reusable)
+
+# Reusable workflow for Joomla extension package CI.
+#
+# Inputs are passed via workflow_call. Untrusted user-supplied strings are
+# never interpolated directly into run: blocks — values like build-command
+# and package-glob are exposed to scripts via env: variables and quoted
+# inside double quotes there.
+#
+# Consuming projects call this via:
+#   jobs:
+#     ci:
+#       uses: Joomla-Bible-Study/cwm-build-tools/.github/workflows/joomla-package-ci.yml@v1
+#       with:
+#         php-version: '8.3'
+#         node-version: '24'
+
+on:
+  workflow_call:
+    inputs:
+      php-version:
+        description: 'PHP version to use'
+        required: false
+        type: string
+        default: '8.3'
+      node-version:
+        description: 'Node version to use'
+        required: false
+        type: string
+        default: '24'
+      submodules:
+        description: 'Whether to checkout git submodules (true/false/recursive)'
+        required: false
+        type: string
+        default: 'recursive'
+      build-command:
+        description: 'Composer script that builds the package zip'
+        required: false
+        type: string
+        default: 'composer build'
+      package-glob:
+        description: 'Glob matching the produced package zip'
+        required: false
+        type: string
+        default: 'build/dist/pkg_*.zip'
+      run-tests:
+        description: 'Whether to run composer test'
+        required: false
+        type: boolean
+        default: true
+      run-lint:
+        description: 'Whether to run composer lint and lint:syntax'
+        required: false
+        type: boolean
+        default: true
+      lib-path:
+        description: 'Optional path to a sub-library directory that needs npm build before packaging'
+        required: false
+        type: string
+        default: ''
+
+env:
+  NODE_OPTIONS: --disable-warning=DEP0040
+
+jobs:
+  ci:
+    name: PHP Lint, Tests, Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: ${{ inputs.submodules }}
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          extensions: mbstring, json, xml, zip, curl
+          coverage: none
+          tools: composer:v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+          cache-dependency-path: |
+            **/package-lock.json
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Lint PHP syntax
+        if: ${{ inputs.run-lint }}
+        run: composer lint:syntax
+
+      - name: Run PHP CS Fixer (dry-run)
+        if: ${{ inputs.run-lint }}
+        run: composer lint
+
+      - name: Run PHPUnit
+        if: ${{ inputs.run-tests }}
+        run: composer test
+
+      - name: Build sub-library (if configured)
+        if: ${{ inputs.lib-path != '' }}
+        env:
+          LIB_PATH: ${{ inputs.lib-path }}
+        run: |
+          cd "$LIB_PATH"
+          composer install --no-interaction --prefer-dist
+          npm ci
+          npm run build
+          if [ -f build/build-package.php ]; then
+            php build/build-package.php
+          fi
+
+      - name: Build package
+        env:
+          BUILD_CMD: ${{ inputs.build-command }}
+        run: bash -c "$BUILD_CMD"
+
+      - name: Verify package built
+        env:
+          PKG_GLOB: ${{ inputs.package-glob }}
+        run: |
+          shopt -s nullglob
+          ARTIFACTS=( $PKG_GLOB )
+          shopt -u nullglob
+          if [ "${#ARTIFACTS[@]}" -eq 0 ]; then
+            echo "No package found matching $PKG_GLOB"
+            exit 1
+          fi
+          echo "Built: ${ARTIFACTS[*]}"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: package
+          path: ${{ inputs.package-glob }}
+          retention-days: 7

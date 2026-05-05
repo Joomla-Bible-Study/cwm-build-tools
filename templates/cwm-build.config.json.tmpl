@@ -1,0 +1,36 @@
+{
+    "_comment": "Per-project config for cwm-build-tools. Replace placeholder values and remove this comment.",
+    "extension": {
+        "type": "package",
+        "name": "pkg_yourextension"
+    },
+    "manifests": {
+        "package": "build/pkg_yourextension.xml",
+        "extensions": [
+            { "type": "library", "path": "libraries/lib_yourextension/yourextension.xml" },
+            { "type": "plugin",  "path": "yourextension.xml" }
+        ]
+    },
+    "build": {
+        "command": "php build/build-package.php",
+        "outputGlob": "build/dist/pkg_yourextension-*.zip"
+    },
+    "ars": {
+        "endpoint": "https://www.christianwebministries.org/index.php?option=com_ars",
+        "category": "Your Extension"
+    },
+    "github": {
+        "owner": "Joomla-Bible-Study",
+        "repo": "YourRepo",
+        "releaseBranch": "main",
+        "developmentBranch": "development"
+    },
+    "versionsFile": "build/versions.json",
+    "changelog": {
+        "command": "bash build/generate-changelog-entry.sh"
+    },
+    "announcement": {
+        "bulletsDir": "build",
+        "command": "bash build/cwm-article.sh"
+    }
+}
