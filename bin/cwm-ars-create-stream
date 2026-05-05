@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#
+# cwm-ars-create-stream — create a new ARS Update Stream under a category.
+# Use during first-time setup so each top-level Joomla extension has a
+# stream that Joomla's update notifications can read.
+#
+# Usage from a consuming project:
+#   composer ars-create-stream -- \
+#     --name "Scripture Package" --element pkg_cwmscripture --type package --category-id 5
+#
+set -euo pipefail
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec bash "${TOOLS_DIR}/scripts/ars-create-stream.sh" "$@"
