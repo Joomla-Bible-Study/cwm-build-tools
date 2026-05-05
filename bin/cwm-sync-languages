@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#
+# cwm-sync-languages — sync and translate Joomla language files for the
+# current project. Wraps scripts/sync-languages.py.
+#
+# Operates on the project at $PWD (the consuming project's root). Pass
+# --project-root <path> to override.
+#
+# Usage from a consuming project:
+#   composer sync-languages              # mirror keys, fill missing translations
+#   composer sync-languages -- --force   # re-translate all keys
+#   composer sync-languages -- setup     # store Google Translate API key in 1Password
+#
+# Requires:
+#   - python3
+#   - 1Password CLI (op) for API key retrieval, or GOOGLE_TRANSLATE_API_KEY env var
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+exec python3 "${TOOLS_DIR}/scripts/sync-languages.py" "$@"

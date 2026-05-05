@@ -7,14 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added — Phase 1 scaffold
+### Added
+
+- `bin/cwm-sync-languages` + `scripts/sync-languages.py` — shared Joomla language sync / Google Translate tool. Project root now defaults to CWD (or pass `--project-root <path>` to override). Lifted from byte-identical copies in `lib_cwmscripture` and `Proclaim`.
+- `templates/eslint.config.base.mjs` — base ESLint flat-config for CWM Joomla extensions. Consuming projects extend it via `import baseConfig from '.../vendor/cwm/build-tools/templates/eslint.config.base.mjs'` and add their own globals/files.
+
+### Phase 1 scaffold (initial)
 
 - Initial repo skeleton with `bin/`, `scripts/`, `src/`, `templates/`, `examples/`.
-- `bin/cwm-release` — wrapper around `scripts/release.sh`.
-- `bin/cwm-bump` — wrapper around `scripts/bump.php`.
-- `bin/cwm-package` — invokes `build.command` from project config.
-- `bin/cwm-sync-configs` — wrapper around `scripts/sync-configs.php`.
-- `bin/cwm-init` — scaffolding wrapper.
+- `bin/cwm-release`, `cwm-bump`, `cwm-package`, `cwm-sync-configs`, `cwm-sync-languages`, `cwm-init`.
 - `scripts/release.sh` — generic 8-step release pipeline (bump, build, push, GH release, changelog, ARS, versions.json, announcement).
 - `scripts/bump.php` — multi-manifest version bumper driven by `cwm-build.config.json`.
 - `scripts/sync-configs.php` — managed-block syncer (currently `.gitignore`).

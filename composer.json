@@ -35,6 +35,7 @@
         "bin/cwm-bump",
         "bin/cwm-package",
         "bin/cwm-sync-configs",
+        "bin/cwm-sync-languages",
         "bin/cwm-init"
     ],
     "config": {

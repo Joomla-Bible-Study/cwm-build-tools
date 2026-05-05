@@ -10,11 +10,11 @@ Across `Proclaim`, `lib_cwmscripture`, `CWMScriptureLinks`, and `plg_task_cwmscr
 
 | Surface | What | Where |
 |---|---|---|
-| **CLI tools** | `cwm-release`, `cwm-bump`, `cwm-package`, `cwm-sync-configs`, `cwm-init` | `bin/` |
+| **CLI tools** | `cwm-release`, `cwm-bump`, `cwm-package`, `cwm-sync-configs`, `cwm-sync-languages`, `cwm-init` | `bin/` |
 | **Scripts** | Generic 8-step release pipeline, multi-manifest version bumper, config syncer | `scripts/` |
 | **PHP library** | `ProjectConfig`, `ManifestReader`, `PackageBuilder`, `ArsPublisher`, `Bumper` | `src/` (PSR-4 `CWM\BuildTools\`) |
 | **Reusable GH Actions** | `joomla-package-ci.yml`, `joomla-library-ci.yml` (called via `workflow_call`) | `.github/workflows/` |
-| **Synced config templates** | `.gitignore` block, `.editorconfig`, `.php-cs-fixer.base.php`, `phpunit.xml` boilerplate | `templates/` |
+| **Synced config templates** | `.gitignore` block, `.editorconfig`, `.php-cs-fixer.base.php`, `phpunit.xml` boilerplate, `eslint.config.base.mjs` | `templates/` |
 
 ## Distribution
 
@@ -90,6 +90,25 @@ For `.php-cs-fixer.dist.php` and similar, the project's local file is a thin wra
 ```php
 // .php-cs-fixer.dist.php
 return require __DIR__ . '/vendor/cwm/build-tools/templates/.php-cs-fixer.base.php';
+```
+
+For ESLint, the project's `eslint.config.mjs` imports and extends the base:
+
+```js
+// eslint.config.mjs
+import baseConfig from './vendor/cwm/build-tools/templates/eslint.config.base.mjs';
+
+export default [
+    ...baseConfig,
+    {
+        files: ['**/*.js', '**/*.mjs', '**/*.es6.js'],
+        languageOptions: {
+            globals: {
+                MyExtension: 'readonly',  // project-specific globals
+            },
+        },
+    },
+];
 ```
 
 Project-specific rule overrides go in the wrapper, not by forking the base.
