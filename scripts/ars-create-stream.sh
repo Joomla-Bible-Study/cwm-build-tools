@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 #
 # Create a new ARS Update Stream under a given category, via the Joomla API.
-# Useful during first-time setup of a new project — Joomla extensions need
-# an update stream to advertise new versions to existing installs.
+#
+# NOTE: Akeeba ARS' webservices plugin does not currently expose POST on
+# /updatestreams — listing and PATCH work, but creation returns 404.
+# Until upstream fixes this, create new update streams via the ARS admin
+# UI (System → Manage → Akeeba Release System → Update Streams → New),
+# then use cwm-ars-list to read back the id. This script is kept for the
+# day the API supports it; useful for upstream-tracking right now.
 #
 # A typical Joomla extension package needs at least:
 #   - one stream per top-level extension that's installed standalone (e.g.

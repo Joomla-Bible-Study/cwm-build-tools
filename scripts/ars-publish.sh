@@ -18,6 +18,8 @@
 #                    extension.name with the "pkg_"/"com_"/"lib_" stripped.
 #   changelogUrl     Raw URL to the changelog XML; patched onto the update
 #                    stream so Joomla update notices show changelog details.
+#   itemDescription  HTML-friendly description for the download Item shown
+#                    on the ARS public page. Defaults to extension.name.
 #
 # Required github.* fields:
 #   owner, repo                Used to resolve the GitHub release for the
@@ -82,6 +84,7 @@ TOKEN_VAULT=$(read_config "ars.tokenVault")
 ZIP_PREFIX=$(read_config "ars.zipPrefix")
 ALIAS_PREFIX=$(read_config "ars.aliasPrefix")
 CHANGELOG_URL=$(read_config "ars.changelogUrl")
+ITEM_DESCRIPTION=$(read_config "ars.itemDescription")
 
 EXT_NAME=$(read_config "extension.name")
 GH_OWNER=$(read_config "github.owner")
@@ -262,11 +265,14 @@ for i in d.get('data',[]):
         break
 " 2>/dev/null || echo "")
 
+DESCRIPTION_TEXT="${ITEM_DESCRIPTION:-$EXT_NAME}"
+DESCRIPTION_JSON=$(printf '%s' "$DESCRIPTION_TEXT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+
 ITEM_PAYLOAD="{
     \"release_id\": ${RELEASE_ID},
     \"title\": \"${ZIP_NAME%.zip}\",
     \"alias\": \"${ZIP_NAME%.zip}\",
-    \"description\": \"\",
+    \"description\": ${DESCRIPTION_JSON},
     \"type\": \"link\",
     \"url\": \"${GITHUB_DOWNLOAD_URL}\",
     \"updatestream\": ${ARS_UPDATE_STREAM_ID},
