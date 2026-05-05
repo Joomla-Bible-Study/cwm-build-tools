@@ -144,6 +144,21 @@ if [[ "$NEW_ID" =~ ^[0-9]+$ ]]; then
     echo ""
     echo "Set this in cwm-build.config.json:"
     echo "  \"ars\": { \"updateStreamId\": $NEW_ID, ... }"
+elif echo "$RESPONSE" | grep -q '"code":[[:space:]]*404'; then
+    cat <<'EOF'
+
+Failed: /v1/ars/updatestreams is not registered by plg_webservices_ars
+on this site — every verb on that resource returns 404. Other ARS
+endpoints (/categories, /releases, /items) work fine, so cwm-ars-publish
+is unaffected; only update-stream creation/listing is missing.
+
+Workaround — create the stream in the admin UI:
+  System -> Manage -> Akeeba Release System -> Update Streams -> New
+Then read the new stream ID from the grid (enable the ID column via the
+column picker, or hover the edit link to see it in the URL) and paste
+it into cwm-build.config.json under ars.updateStreamId.
+EOF
+    exit 1
 else
     echo ""
     echo "Failed to create update stream."

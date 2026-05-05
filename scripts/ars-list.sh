@@ -166,7 +166,14 @@ case "$MODE" in
     categories|cats) list_categories ;;
     streams)         list_streams ;;
     releases)        list_releases "${2:-}" ;;
-    all|"")          list_categories; list_streams ;;
+    all|"")
+        list_categories
+        echo ""
+        echo "Update-stream listing is omitted from default mode because"
+        echo "plg_webservices_ars does not register /v1/ars/updatestreams"
+        echo "on most installs. Read stream ids from the admin UI, or run"
+        echo "'cwm-ars-list streams' explicitly to confirm the 404."
+        ;;
     *)
         echo "Unknown mode: $MODE"
         echo "Usage: ars-list.sh [categories|streams|releases <cat-id>]"
