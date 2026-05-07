@@ -26,7 +26,7 @@ Add as a Composer dev dependency:
 
 ```json
 {
-  "require-dev": { "cwm/build-tools": "^1.0" },
+  "require-dev": { "cwm/build-tools": "^0.4@alpha" },
   "scripts": {
     "release":         "vendor/bin/cwm-release",
     "bump-version":    "vendor/bin/cwm-bump",
@@ -65,7 +65,7 @@ Reusable CI:
 # .github/workflows/ci.yml in your project
 jobs:
   ci:
-    uses: Joomla-Bible-Study/cwm-build-tools/.github/workflows/joomla-package-ci.yml@v1
+    uses: Joomla-Bible-Study/cwm-build-tools/.github/workflows/joomla-package-ci.yml@v0.4.0-alpha
     with:
       php-version: '8.3'
       node-version: '24'
@@ -129,7 +129,7 @@ Project-specific rule overrides go in the wrapper, not by forking the base.
 
 ### Independent versioning
 
-`cwm-build-tools` itself uses semver. Projects pin to a major (`^1.0`). Breaking changes get a major bump. Bug fixes and new pipeline steps land as patches/minors and projects pick them up via `composer update`.
+`cwm-build-tools` itself uses semver. While on the alpha line, projects pin to a minor (`^0.4@alpha`); the schema and CLI surface can still shift between minors. Once stable, projects pin to a major (`^1.0`). Bug fixes and new pipeline steps land as patches/minors and projects pick them up via `composer update`.
 
 ## Local dev environment
 
