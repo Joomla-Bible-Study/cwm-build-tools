@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0-alpha] - 2026-05-07
+
 ### Added — dev-environment commands lifted from Proclaim
 
 - `bin/cwm-setup` + `scripts/setup.php` — interactive wizard that captures one or
