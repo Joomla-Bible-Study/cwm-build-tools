@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#
+# cwm-setup — interactive wizard that writes build.properties for the
+# consuming project's local dev environment.
+#
+# Walks the user through one or more Joomla installs, capturing path, URL,
+# default version, DB credentials, and admin credentials. The resulting file
+# is gitignored — it carries secrets and per-developer state.
+#
+# Usage from a consuming project:
+#   composer setup
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/setup.php" "$@"

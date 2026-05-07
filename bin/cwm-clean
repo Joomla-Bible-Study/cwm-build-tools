@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#
+# cwm-clean — remove every dev symlink cwm-link created. Useful when you
+# want a Joomla install back to a clean state for fresh-install testing.
+#
+# Real files / directories at the link paths are left alone — only items
+# that are currently symlinks are removed.
+#
+# Usage from a consuming project:
+#   composer clean
+#   composer clean -- --verbose
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/clean.php" "$@"

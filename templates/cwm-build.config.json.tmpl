@@ -38,5 +38,19 @@
     "announcement": {
         "bulletsDir": "build",
         "command": "bash build/cwm-article.sh"
+    },
+    "dev": {
+        "_comment": "Optional. Drives cwm-link / cwm-link-check / cwm-clean / cwm-verify.",
+        "deriveLinks": true,
+        "internalLinks": [
+            { "source": "yourextension.xml",       "link": "admin/yourextension.xml" },
+            { "source": "yourextension.script.php", "link": "admin/yourextension.script.php" }
+        ],
+        "links": [
+            {
+                "source": "language/admin/en-GB/en-GB.com_yourextension.ini",
+                "target": "{joomlaPath}/administrator/language/en-GB/en-GB.com_yourextension.ini"
+            }
+        ]
     }
 }

@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — dev-environment commands lifted from Proclaim
+
+- `bin/cwm-setup` + `scripts/setup.php` — interactive wizard that captures one or
+  more Joomla install paths, URLs, target versions, DB creds, and admin creds.
+  Writes a per-developer `build.properties` (INI sections) in the consuming repo.
+- `bin/cwm-link` + `scripts/link.php` — symlinks the project tree into every
+  configured Joomla install. Auto-derives the standard set of links from
+  `extension.*` and `manifests.extensions[]` (component admin/site/media,
+  library `lib_X` → `libraries/X` + manifest mirror, `plugins/<group>/<element>`,
+  `modules/[admin]/<name>`); explicit `dev.links[]` and `dev.internalLinks[]`
+  entries are merged in. **All symlinks are created with relative paths** so
+  the dev tree is portable across machines and CI (cwmconnect PR #88/#89 hit
+  the absolute-path footgun directly).
+- `bin/cwm-link-check` — verifies every expected symlink without recreating it.
+  Exits non-zero on drift so CI can gate on a known-good state.
+- `bin/cwm-clean` — removes every dev symlink. Real files / directories at the
+  link paths are left alone — only items that are currently symlinks are touched.
+- `bin/cwm-verify` — confirms each install has every project sub-extension
+  registered in `#__extensions`. Reads each manifest XML to discover
+  type/element/folder/namespace; uses PDO so it does not need to bootstrap
+  Joomla. Pass `--fix` to reconcile drift (UPDATE state, INSERT missing
+  libraries/plugins, run library install SQL). Components are flagged but
+  never auto-inserted — install via the Extension Manager so the rest of the
+  install lifecycle runs.
+- `bin/cwm-joomla-install` — downloads the Joomla full-package release into
+  every configured install path. Per-install version comes from
+  `build.properties`; pass a positional argument to override globally.
+  `--force` wipes the directory first.
+- `bin/cwm-joomla-latest` — prints the latest stable tag from the
+  `joomla/joomla-cms` releases feed.
+- `src/Dev/` — `InstallConfig`, `PropertiesReader`, `LinkResolver`, `Linker`,
+  `ExtensionVerifier`, `JoomlaInstaller`. The bash/PHP scripts are thin
+  wrappers over these classes.
+- `templates/build.properties.tmpl` — copied into a consuming repo as
+  `build.properties.tmpl` (or `build.dist.properties`) and committed; each
+  developer copies it to `build.properties` (gitignored) and edits.
+- `templates/cwm-build.config.json.tmpl` — extended with a `dev:` block
+  documenting `internalLinks[]`, `links[]`, and the `deriveLinks: false`
+  escape hatch for projects with non-standard layouts.
+
+#### Configuration split
+
+Two files now drive the dev surface:
+
+- `cwm-build.config.json` (committed) — what the project IS. Adds an optional
+  `dev:` block describing extra symlinks and repo-internal mirror links.
+  No secrets.
+- `build.properties` (gitignored, INI sections) — where the developer's local
+  Joomla installs live. DB and admin passwords stay out of source control.
+
+The `PropertiesReader` also accepts Proclaim's legacy flat
+`builder.joomla_paths=...` / `builder.j5dev.url=...` layout, so projects
+migrating from Proclaim can drop the new toolchain in without rewriting their
+`build.properties` first.
+
 ### Changed (breaking)
 
 - Removed `ars.changelogUrl` from the config schema. Modern Akeeba ARS (verified against v7.4.x source) has no `changelogurl` field on the `#__ars_updatestreams` table — Joomla's changelog mechanism reads `<changelogurl>` from the **installed extension manifest** instead. The PATCH call in `ars-publish.sh` that previously tried to set this on the update stream was a no-op against modern ARS and has been removed. The URL now lives at `changelog.url` (was `ars.changelogUrl`) and is meant to be referenced by the manifest XML, not pushed to ARS.

@@ -40,7 +40,14 @@
         "bin/cwm-ars-list",
         "bin/cwm-ars-create-stream",
         "bin/cwm-changelog",
-        "bin/cwm-init"
+        "bin/cwm-init",
+        "bin/cwm-setup",
+        "bin/cwm-link",
+        "bin/cwm-link-check",
+        "bin/cwm-clean",
+        "bin/cwm-verify",
+        "bin/cwm-joomla-install",
+        "bin/cwm-joomla-latest"
     ],
     "config": {
         "sort-packages": true,
