@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#
+# cwm-joomla-install — download and extract Joomla into every configured
+# install path. Per-install version comes from build.properties; pass a
+# positional argument to override globally.
+#
+# Usage from a consuming project:
+#   composer joomla-install
+#   composer joomla-install -- 5.4.2
+#   composer joomla-install -- 5.4.2 --force
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/joomla-install.php" "$@"

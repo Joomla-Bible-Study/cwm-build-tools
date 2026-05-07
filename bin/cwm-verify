@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#
+# cwm-verify — confirm each Joomla install has every project sub-extension
+# (libraries, plugins, modules, the component) registered in #__extensions
+# and in the expected enabled/locked state.
+#
+# Connects to each install's DB via the credentials in its configuration.php.
+# Pass --fix to reconcile drift (UPDATE state, INSERT missing libraries /
+# plugins). Components are flagged but never auto-inserted — install them
+# via the Extension Manager so the rest of the lifecycle runs.
+#
+# Usage from a consuming project:
+#   composer verify
+#   composer verify -- --fix
+#   composer verify -- --verbose
+#
+set -euo pipefail
+
+PROJECT_ROOT="$(pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ ! -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
+    echo "Error: cwm-build.config.json not found in $PROJECT_ROOT"
+    exit 1
+fi
+
+exec php "${TOOLS_DIR}/scripts/verify.php" "$@"

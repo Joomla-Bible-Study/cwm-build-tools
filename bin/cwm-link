@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# cwm-link — symlink the project files into every configured Joomla install,
+# so live edits in the repo show up immediately under the Joomla site.
+#
+# Reads cwm-build.config.json (project layout) and build.properties (install
+# paths). Symlinks are created with relative paths so the dev tree remains
+# portable across machines and CI.
+#
+# Usage from a consuming project:
+#   composer link
+#   composer link -- --verbose
+#
+set -euo pipefail
+
+PROJECT_ROOT="$(pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ ! -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
+    echo "Error: cwm-build.config.json not found in $PROJECT_ROOT"
+    exit 1
+fi
+
+exec php "${TOOLS_DIR}/scripts/link.php" "$@"

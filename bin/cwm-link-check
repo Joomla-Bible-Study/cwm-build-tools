@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#
+# cwm-link-check — verify symlinks created by cwm-link are still healthy,
+# without recreating them. Exits non-zero on any drift so CI can gate on it.
+#
+# Usage from a consuming project:
+#   composer link-check
+#   composer link-check -- --verbose
+#
+set -euo pipefail
+
+PROJECT_ROOT="$(pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ ! -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
+    echo "Error: cwm-build.config.json not found in $PROJECT_ROOT"
+    exit 1
+fi
+
+exec php "${TOOLS_DIR}/scripts/link-check.php" "$@"

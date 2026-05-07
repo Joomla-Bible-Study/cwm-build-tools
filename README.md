@@ -10,7 +10,7 @@ Across `Proclaim`, `lib_cwmscripture`, `CWMScriptureLinks`, and `plg_task_cwmscr
 
 | Surface | What | Where |
 |---|---|---|
-| **CLI tools** | `cwm-release`, `cwm-bump`, `cwm-package`, `cwm-sync-configs`, `cwm-sync-languages`, `cwm-ars-publish`, `cwm-changelog`, `cwm-init` | `bin/` |
+| **CLI tools** | `cwm-release`, `cwm-bump`, `cwm-package`, `cwm-sync-configs`, `cwm-sync-languages`, `cwm-ars-publish`, `cwm-changelog`, `cwm-init`, `cwm-setup`, `cwm-link`, `cwm-link-check`, `cwm-clean`, `cwm-verify`, `cwm-joomla-install`, `cwm-joomla-latest` | `bin/` |
 | **Scripts** | Generic 8-step release pipeline, multi-manifest version bumper, config syncer | `scripts/` |
 | **PHP library** | `ProjectConfig`, `ManifestReader`, `PackageBuilder`, `ArsPublisher`, `Bumper` | `src/` (PSR-4 `CWM\BuildTools\`) |
 | **Reusable GH Actions** | `joomla-package-ci.yml`, `joomla-library-ci.yml` (called via `workflow_call`) | `.github/workflows/` |
@@ -28,10 +28,18 @@ Add as a Composer dev dependency:
 {
   "require-dev": { "cwm/build-tools": "^1.0" },
   "scripts": {
-    "release":      "vendor/bin/cwm-release",
-    "bump-version": "vendor/bin/cwm-bump",
-    "package":      "vendor/bin/cwm-package",
-    "sync-configs": "vendor/bin/cwm-sync-configs"
+    "release":         "vendor/bin/cwm-release",
+    "bump-version":    "vendor/bin/cwm-bump",
+    "package":         "vendor/bin/cwm-package",
+    "sync-configs":    "vendor/bin/cwm-sync-configs",
+
+    "setup":           "vendor/bin/cwm-setup",
+    "link":            "vendor/bin/cwm-link",
+    "link-check":      "vendor/bin/cwm-link-check",
+    "clean":           "vendor/bin/cwm-clean",
+    "verify":          "vendor/bin/cwm-verify",
+    "joomla-install":  "vendor/bin/cwm-joomla-install",
+    "joomla-latest":   "vendor/bin/cwm-joomla-latest"
   }
 }
 ```
@@ -123,6 +131,55 @@ Project-specific rule overrides go in the wrapper, not by forking the base.
 
 `cwm-build-tools` itself uses semver. Projects pin to a major (`^1.0`). Breaking changes get a major bump. Bug fixes and new pipeline steps land as patches/minors and projects pick them up via `composer update`.
 
+## Local dev environment
+
+`cwm-setup`, `cwm-link`, `cwm-link-check`, `cwm-clean`, `cwm-verify`,
+`cwm-joomla-install`, and `cwm-joomla-latest` form the **dev-environment**
+surface — separate from the release pipeline. They let a contributor point
+the repo at one or more local Joomla installs (J5, J6, J7, ...), keep the
+extension symlinked into each one, verify the extensions table is in sync,
+and bootstrap fresh Joomla checkouts.
+
+Two files drive this surface:
+
+| File | Committed? | Purpose |
+|---|---|---|
+| `cwm-build.config.json` | yes | What the project IS — extension layout, manifest paths, optional `dev:` block (link rules, repo-internal mirror links). No secrets. |
+| `build.properties` | **no — gitignore it** | Where the developer's local Joomla installs live: paths, URLs, target versions, DB credentials, admin credentials. Per-developer. |
+
+A new contributor's first run looks like:
+
+```bash
+cp vendor/cwm/build-tools/templates/build.properties.tmpl build.properties
+composer setup            # interactive wizard — fills in real values
+composer joomla-install   # optional: download Joomla into each path
+composer link             # symlink the project into each install
+composer verify            # confirm extensions registered, fix drift
+```
+
+Day-to-day:
+
+```bash
+composer link-check        # are my dev symlinks still healthy?
+composer clean             # remove every dev symlink (clean install test)
+composer joomla-latest     # what's the newest Joomla?
+```
+
+Symlinks are derived automatically from the project's
+`manifests.extensions[]` plus the top-level `extension` block — components
+get `admin/` + `site/` + `media/` mirrored, libraries get
+`libraries/<name>` + the manifest stub under
+`administrator/manifests/libraries/`, plugins land at
+`plugins/<group>/<element>`, modules at `modules/[admin]/<name>`. Anything
+that doesn't fit those rules (cross-repo libs, language file overrides,
+submodules) goes in `dev.links[]` explicitly. Fully custom layouts can set
+`dev.deriveLinks: false` and list every link by hand.
+
+**All symlinks are created with relative paths** so the dev tree remains
+portable across machines and CI. (Earlier toolchains baked absolute paths
+in, which broke every machine except the one the symlinks were originally
+created on.)
+
 ## Per-project config: `cwm-build.config.json`
 
 ```json
@@ -150,9 +207,26 @@ Project-specific rule overrides go in the wrapper, not by forking the base.
   "github": {
     "owner": "Joomla-Bible-Study",
     "repo": "CWMScriptureLinks"
+  },
+  "dev": {
+    "deriveLinks": true,
+    "internalLinks": [
+      { "source": "yourextension.xml",        "link": "admin/yourextension.xml" },
+      { "source": "yourextension.script.php", "link": "admin/yourextension.script.php" }
+    ],
+    "links": [
+      {
+        "source": "language/admin/en-GB/en-GB.com_yourextension.ini",
+        "target": "{joomlaPath}/administrator/language/en-GB/en-GB.com_yourextension.ini"
+      }
+    ]
   }
 }
 ```
+
+`dev.*` is consumed by the local-dev commands only — release-pipeline
+commands ignore it. `{joomlaPath}` in `dev.links[].target` is substituted at
+runtime with each install's path from `build.properties`.
 
 See `examples/` for full per-extension-type setups (library, content-plugin, package).
 

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#
+# cwm-joomla-latest — print the latest stable Joomla release tag from the
+# joomla/joomla-cms GitHub releases feed. Pair with cwm-joomla-install to
+# bump a dev install to the newest release.
+#
+# Usage from a consuming project:
+#   composer joomla-latest
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/joomla-latest.php" "$@"
