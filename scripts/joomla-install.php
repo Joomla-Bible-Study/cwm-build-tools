@@ -117,6 +117,13 @@ foreach ($installs as $install) {
     }
 }
 
+/**
+ * Recursively empty a directory in place, leaving the directory itself.
+ * Used by --force to wipe an existing Joomla install path before the
+ * downloaded zip is extracted into it. Symlinks inside are unlinked
+ * (their targets are not followed); errors on individual entries are
+ * suppressed so a partial wipe doesn't abort the full reinstall.
+ */
 function emptyDirectory(string $path): void
 {
     $iterator = new \RecursiveIteratorIterator(

@@ -136,11 +136,33 @@ final class PropertiesReader
         $pathsRaw = (string) ($raw['builder.joomla_paths']
             ?? $raw['builder.joomla_path']
             ?? '');
-        $dir   = trim((string) ($raw['builder.joomla_dir'] ?? ''), '/');
-        $paths = array_values(array_filter(array_map('trim', explode(',', $pathsRaw))));
+        $rawDir = (string) ($raw['builder.joomla_dir'] ?? '');
+        $dir    = trim($rawDir, '/');
+        $paths  = array_values(array_filter(array_map('trim', explode(',', $pathsRaw))));
 
         if ($paths === []) {
             return [];
+        }
+
+        // Issue #2.2: Proclaim's existing build.properties uses
+        // `builder.joomla_dir` as a separate ABSOLUTE path (a Joomla CMS
+        // source clone used for class-signature checks), not as a relative
+        // subpath under each install root. cwm-build-tools treats the same
+        // key as a relative subpath, which is what the property's own
+        // documentation says — but the collision means an existing
+        // /Volumes/.../GitHub/joomla-cms value gets concatenated onto each
+        // install path and produces nonsense like
+        // `/Sites/j5-dev/Volumes/.../GitHub/joomla-cms`. Detect and ignore
+        // absolute values rather than silently break the install paths.
+        if ($dir !== '' && $this->looksAbsolute($rawDir)) {
+            fwrite(
+                \STDERR,
+                "Warning: builder.joomla_dir='{$rawDir}' looks like an absolute path; "
+                . "cwm-build-tools expects a relative subpath under each install root. "
+                . "Ignoring it. (Set to empty, or rename the consumer-side absolute key, "
+                . "to silence this warning.)\n",
+            );
+            $dir = '';
         }
 
         // Discover ids by scanning for `builder.<id>.url` keys.
@@ -200,6 +222,27 @@ final class PropertiesReader
     private function normaliseLegacyId(string $id): string
     {
         return preg_replace('/dev$/', '', $id) ?? $id;
+    }
+
+    /**
+     * True when the value looks like an absolute filesystem path rather
+     * than a relative subpath. Recognises POSIX `/foo`, Windows drive
+     * paths (`C:\…`, `C:/…`), and UNC paths (`\\server\share`).
+     */
+    private function looksAbsolute(string $value): bool
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            return false;
+        }
+
+        if ($value[0] === '/' || $value[0] === '\\') {
+            return true;
+        }
+
+        // C: or C:/ or C:\
+        return (bool) preg_match('~^[A-Za-z]:[\\\\/]?~', $value);
     }
 
     /**

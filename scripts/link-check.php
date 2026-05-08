@@ -102,6 +102,13 @@ echo "{$issues} issue(s) found. Run 'composer link' to recreate.\n";
 
 exit(1);
 
+/**
+ * Print one line per link result and return 1 for any non-OK status, 0
+ * otherwise. The caller sums the return values to produce the script's
+ * exit code so CI can gate on a known-good link state.
+ *
+ * @param  array{link: string, target: string, status: string, message?: string}  $result
+ */
 function reportLink(array $result, bool $verbose): int
 {
     if ($result['status'] === 'ok') {

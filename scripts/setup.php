@@ -191,6 +191,11 @@ echo "  composer joomla-install   # download Joomla into each path (skip if alre
 echo "  composer link             # symlink the project into each install\n";
 echo "  composer verify           # confirm extensions are registered\n";
 
+/**
+ * True when stdin appears to be a TTY. Lets the wizard refuse to run
+ * in non-interactive contexts (CI, piped invocation) instead of silently
+ * blocking on the first prompt.
+ */
 function isInteractive(): bool
 {
     if (\function_exists('stream_isatty')) {
@@ -204,6 +209,11 @@ function isInteractive(): bool
     return true;
 }
 
+/**
+ * Prompt the user and return their trimmed input. Empty input falls back
+ * to $default; a closed stdin (EOF) also returns $default so partial
+ * runs through a here-doc finish gracefully rather than hanging.
+ */
 function ask(string $question, ?string $default = null): ?string
 {
     $prompt = $question . ($default !== null ? " [{$default}]" : '') . ': ';

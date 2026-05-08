@@ -189,6 +189,46 @@ final class PropertiesReaderTest extends TestCase
         self::assertSame('/srv/joomla', $installs[0]->path);
     }
 
+    /**
+     * Regression for issue #2.2: Proclaim's existing build.properties uses
+     * `builder.joomla_dir` to point at a separate absolute CMS source clone.
+     * cwm-build-tools treats the same key as a relative subpath under each
+     * install root, so blindly concatenating produced paths like
+     * `/Sites/j5-dev/Volumes/.../GitHub/joomla-cms` that fail with "Path
+     * does not exist" downstream. We now ignore absolute values (and emit
+     * a stderr warning that is intentionally not asserted on — it's a
+     * UX nicety, the user-visible contract is the corrected install path).
+     */
+    #[Test]
+    public function installs_legacy_flat_ignores_absolute_joomla_dir(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            builder.joomla_paths=/srv/j5
+            builder.joomla_dir=/Volumes/BCCExt_APFS_Extreme_Pro/GitHub/joomla-cms
+            builder.j5dev.url=https://j5.local
+            INI);
+
+        $installs = (new PropertiesReader($path))->installs();
+
+        self::assertCount(1, $installs);
+        self::assertSame('/srv/j5', $installs[0]->path, 'absolute joomla_dir must not be appended');
+    }
+
+    #[Test]
+    public function installs_legacy_flat_accepts_relative_joomla_dir(): void
+    {
+        // Sanity-check: the absolute-value rejection must not also reject
+        // legitimate relative subpaths like the existing 'joomla' fixture.
+        $path = $this->writeProperties(<<<INI
+            builder.joomla_paths=/srv
+            builder.joomla_dir=joomla
+            INI);
+
+        $installs = (new PropertiesReader($path))->installs();
+
+        self::assertSame('/srv/joomla', $installs[0]->path);
+    }
+
     #[Test]
     public function write_then_read_round_trips_an_install(): void
     {

@@ -38,6 +38,28 @@ const TOOLS_DIR = __DIR__ . '/..';
 const CWM_VCS_URL    = 'https://github.com/Joomla-Bible-Study/cwm-build-tools';
 const CWM_CONSTRAINT = '^0.4@alpha';
 
+// Composer scripts cwm-init will offer to wire into the consumer's
+// composer.json. Names that already exist are skipped — the user is told
+// which ones were added vs skipped so deliberate migrations (e.g. replacing
+// `setup` that points at build/proclaim_build.php) can be done by hand.
+const CWM_COMPOSER_SCRIPTS = [
+    'setup'          => 'vendor/bin/cwm-setup',
+    'link'           => 'vendor/bin/cwm-link',
+    'link-check'     => 'vendor/bin/cwm-link-check',
+    'clean'          => 'vendor/bin/cwm-clean',
+    'verify'         => 'vendor/bin/cwm-verify',
+    'joomla-install' => 'vendor/bin/cwm-joomla-install',
+    'joomla-latest'  => 'vendor/bin/cwm-joomla-latest',
+    'package'        => 'vendor/bin/cwm-package',
+    'bump-version'   => 'vendor/bin/cwm-bump',
+    'release'        => 'vendor/bin/cwm-release',
+    'changelog'      => 'vendor/bin/cwm-changelog',
+    'ars-publish'    => 'vendor/bin/cwm-ars-publish',
+    'ars-list'       => 'vendor/bin/cwm-ars-list',
+    'sync-configs'   => 'vendor/bin/cwm-sync-configs',
+    'sync-languages' => 'vendor/bin/cwm-sync-languages',
+];
+
 if (in_array('--help', $argv, true) || in_array('-h', $argv, true)) {
     echo <<<HELP
 cwm-init — scaffold cwm-build.config.json for a new consumer of cwm-build-tools.
@@ -125,47 +147,106 @@ if (!$composer['exists']) {
     echo "WARNING: no composer.json found in {$projectRoot}.\n";
     echo "         cwm-build-tools assumes a Composer-managed project. Continuing,\n";
     echo "         but you'll want to add a composer.json before publishing.\n\n";
-} elseif (!$composer['inRequireDev'] || !$composer['hasVcsRepo']) {
-    echo "Composer dependency check:\n";
+} else {
+    // Preview every change we'd make in one place so the consumer sees the full
+    // diff in advance and can accept or skip with a single Y/n.
+    $existingScripts  = $composer['data']['scripts'] ?? [];
+    $scriptsAdded     = [];
+    $scriptsSkipped   = [];
 
-    if ($composer['inRequireDev']) {
-        echo "  - require-dev:  cwm/build-tools = {$composer['currentConstraint']} (already declared)\n";
-    } else {
-        echo "  - require-dev:  cwm/build-tools is NOT declared\n";
-    }
-
-    echo $composer['hasVcsRepo']
-        ? "  - repositories: VCS entry for cwm-build-tools is present\n"
-        : "  - repositories: no VCS entry for cwm-build-tools (needed until packagist publishing)\n";
-
-    echo "\nProposed changes to composer.json:\n";
-
-    if (!$composer['inRequireDev']) {
-        echo "  + require-dev: \"cwm/build-tools\": \"" . CWM_CONSTRAINT . "\"\n";
-    }
-
-    if (!$composer['hasVcsRepo']) {
-        echo "  + repositories[] entry: { type: vcs, url: " . CWM_VCS_URL . " }\n";
-    }
-
-    $apply = $nonInteractive ? true : ask('Apply these changes to composer.json? (Y/n)', 'Y');
-
-    if ($nonInteractive || (is_string($apply) && strtolower(trim($apply))[0] !== 'n')) {
-        try {
-            updateComposerJson(
-                $composer['path'],
-                $composer['data'],
-                CWM_CONSTRAINT,
-                CWM_VCS_URL,
-            );
-            echo "  composer.json updated.\n";
-            echo "  Run 'composer update cwm/build-tools' to refresh the lockfile.\n\n";
-        } catch (\Throwable $e) {
-            fwrite(STDERR, "  Failed to update composer.json: " . $e->getMessage() . "\n\n");
+    foreach (CWM_COMPOSER_SCRIPTS as $scriptName => $scriptCmd) {
+        if (isset($existingScripts[$scriptName])) {
+            $scriptsSkipped[] = $scriptName;
+        } else {
+            $scriptsAdded[] = $scriptName;
         }
-    } else {
-        echo "  Skipped composer.json update — add the entries by hand.\n\n";
     }
+
+    $needsRequireDev = !$composer['inRequireDev'];
+    $needsVcsRepo    = !$composer['hasVcsRepo'];
+    $needsScripts    = $scriptsAdded !== [];
+
+    if ($needsRequireDev || $needsVcsRepo || $needsScripts) {
+        echo "Composer integration check:\n";
+
+        echo $composer['inRequireDev']
+            ? "  - require-dev:  cwm/build-tools = {$composer['currentConstraint']} (already declared)\n"
+            : "  - require-dev:  cwm/build-tools is NOT declared\n";
+
+        echo $composer['hasVcsRepo']
+            ? "  - repositories: VCS entry for cwm-build-tools is present\n"
+            : "  - repositories: no VCS entry for cwm-build-tools (needed until packagist publishing)\n";
+
+        if ($scriptsAdded !== []) {
+            echo "  - scripts:      " . count($scriptsAdded) . " missing, " . count($scriptsSkipped) . " already defined\n";
+        }
+
+        echo "\nProposed changes to composer.json:\n";
+
+        if ($needsRequireDev) {
+            echo "  + require-dev:  \"cwm/build-tools\": \"" . CWM_CONSTRAINT . "\"\n";
+        }
+
+        if ($needsVcsRepo) {
+            echo "  + repositories: { type: vcs, url: " . CWM_VCS_URL . " }\n";
+        }
+
+        if ($scriptsAdded !== []) {
+            echo "  + scripts (new):       " . implode(', ', $scriptsAdded) . "\n";
+        }
+
+        if ($scriptsSkipped !== []) {
+            echo "  ~ scripts (kept asis): " . implode(', ', $scriptsSkipped) . "\n";
+            echo "    (left in place — review whether each should still point at the existing target\n";
+            echo "     or be re-pointed at the matching vendor/bin/cwm-* binary by hand.)\n";
+        }
+
+        $apply = $nonInteractive ? 'Y' : ask('Apply these changes to composer.json? (Y/n)', 'Y');
+
+        if ($nonInteractive || (is_string($apply) && strtolower(trim($apply))[0] !== 'n')) {
+            try {
+                $report = updateComposerJson(
+                    $composer['path'],
+                    $composer['data'],
+                    CWM_CONSTRAINT,
+                    CWM_VCS_URL,
+                    CWM_COMPOSER_SCRIPTS,
+                );
+
+                echo "  composer.json updated.\n";
+
+                if ($report['require-dev'] || $report['repo']) {
+                    echo "  Run 'composer update cwm/build-tools' to refresh the lockfile.\n";
+                }
+
+                echo "\n";
+            } catch (\Throwable $e) {
+                fwrite(STDERR, "  Failed to update composer.json: " . $e->getMessage() . "\n\n");
+            }
+        } else {
+            echo "  Skipped composer.json update — add the entries by hand.\n\n";
+        }
+    }
+}
+
+// ---------------------------------------------------------------
+// 0b. package.json migration hints (issue #4.5)
+// ---------------------------------------------------------------
+// SOURCE_DIR / OUTPUT_DIR are too project-specific to auto-rewrite — the
+// safe path is to surface the recommended shape so the consumer can copy-
+// paste while reviewing the actual paths that match their own source layout.
+$packageJsonHints = collectPackageJsonHints($projectRoot);
+
+if ($packageJsonHints !== []) {
+    echo "package.json migration suggestions (do these by hand — paths are project-specific):\n";
+
+    foreach ($packageJsonHints as $name => $hint) {
+        echo "\n  {$name}:\n";
+        echo "    current:    {$hint['current']}\n";
+        echo "    suggested:  {$hint['suggested']}\n";
+    }
+
+    echo "\n";
 }
 
 // ---------------------------------------------------------------
@@ -349,6 +430,19 @@ if ($detected['announcementCommand'] !== null) {
     ];
 }
 
+if ($detected['vendors'] !== []) {
+    $config['vendors'] = $detected['vendors'];
+}
+
+if ($detected['mediaPaths'] !== []) {
+    // Seed gitignore.mediaPaths[] from what's actually on disk so
+    // sync-configs writes the right ignore rules. Without this, projects
+    // with non-default media layouts (e.g. Proclaim's mix of
+    // /media/com_proclaim/, /media/lib_cwmscripture/, /media/proclaim/)
+    // got a single /media/<stripped>/... block that didn't match reality.
+    $config['gitignore'] = ['mediaPaths' => $detected['mediaPaths']];
+}
+
 $config['dev'] = ['deriveLinks' => true];
 
 // ---------------------------------------------------------------
@@ -401,6 +495,40 @@ if ($syncScript === false || !is_file($syncScript)) {
 }
 
 // ---------------------------------------------------------------
+// 5b. Stale runtime artifacts — leftovers from tools cwm-build-tools now
+//     provides. Detected at scan time but offered for cleanup AFTER
+//     sync-configs runs, so the user has reviewed all other changes first.
+// ---------------------------------------------------------------
+
+if ($detected['staleArtifacts'] !== []) {
+    echo "\nStale artifacts found (now provided by cwm-build-tools):\n";
+
+    foreach ($detected['staleArtifacts'] as $relative) {
+        echo "  - {$relative}\n";
+    }
+
+    $remove = $nonInteractive
+        ? 'N'
+        : ask('Remove these? (y/N)', 'N');
+
+    if (is_string($remove) && strtolower(trim($remove))[0] === 'y') {
+        foreach ($detected['staleArtifacts'] as $relative) {
+            $absolute = $projectRoot . '/' . $relative;
+
+            if (is_dir($absolute) && !is_link($absolute)) {
+                removeDirectory($absolute);
+                echo "  removed: {$relative}/\n";
+            } elseif (file_exists($absolute) || is_link($absolute)) {
+                @unlink($absolute);
+                echo "  removed: {$relative}\n";
+            }
+        }
+    } else {
+        echo "  Skipped — review manually before deleting.\n";
+    }
+}
+
+// ---------------------------------------------------------------
 // 6. Next-steps banner
 // ---------------------------------------------------------------
 
@@ -429,6 +557,9 @@ exit(0);
  *     changelogFile: ?string,
  *     versionsFile: ?string,
  *     announcementCommand: ?string,
+ *     vendors: list<array{npm: string, label: string, notes: string}>,
+ *     mediaPaths: list<string>,
+ *     staleArtifacts: list<string>,
  * }
  */
 function detectLayout(string $projectRoot): array
@@ -445,9 +576,106 @@ function detectLayout(string $projectRoot): array
         'changelogFile'       => detectChangelogFile($projectRoot),
         'versionsFile'        => is_file($projectRoot . '/build/versions.json') ? 'build/versions.json' : null,
         'announcementCommand' => detectAnnouncementCommand($projectRoot),
+        'vendors'             => detectVendors($projectRoot),
+        'mediaPaths'          => detectMediaPaths($projectRoot),
+        'staleArtifacts'      => detectStaleArtifacts($projectRoot),
     ];
 }
 
+/**
+ * Walk <project>/media/<x>/(js|css)/ to find the directories that already
+ * receive built JS/CSS. cwm-sync-configs uses this to seed
+ * gitignore.mediaPaths[] so projects with multiple sub-extensions (Proclaim's
+ * `/media/com_proclaim/`, `/media/lib_cwmscripture/`, `/media/proclaim/`)
+ * get the right ignore rules instead of a single `/media/<stripped>/`.
+ *
+ * @return list<string>
+ */
+function detectMediaPaths(string $projectRoot): array
+{
+    $root = $projectRoot . '/media';
+
+    if (!is_dir($root)) {
+        return [];
+    }
+
+    $paths = [];
+
+    foreach (new \FilesystemIterator($root, \FilesystemIterator::SKIP_DOTS) as $entry) {
+        if (!$entry->isDir() || $entry->isLink()) {
+            continue;
+        }
+
+        $base = '/media/' . $entry->getFilename();
+
+        if (is_dir($entry->getPathname() . '/js')) {
+            $paths[] = "{$base}/js/*.min.js";
+            $paths[] = "{$base}/js/*.min.js.map";
+        }
+
+        if (is_dir($entry->getPathname() . '/css')) {
+            $paths[] = "{$base}/css/*.min.css";
+            $paths[] = "{$base}/css/*.min.css.map";
+        }
+    }
+
+    sort($paths);
+
+    return $paths;
+}
+
+/**
+ * Detect orphaned files left behind by tools cwm-build-tools now provides:
+ *   - build/__pycache__/ from a project-local sync_languages.py
+ *   - build/.source_cache.json / build/.translation_cache.json (old cache
+ *     locations before issue #4.8)
+ *   - build/sync_languages.py / build/generate-changelog-entry.sh /
+ *     build/release.sh / build/bump.php / build/build-css.js / build/rollup.config.js /
+ *     build/eslint.config.mjs / build/check-vendor-versions.js / build/update-vendors.js
+ *     when the consumer migrated their composer scripts to vendor/bin/cwm-*
+ *     but forgot to delete the project-local copies.
+ *
+ * @return list<string>
+ */
+function detectStaleArtifacts(string $projectRoot): array
+{
+    $candidates = [
+        'build/__pycache__',
+        'build/.source_cache.json',
+        'build/.translation_cache.json',
+        // Migration leftovers — only flagged here; the consumer confirms before
+        // we remove anything. Each maps to a vendor/bin/cwm-* equivalent.
+        'build/sync_languages.py',
+        'build/generate-changelog-entry.sh',
+        'build/release.sh',
+        'build/bump.php',
+        'build/build-css.js',
+        'build/rollup.config.js',
+        'build/eslint.config.mjs',
+        'build/check-vendor-versions.js',
+        'build/update-vendors.js',
+        'build/ars-release.sh',
+    ];
+
+    $found = [];
+
+    foreach ($candidates as $relative) {
+        $path = $projectRoot . '/' . $relative;
+
+        if (file_exists($path)) {
+            $found[] = $relative;
+        }
+    }
+
+    return $found;
+}
+
+/**
+ * Locate the package wrapper manifest, if any. Walks the conventional
+ * paths (`build/pkg_*.xml`, root `pkg_*.xml`, `build/*-package.xml`) and
+ * returns the FIRST file whose root <extension type="..."> attribute is
+ * "package". Returns the path relative to the project root.
+ */
 function detectPackageManifest(string $projectRoot): ?string
 {
     foreach (['build/pkg_*.xml', 'pkg_*.xml', 'build/*-package.xml'] as $pattern) {
@@ -570,6 +798,11 @@ function detectTopLevel(string $projectRoot): ?array
     return null;
 }
 
+/**
+ * Read the `type=` attribute on the root <extension> element of a Joomla
+ * manifest XML. Returns an empty string if the file is not a parseable
+ * manifest, so callers can use loose equality to filter by expected type.
+ */
 function manifestType(string $path): string
 {
     if (!is_file($path)) {
@@ -592,6 +825,11 @@ function manifestType(string $path): string
     return (string) ($xml['type'] ?? '');
 }
 
+/**
+ * Read a top-level child element from a Joomla extension manifest, e.g.
+ * <name>, <version>, <packagename>. Returns an empty string when the
+ * field is absent or the file is unparseable.
+ */
 function readManifestField(string $path, string $field): string
 {
     if (!is_file($path)) {
@@ -714,6 +952,11 @@ function listOriginBranches(string $projectRoot): array
     return array_keys($branches);
 }
 
+/**
+ * Resolve the symbolic ref at .git/refs/remotes/origin/HEAD to a branch
+ * name. This is the branch GitHub considers "default" for the repo. Used
+ * as a last-resort hint when neither main nor master is present locally.
+ */
 function readOriginHeadDefault(string $projectRoot): ?string
 {
     $headRef = $projectRoot . '/.git/refs/remotes/origin/HEAD';
@@ -756,6 +999,11 @@ function detectBuild(string $projectRoot): array
     return ['command' => null, 'outputDir' => null];
 }
 
+/**
+ * Find the project's existing Joomla changelog XML, if any. Looks under
+ * build/ for `*-changelog.xml` and returns the first match relative to
+ * the project root.
+ */
 function detectChangelogFile(string $projectRoot): ?string
 {
     foreach (glob($projectRoot . '/build/*-changelog.xml') ?: [] as $match) {
@@ -765,6 +1013,11 @@ function detectChangelogFile(string $projectRoot): ?string
     return null;
 }
 
+/**
+ * Detect a project's release-announcement script (e.g. Proclaim's
+ * build/cwm-article.sh). When present, release.sh step 8 invokes it with
+ * the version and the bullets file.
+ */
 function detectAnnouncementCommand(string $projectRoot): ?string
 {
     foreach (['build/cwm-article.sh'] as $candidate) {
@@ -774,6 +1027,110 @@ function detectAnnouncementCommand(string $projectRoot): ?string
     }
 
     return null;
+}
+
+/**
+ * Look for an existing vendor list in build/check-vendor-versions.js and
+ * extract the npm package names. Falls back to package.json `dependencies`
+ * (NOT devDependencies — those are tooling, not bundled vendor libraries).
+ *
+ * @return list<array{npm: string, label: string, notes: string}>
+ */
+function detectVendors(string $projectRoot): array
+{
+    foreach (['build/check-vendor-versions.js', 'build/update-vendors.js'] as $relative) {
+        $path = $projectRoot . '/' . $relative;
+
+        if (!is_file($path)) {
+            continue;
+        }
+
+        $vendors = parseVendorListFromJs((string) file_get_contents($path));
+
+        if ($vendors !== []) {
+            return $vendors;
+        }
+    }
+
+    $packageJson = $projectRoot . '/package.json';
+
+    if (!is_file($packageJson)) {
+        return [];
+    }
+
+    $data = json_decode((string) file_get_contents($packageJson), true);
+
+    if (!is_array($data) || !is_array($data['dependencies'] ?? null)) {
+        return [];
+    }
+
+    // package.json dependencies[] are bundled npm libraries by convention
+    // (devDependencies are tooling like rollup/eslint and don't ship to
+    // /media/vendor). Treat each as a vendor candidate; the consumer can
+    // trim the list afterward by editing cwm-build.config.json.
+    $out = [];
+
+    foreach (array_keys($data['dependencies']) as $pkg) {
+        $out[] = [
+            'npm'   => (string) $pkg,
+            'label' => normaliseVendorLabel((string) $pkg),
+            'notes' => '',
+        ];
+    }
+
+    return $out;
+}
+
+/**
+ * Pull npm package names out of older check-vendor-versions.js shapes:
+ *   const VENDOR_PACKAGES = [{npm: "chart.js", ...}, ...];
+ *   const vendors = ["chart.js", "@fancyapps/ui", ...];
+ *   require('npm/foo')   // ignored — not a vendor declaration
+ *
+ * Robust enough for the shapes Proclaim and CWMScripture used; the user can
+ * always override the result during the wizard.
+ *
+ * @return list<array{npm: string, label: string, notes: string}>
+ */
+function parseVendorListFromJs(string $source): array
+{
+    $vendors = [];
+
+    if (preg_match_all('/\bnpm\s*:\s*[\'"]([^\'"]+)[\'"]/', $source, $m)) {
+        foreach ($m[1] as $npm) {
+            $vendors[$npm] = ['npm' => $npm, 'label' => normaliseVendorLabel($npm), 'notes' => ''];
+        }
+    }
+
+    if ($vendors === []
+        && preg_match('/\b(?:VENDOR_PACKAGES|VENDOR_LIST|vendors)\s*=\s*\[(.*?)\]/s', $source, $arr)
+    ) {
+        if (preg_match_all('/[\'"]([^\'"]+)[\'"]/', $arr[1], $m)) {
+            foreach ($m[1] as $npm) {
+                $vendors[$npm] = ['npm' => $npm, 'label' => normaliseVendorLabel($npm), 'notes' => ''];
+            }
+        }
+    }
+
+    return array_values($vendors);
+}
+
+/**
+ * Convert an npm package name into a display label. Drops the scope on
+ * scoped packages (`@vendor/name` → `name`) — most CWM consumers prefer
+ * the bare leaf in the public-facing label and keep the scope only in
+ * the npm install command.
+ */
+function normaliseVendorLabel(string $npm): string
+{
+    // Scoped packages (@vendor/name) → the user-visible name is usually the
+    // tail. The existing Proclaim labels follow this rule (@fancyapps/ui →
+    // "fancybox" was a hand-edit, but tail-as-label is the right default).
+    if ($npm !== '' && $npm[0] === '@' && str_contains($npm, '/')) {
+        return substr($npm, strpos($npm, '/') + 1);
+    }
+
+    return $npm;
 }
 
 /**
@@ -821,15 +1178,34 @@ function readComposerStatus(string $projectRoot): array
 }
 
 /**
- * Idempotent: re-running won't duplicate the require-dev entry or the
- * repositories[] VCS entry. Preserves any other keys / their order.
+ * Idempotent: re-running won't duplicate the require-dev entry, the
+ * repositories[] VCS entry, or any of the scripts. Preserves all other
+ * keys and their relative order.
  *
- * @param  array<string, mixed>  $data
+ * @param  array<string, mixed>   $data
+ * @param  array<string, string>  $scripts  Composer scripts to add. Names
+ *                                          that already exist in the
+ *                                          consumer composer.json are
+ *                                          skipped (and reported back via
+ *                                          the return value's
+ *                                          'scripts-skipped' list).
+ *
+ * @return array{require-dev: bool, repo: bool, scripts-added: list<string>, scripts-skipped: list<string>}
  */
-function updateComposerJson(string $path, array $data, string $constraint, string $vcsUrl): void
+function updateComposerJson(string $path, array $data, string $constraint, string $vcsUrl, array $scripts = []): array
 {
-    $data['require-dev']                    ??= [];
-    $data['require-dev']['cwm/build-tools']   = $constraint;
+    $report = [
+        'require-dev'    => false,
+        'repo'           => false,
+        'scripts-added'  => [],
+        'scripts-skipped'=> [],
+    ];
+
+    if (!isset($data['require-dev']['cwm/build-tools'])) {
+        $data['require-dev']                    ??= [];
+        $data['require-dev']['cwm/build-tools']   = $constraint;
+        $report['require-dev']                    = true;
+    }
 
     $hasRepo = false;
 
@@ -847,6 +1223,22 @@ function updateComposerJson(string $path, array $data, string $constraint, strin
     if (!$hasRepo) {
         $data['repositories']   ??= [];
         $data['repositories'][]   = ['type' => 'vcs', 'url' => $vcsUrl];
+        $report['repo']           = true;
+    }
+
+    if ($scripts !== []) {
+        $data['scripts'] ??= [];
+
+        foreach ($scripts as $name => $cmd) {
+            if (isset($data['scripts'][$name])) {
+                $report['scripts-skipped'][] = $name;
+
+                continue;
+            }
+
+            $data['scripts'][$name] = $cmd;
+            $report['scripts-added'][] = $name;
+        }
     }
 
     $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -858,8 +1250,191 @@ function updateComposerJson(string $path, array $data, string $constraint, strin
     if (file_put_contents($path, $json . "\n") === false) {
         throw new \RuntimeException("Failed to write {$path}");
     }
+
+    return $report;
 }
 
+/**
+ * Inspect the consumer's package.json scripts for build:js / build:css /
+ * watch entries that still point at locally-shipped copies of the templates
+ * cwm-build-tools now provides. For each match, emit a suggested replacement
+ * that invokes the shared template via the consumer's vendor-dir.
+ *
+ * Path arguments in the existing command are preserved verbatim into the
+ * SOURCE_DIR / OUTPUT_DIR env vars where we can extract them — that's
+ * usually the simplest mechanical rewrite. When we can't extract them, we
+ * leave placeholders so the consumer fills them in.
+ *
+ * @return array<string, array{current: string, suggested: string}>
+ */
+function collectPackageJsonHints(string $projectRoot): array
+{
+    $path = $projectRoot . '/package.json';
+
+    if (!is_file($path)) {
+        return [];
+    }
+
+    $data = json_decode((string) file_get_contents($path), true);
+
+    if (!is_array($data) || !is_array($data['scripts'] ?? null)) {
+        return [];
+    }
+
+    $vendorDir = vendorDirFromComposerJson($projectRoot);
+    $hints     = [];
+
+    foreach ($data['scripts'] as $name => $cmd) {
+        $cmd = (string) $cmd;
+
+        if (!is_string($name) || $cmd === '') {
+            continue;
+        }
+
+        // Already migrated — script invokes the cwm-build-tools template.
+        if (str_contains($cmd, 'cwm/build-tools/templates/')) {
+            continue;
+        }
+
+        // Legacy build/rollup.config.js → vendor template.
+        if (str_contains($cmd, 'build/rollup.config.js') || str_contains($cmd, 'rollup.config.js')) {
+            [$source, $output] = extractSourceOutput($cmd);
+            $hints[$name] = [
+                'current'   => $cmd,
+                'suggested' => buildRollupCommand($vendorDir, $source, $output, str_contains($cmd, '-w') || $name === 'watch'),
+            ];
+
+            continue;
+        }
+
+        // Legacy build/build-css.js → vendor template.
+        if (str_contains($cmd, 'build/build-css.js') || str_contains($cmd, 'build-css.js')) {
+            [$source, $output] = extractSourceOutput($cmd);
+            $hints[$name] = [
+                'current'   => $cmd,
+                'suggested' => buildCssCommand($vendorDir, $source, $output),
+            ];
+
+            continue;
+        }
+    }
+
+    return $hints;
+}
+
+/**
+ * @return array{0: string, 1: string} {source, output}
+ */
+function extractSourceOutput(string $cmd): array
+{
+    // Existing scripts often pass two positional path-like args after the
+    // tool name. Pick the first two unquoted tokens that look like paths.
+    $tokens = preg_split('/\s+/', $cmd) ?: [];
+    $paths  = [];
+
+    foreach ($tokens as $tok) {
+        if ($tok === '' || $tok[0] === '-') {
+            continue;
+        }
+
+        // path-ish: contains a slash or is a known path-like word
+        if (str_contains($tok, '/') && !str_contains($tok, '=')) {
+            $paths[] = $tok;
+        }
+    }
+
+    // Skip the first path if it's the script being invoked (e.g. build/build-css.js).
+    if ($paths !== [] && (str_ends_with($paths[0], '.js') || str_ends_with($paths[0], '.mjs'))) {
+        array_shift($paths);
+    }
+
+    return [$paths[0] ?? '<SOURCE_DIR>', $paths[1] ?? '<OUTPUT_DIR>'];
+}
+
+/**
+ * Format a package.json command that runs the shared rollup template via
+ * the consumer's vendor-dir, preserving SOURCE_DIR/OUTPUT_DIR as env vars
+ * so the template knows where to read from and write to.
+ */
+function buildRollupCommand(string $vendorDir, string $source, string $output, bool $watch): string
+{
+    $template = "{$vendorDir}/cwm/build-tools/templates/rollup.config.js";
+    $watchArg = $watch ? ' -w' : '';
+
+    return "SOURCE_DIR={$source} OUTPUT_DIR={$output} rollup -c {$template}{$watchArg}";
+}
+
+/**
+ * Format a package.json command that runs the shared build-css template
+ * via the consumer's vendor-dir, with SOURCE_DIR/OUTPUT_DIR env vars
+ * pointing at the project's CSS source and built-output directories.
+ */
+function buildCssCommand(string $vendorDir, string $source, string $output): string
+{
+    $template = "{$vendorDir}/cwm/build-tools/templates/build-css.js";
+
+    return "SOURCE_DIR={$source} OUTPUT_DIR={$output} node {$template}";
+}
+
+/**
+ * Resolve the consumer's Composer vendor-dir setting from composer.json's
+ * `config.vendor-dir`. Defaults to "vendor" when the key is absent or the
+ * file is missing — that matches Composer's own default. Used to keep
+ * generated package.json / eslint paths aligned with where Composer
+ * actually installs cwm/build-tools.
+ */
+function vendorDirFromComposerJson(string $projectRoot): string
+{
+    $path = $projectRoot . '/composer.json';
+
+    if (!is_file($path)) {
+        return 'vendor';
+    }
+
+    $data = json_decode((string) file_get_contents($path), true);
+
+    if (!is_array($data)) {
+        return 'vendor';
+    }
+
+    $dir = trim((string) ($data['config']['vendor-dir'] ?? 'vendor'), '/');
+
+    return $dir !== '' ? $dir : 'vendor';
+}
+
+/**
+ * Recursively remove a directory and its contents. Symlinked directories
+ * are NOT recursed into; the link itself is unlinked, leaving its target
+ * untouched. Errors during individual file removals are suppressed (the
+ * caller is the stale-artifact cleanup, where partial progress is fine).
+ */
+function removeDirectory(string $path): void
+{
+    if (!is_dir($path) || is_link($path)) {
+        return;
+    }
+
+    $iterator = new \RecursiveIteratorIterator(
+        new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
+        \RecursiveIteratorIterator::CHILD_FIRST,
+    );
+
+    foreach ($iterator as $entry) {
+        if ($entry->isDir() && !$entry->isLink()) {
+            @rmdir($entry->getPathname());
+        } else {
+            @unlink($entry->getPathname());
+        }
+    }
+
+    @rmdir($path);
+}
+
+/**
+ * True when stdin appears to be a TTY. Used to bail out of the wizard
+ * cleanly when the script is invoked from CI or a piped command rather
+ * than silently hanging on the first prompt.
+ */
 function isInteractive(): bool
 {
     if (\function_exists('stream_isatty')) {
@@ -873,6 +1448,11 @@ function isInteractive(): bool
     return true;
 }
 
+/**
+ * Prompt the user with a question and an optional pre-filled default.
+ * Pressing Enter on an empty answer accepts $default. Returns the
+ * trimmed user input (or $default when stdin is closed mid-read).
+ */
 function ask(string $question, string $default = ''): string
 {
     $prompt = $question . ($default !== '' ? " [{$default}]" : '') . ': ';
