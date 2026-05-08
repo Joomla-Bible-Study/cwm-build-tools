@@ -1,0 +1,22 @@
+# Ensure consistent line endings across platforms
+* text=auto eol=lf
+
+# Files in this section are EXCLUDED from `git archive` output, which means
+# they are NOT shipped in the Composer dist zip (the thing that ends up in
+# every consuming project's `vendor/cwm/build-tools/` directory).
+#
+# We exclude development-only files: tests, CI configs, IDE config, dev
+# tooling configs. Consumers only need bin/, scripts/, src/, templates/,
+# examples/, the manifests, and the docs.
+
+/.gitattributes        export-ignore
+/.gitignore            export-ignore
+/.github               export-ignore
+/.idea                 export-ignore
+/.php-cs-fixer.cache   export-ignore
+/.phpunit.cache        export-ignore
+/.phpunit.result.cache export-ignore
+/phpunit.xml           export-ignore
+/phpunit.xml.dist      export-ignore
+/tests                 export-ignore
+/workflows             export-ignore

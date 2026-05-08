@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension type="component" method="upgrade">
+    <name>com_example</name>
+    <version>1.2.3</version>
+    <creationDate>2026-01-01</creationDate>
+    <author>CWM</author>
+    <description>COM_EXAMPLE_DESCRIPTION</description>
+    <files>
+        <filename>example.xml</filename>
+    </files>
+</extension>
