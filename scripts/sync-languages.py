@@ -219,11 +219,37 @@ def get_api_key():
 GOOGLE_API_KEY = ''
 API_KEY_SOURCE = None
 
-# Translation cache file (to avoid re-translating the same strings)
-TRANSLATION_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.translation_cache.json')
+# Cache files are resolved at runtime against the consuming project's root,
+# not the install directory. When this script ships as a Composer dependency
+# under libraries/vendor/cwm/build-tools/scripts/, that directory is wiped
+# every time anyone runs `composer install`, which would silently blow away
+# the translation cache and force a full re-translation (and the API cost
+# that comes with it).
+#
+# The project root is captured in main() (see _PROJECT_ROOT below) and the
+# helpers below derive both cache paths from it. We write into
+# <project_root>/build/.cwm-cache/ so the caches sit alongside other build
+# artifacts and stay outside `vendor/` entirely.
+_PROJECT_ROOT = None
 
-# Source values cache file (to detect when source values change)
-SOURCE_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.source_cache.json')
+def _cache_dir():
+    """Return the project-root-relative cache directory, creating it on first use."""
+    if _PROJECT_ROOT is None:
+        # Fallback for callers that import the module without running main().
+        # Shouldn't happen in normal use but keeps stand-alone helpers working.
+        return os.path.join(os.getcwd(), 'build', '.cwm-cache')
+    cache_dir = os.path.join(_PROJECT_ROOT, 'build', '.cwm-cache')
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+    except OSError as e:
+        print(f"  Warning: Could not create cache dir {cache_dir}: {e}")
+    return cache_dir
+
+def _translation_cache_path():
+    return os.path.join(_cache_dir(), 'translations.json')
+
+def _source_cache_path():
+    return os.path.join(_cache_dir(), 'sources.json')
 
 # Map Joomla language codes to Google Translate language codes
 LANG_CODE_MAP = {
@@ -278,9 +304,10 @@ _source_cache = {}
 def load_source_cache():
     """Load the source values cache from disk."""
     global _source_cache
-    if os.path.exists(SOURCE_CACHE_FILE):
+    cache_file = _source_cache_path()
+    if os.path.exists(cache_file):
         try:
-            with open(SOURCE_CACHE_FILE, 'r', encoding='utf-8') as f:
+            with open(cache_file, 'r', encoding='utf-8') as f:
                 _source_cache = json.load(f)
         except (json.JSONDecodeError, IOError):
             _source_cache = {}
@@ -289,7 +316,7 @@ def load_source_cache():
 def save_source_cache():
     """Save the source values cache to disk."""
     try:
-        with open(SOURCE_CACHE_FILE, 'w', encoding='utf-8') as f:
+        with open(_source_cache_path(), 'w', encoding='utf-8') as f:
             json.dump(_source_cache, f, ensure_ascii=False, indent=2)
     except IOError as e:
         print(f"  Warning: Could not save source cache: {e}")
@@ -321,9 +348,10 @@ _translation_cache = {}
 def load_translation_cache():
     """Load the translation cache from disk."""
     global _translation_cache
-    if os.path.exists(TRANSLATION_CACHE_FILE):
+    cache_file = _translation_cache_path()
+    if os.path.exists(cache_file):
         try:
-            with open(TRANSLATION_CACHE_FILE, 'r', encoding='utf-8') as f:
+            with open(cache_file, 'r', encoding='utf-8') as f:
                 _translation_cache = json.load(f)
         except (json.JSONDecodeError, IOError):
             _translation_cache = {}
@@ -332,7 +360,7 @@ def load_translation_cache():
 def save_translation_cache():
     """Save the translation cache to disk."""
     try:
-        with open(TRANSLATION_CACHE_FILE, 'w', encoding='utf-8') as f:
+        with open(_translation_cache_path(), 'w', encoding='utf-8') as f:
             json.dump(_translation_cache, f, ensure_ascii=False, indent=2)
     except IOError as e:
         print(f"  Warning: Could not save translation cache: {e}")
@@ -995,6 +1023,10 @@ if __name__ == "__main__":
             project_root = os.path.abspath(_a.split('=', 1)[1])
             del sys.argv[_i]
             break
+
+    # Publish the resolved project root so the cache helpers can resolve
+    # <project_root>/build/.cwm-cache/ for translations/sources.
+    _PROJECT_ROOT = project_root
 
     # Check for setup command
     if len(sys.argv) > 1 and sys.argv[1] == 'setup':

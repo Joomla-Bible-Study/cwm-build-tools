@@ -7,14 +7,11 @@
 # and GitHub repo info. Writes cwm-build.config.json, then runs cwm-sync-configs
 # to install managed blocks in .gitignore / .editorconfig / .php-cs-fixer.
 #
+# The --force / --non-interactive flags are handled inside scripts/init.php;
+# this wrapper just locates the script and forwards args.
+#
 set -euo pipefail
 
-PROJECT_ROOT="$(pwd)"
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-if [ -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
-    echo "cwm-build.config.json already exists. Edit it directly, or delete it first."
-    exit 1
-fi
 
 exec php "${TOOLS_DIR}/scripts/init.php" "$@"
