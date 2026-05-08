@@ -133,6 +133,13 @@ echo ""
 
 # --- Step 3: Commit and push ---
 echo "[3/8] Committing version bump..."
+# Add only files modified by step 1 + 2, not unrelated untracked files. The
+# bump and build steps may dirty several manifests and rebuild the zip; the
+# release branch was clean before step 1 (pre-check), so anything modified or
+# added here is part of the release.
+git add -u
+# Pull in any new files the build step generated (e.g. a fresh changelog
+# stub, regenerated build artifacts that live in tracked directories).
 git add -A
 git commit -m "chore: bump version to ${VERSION}"
 git push
@@ -141,7 +148,9 @@ echo ""
 # --- Step 4: GitHub release ---
 echo "[4/8] Creating GitHub release ${TAG}..."
 
-PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+# `HEAD` is the bump commit we just pushed; `git describe` from there finds the
+# previous reachable tag, which is what we want for the changelog "since" base.
+PREV_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
 if [ -n "$PREV_TAG" ] && [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
     NOTES=$(gh api "repos/${GH_OWNER}/${GH_REPO}/releases/generate-notes" \
         -f tag_name="$TAG" -f target_commitish="$RELEASE_BRANCH" -f previous_tag_name="$PREV_TAG" \

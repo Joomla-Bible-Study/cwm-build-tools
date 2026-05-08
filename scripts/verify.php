@@ -25,13 +25,45 @@ if (in_array('--help', $argv, true) || in_array('-h', $argv, true)) {
 cwm-verify — confirm each Joomla install has the project's sub-extensions
 registered in #__extensions.
 
-Reads cwm-build.config.json (manifests.extensions[] + extension.*) and
-build.properties (install paths). Connects to each install's DB via the
-credentials in its configuration.php.
+WHAT IT DOES
+  Reads cwm-build.config.json (manifests.extensions[] + extension.*) and
+  build.properties (install paths). For each install:
+    1. Reads configuration.php at the install path to discover DB creds
+    2. Connects to the DB via PDO (no Joomla bootstrap required)
+    3. Looks up each expected extension by (type, element[, folder])
+    4. Reports per row:
+         OK     — registered, state matches manifest
+         DRIFT  — registered but enabled/locked drifted from manifest
+         MISS   — no row in #__extensions
 
-Options:
+  With --fix, drift is reconciled (UPDATE state) and missing libraries /
+  plugins are INSERTed (libraries also run their install SQL). Components
+  are flagged but never auto-inserted — install via the Extension Manager
+  so the rest of the install lifecycle (params, schema version) runs.
+
+PREREQUISITES
+  - cwm-build.config.json in the current directory
+  - build.properties (run 'composer setup' first)
+  - Each install's configuration.php must be readable (Joomla must be
+    installed at that path)
+
+USAGE
+  composer verify                   # report only
+  composer verify -- --fix          # report + reconcile drift
+  composer verify -- -v             # also list OK rows
+  composer verify -- --fix -v       # full reconcile, verbose output
+
+OPTIONS
       --fix         Reconcile drift (UPDATE state, INSERT missing libs/plugins)
   -v, --verbose     Print OK rows in addition to drift
+
+EXIT CODE
+  Exits 1 if any install reports an error (missing path, DB unreachable,
+  unreconciled drift), 0 otherwise. Suitable for CI gating.
+
+RELATED
+  composer link          # before verify: ensure files are in place
+  composer link-check    # after verify: confirm symlinks are healthy
 
 HELP;
 

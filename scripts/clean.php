@@ -24,12 +24,28 @@ if (in_array('--help', $argv, true) || in_array('-h', $argv, true)) {
     echo <<<HELP
 cwm-clean — remove every symlink cwm-link would create.
 
-Walks each configured install and unlinks anything that is currently a
-symlink at the expected target path. Real files / directories at those
-paths are left alone.
+WHAT IT DOES
+  Walks each configured install and unlinks anything that is currently a
+  symlink at one of the expected target paths. **Only symlinks are touched** —
+  real files and directories at those paths are left alone. Use this before
+  a clean-install test to make sure you're testing the packaged build, not
+  your dev tree.
 
-Options:
+PREREQUISITES
+  - build.properties (run 'composer setup' first). The script also tolerates
+    a missing cwm-build.config.json — it will scan every configured install
+    using only the explicit link list (which will be empty), and warn.
+
+USAGE
+  composer clean
+  composer clean -- -v          # print every removed link
+
+OPTIONS
   -v, --verbose    Print every removed link.
+
+RELATED
+  composer link          # recreate symlinks afterwards
+  composer link-check    # verify symlinks without recreating
 
 HELP;
 
@@ -92,10 +108,18 @@ function loadConfig(string $projectRoot): array
     $configFile = $projectRoot . '/cwm-build.config.json';
 
     if (!is_file($configFile)) {
+        echo "Note: cwm-build.config.json not found in {$projectRoot} — only configured installs will be scanned.\n";
+
         return [];
     }
 
     $config = json_decode((string) file_get_contents($configFile), true);
 
-    return is_array($config) ? $config : [];
+    if (!is_array($config)) {
+        fwrite(STDERR, "Warning: cwm-build.config.json is not valid JSON — proceeding without it.\n");
+
+        return [];
+    }
+
+    return $config;
 }

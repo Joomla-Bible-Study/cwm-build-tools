@@ -39,7 +39,7 @@ final class ExtensionVerifier
      *
      * @return array{ok: int, fixed: int, errors: int}
      */
-    public function verify(InstallConfig $install, bool $reconcile = true): array
+    public function verify(InstallConfig $install, bool $reconcile = false): array
     {
         echo "\n=== Verifying: {$install->path} ===\n";
 

@@ -34,19 +34,58 @@ if (in_array('--help', $argv, true) || in_array('-h', $argv, true)) {
     echo <<<HELP
 cwm-setup — populate build.properties for the local dev environment.
 
-Walks you through:
-  - One or more Joomla install paths (J5, J6, future J7)
-  - Per-install URL, target version, DB credentials, admin credentials
+WHAT IT DOES
+  Walks you through one or more Joomla install paths (J5, J6, future J7)
+  and captures, per install:
+    - filesystem path
+    - dev URL (informational; not required)
+    - target Joomla version (used by cwm-joomla-install)
+    - DB credentials, admin credentials (reserved; cwm-verify reads
+      configuration.php directly — these are captured for future use by
+      cwm-joomla-install when it bootstraps a fresh Joomla checkout)
 
-Writes build.properties in the current working directory. The file is
-gitignored — secrets stay on your machine.
+  Writes build.properties (INI sections) in the current working directory.
+  This file is gitignored — secrets stay on your machine.
 
-Re-running re-prompts with the existing values as defaults, so it doubles
-as an editor.
+PREREQUISITES
+  - cwm-build.config.json must exist in the current directory. The wizard
+    refuses to run without it, since build.properties is per-developer
+    state for a build-tools-consuming project.
+
+USAGE
+  composer setup                # interactive wizard
+  composer setup -- --help      # this help
+
+NOTES
+  - Re-running re-prompts with existing values as defaults; it doubles as
+    an editor. To finish *without* dropping any installs, press Enter
+    through every prompt rather than Enter on a blank install id.
+  - In non-interactive contexts (CI, scripted shells), the wizard exits
+    with an error rather than blocking on stdin.
+
+NEXT STEPS (after setup)
+  composer joomla-install       # download Joomla into each path (optional)
+  composer link                 # symlink the project into each install
+  composer verify               # confirm extensions are registered
 
 HELP;
 
     exit(0);
+}
+
+if (!is_file($projectRoot . '/cwm-build.config.json')) {
+    fwrite(STDERR, "Error: cwm-build.config.json not found in {$projectRoot}.\n");
+    fwrite(STDERR, "build.properties is per-developer state for a build-tools-consuming project.\n");
+    fwrite(STDERR, "If this is a new project, run 'cwm-init' first or copy from examples/.\n");
+
+    exit(1);
+}
+
+if (!isInteractive()) {
+    fwrite(STDERR, "Error: cwm-setup is interactive and stdin is not a TTY.\n");
+    fwrite(STDERR, "Run from a terminal, or copy templates/build.properties.tmpl to build.properties and edit by hand.\n");
+
+    exit(1);
 }
 
 $reader        = new PropertiesReader($projectRoot . '/build.properties');
@@ -81,6 +120,12 @@ while (true) {
         continue;
     }
 
+    // Section names in build.properties are lowercase by convention; the
+    // legacy Proclaim mapping (j5dev → j5) and the example template both
+    // assume lowercase. Normalise here so a user typing "J5" still ends
+    // up matching what LinkResolver and ExtensionVerifier expect.
+    $id = strtolower($id);
+
     $existing = $existingById[$id] ?? null;
 
     $path = ask("  Joomla path", $existing?->path ?? '');
@@ -89,6 +134,10 @@ while (true) {
         echo "  A path is required — skipping this install.\n";
 
         continue;
+    }
+
+    if (!is_dir($path)) {
+        echo "  WARNING: '{$path}' does not exist yet. You can run 'composer joomla-install' later to populate it.\n";
     }
 
     $url     = ask("  Dev URL (optional)", $existing?->url ?? "https://{$id}-dev.local");
@@ -137,6 +186,23 @@ echo "Wrote " . count($installs) . " install(s) to {$reader->path()}.\n";
 echo "  Ids: " . implode(', ', array_map(static fn (InstallConfig $c): string => $c->id, $installs)) . "\n\n";
 
 echo "Make sure 'build.properties' is gitignored — never commit it.\n";
+echo "\nNext steps:\n";
+echo "  composer joomla-install   # download Joomla into each path (skip if already populated)\n";
+echo "  composer link             # symlink the project into each install\n";
+echo "  composer verify           # confirm extensions are registered\n";
+
+function isInteractive(): bool
+{
+    if (\function_exists('stream_isatty')) {
+        return @stream_isatty(STDIN);
+    }
+
+    if (\function_exists('posix_isatty')) {
+        return @posix_isatty(STDIN);
+    }
+
+    return true;
+}
 
 function ask(string $question, ?string $default = null): ?string
 {

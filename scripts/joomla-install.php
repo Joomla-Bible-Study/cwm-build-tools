@@ -24,12 +24,38 @@ if (in_array('--help', $argv, true) || in_array('-h', $argv, true)) {
     echo <<<HELP
 cwm-joomla-install — download a Joomla release into every configured install.
 
-Reads build.properties for install paths and per-install version. Each
-non-empty positional argument that is not a flag is treated as a version
-override applied to all installs.
+WHAT IT DOES
+  For each install in build.properties:
+    1. Determines the version to install (per-install [section] version,
+       or the version positional arg if given)
+    2. Skips the install if the target directory is not empty
+       (unless --force, which wipes it first)
+    3. Downloads the matching Joomla full-package zip from
+       https://github.com/joomla/joomla-cms/releases
+    4. Extracts it into the install path
 
-Options:
+  After this finishes, you still need to walk Joomla's web installer to
+  create configuration.php and the database schema. (cwm-verify reads
+  configuration.php, so verify can't run until the web install is done.)
+
+PREREQUISITES
+  - build.properties (run 'composer setup' first)
+  - Network access to github.com / GitHub releases CDN
+  - PHP ext-zip (declared in composer.json)
+
+USAGE
+  composer joomla-install                 # use each install's configured version
+  composer joomla-install -- 5.4.2        # override version for all installs
+  composer joomla-install -- --force      # wipe and reinstall existing dirs
+  composer joomla-install -- 5.4.2 --force
+
+OPTIONS
       --force       Wipe the install path before extracting
+
+RELATED
+  composer joomla-latest    # show the newest Joomla release tag
+  composer link             # symlink your project after web installer runs
+  composer verify           # confirm extensions registered
 
 HELP;
 
