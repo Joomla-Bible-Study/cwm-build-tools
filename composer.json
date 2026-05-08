@@ -52,5 +52,23 @@
     "config": {
         "sort-packages": true,
         "optimize-autoloader": true
+    },
+    "archive": {
+        "exclude": [
+            "/.github",
+            "/.gitattributes",
+            "/.gitignore",
+            "/.idea",
+            "/.php-cs-fixer.cache",
+            "/.phpunit.cache",
+            "/.phpunit.result.cache",
+            "/phpunit.xml",
+            "/phpunit.xml.dist",
+            "/tests",
+            "/workflows"
+        ]
+    },
+    "scripts": {
+        "test": "phpunit"
     }
 }

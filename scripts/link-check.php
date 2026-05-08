@@ -23,11 +23,31 @@ if (in_array('--help', $argv, true) || in_array('-h', $argv, true)) {
     echo <<<HELP
 cwm-link-check — verify symlinks without recreating them.
 
-Reports MISSING / STALE / WRONG / BROKEN links. Exits 1 if any issues
-are found.
+WHAT IT DOES
+  Walks the symlinks cwm-link would have created and reports each as one of:
+    OK       — link points to the right place
+    MISSING  — no link exists at the expected path
+    STALE    — a real file or directory sits at the link path
+    WRONG    — link exists but points somewhere unexpected
+    BROKEN   — link exists but its target does not
 
-Options:
-  -v, --verbose    Also print healthy links.
+  Exits 1 if any non-OK link is found, so CI can gate on a known-good link
+  state. Run 'composer link' to recreate any drifted links.
+
+PREREQUISITES
+  - cwm-build.config.json in the current directory
+  - build.properties (run 'composer setup' first)
+
+USAGE
+  composer link-check           # report only drifted links
+  composer link-check -- -v     # also print healthy links
+
+OPTIONS
+  -v, --verbose    Also print OK links (otherwise only issues print).
+
+RELATED
+  composer link          # recreate symlinks
+  composer clean         # remove every dev symlink
 
 HELP;
 
@@ -82,6 +102,13 @@ echo "{$issues} issue(s) found. Run 'composer link' to recreate.\n";
 
 exit(1);
 
+/**
+ * Print one line per link result and return 1 for any non-OK status, 0
+ * otherwise. The caller sums the return values to produce the script's
+ * exit code so CI can gate on a known-good link state.
+ *
+ * @param  array{link: string, target: string, status: string, message?: string}  $result
+ */
 function reportLink(array $result, bool $verbose): int
 {
     if ($result['status'] === 'ok') {

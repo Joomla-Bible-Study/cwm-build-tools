@@ -16,8 +16,28 @@ if (in_array('--help', $argv, true) || in_array('-h', $argv, true)) {
     echo <<<HELP
 cwm-joomla-latest — print the latest stable Joomla version.
 
-Queries the joomla/joomla-cms GitHub releases API and prints the tag name
-plus published timestamp. Use the version with cwm-joomla-install.
+WHAT IT DOES
+  Queries https://api.github.com/repos/joomla/joomla-cms/releases/latest
+  and prints the tag name plus published timestamp. Useful for deciding
+  what to pass to cwm-joomla-install or to bump the per-install version
+  in build.properties.
+
+PREREQUISITES
+  - Network access to api.github.com (no auth required for this endpoint;
+    rate-limited to 60/hr unauthenticated, which is plenty for occasional
+    interactive use)
+
+USAGE
+  composer joomla-latest
+
+OUTPUT
+  Latest Joomla: 5.4.2
+  Published:     2026-04-15T12:00:00Z
+
+  Install with: composer joomla-install -- 5.4.2
+
+RELATED
+  composer joomla-install   # download Joomla into each configured path
 
 HELP;
 

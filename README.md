@@ -232,12 +232,22 @@ See `examples/` for full per-extension-type setups (library, content-plugin, pac
 
 ## Roadmap
 
-### Phase 1 — Release pipeline (in progress)
+### Phase 1 — Release pipeline (mostly done)
 - [x] Repo skeleton
-- [ ] `scripts/release.sh` (parameterized 8-step pipeline)
-- [ ] `scripts/bump.php` (config-driven multi-manifest bumper)
-- [ ] `src/Release/ArsPublisher.php`
+- [x] `scripts/release.sh` (parameterized 8-step pipeline)
+- [x] `scripts/bump.php` (config-driven multi-manifest bumper)
+- [x] `scripts/ars-publish.sh` (ARS publish via JSON API + 1Password auth)
+- [x] `scripts/generate-changelog-entry.sh` (markdown → Joomla changelog XML)
+- [ ] Port `src/Release/ArsPublisher.php` so PHP callers don't shell out
+- [ ] `release.sh --dry-run` for testable end-to-end runs
 - [ ] Wire CWMScriptureLinks as first consumer
+
+### Phase 1b — Local dev environment (done in 0.4.0-alpha)
+- [x] `cwm-setup` interactive wizard + `build.properties` schema
+- [x] `cwm-link` / `cwm-link-check` / `cwm-clean` (relative-path symlinks)
+- [x] `cwm-verify` (drift report + `--fix` reconciliation)
+- [x] `cwm-joomla-install` / `cwm-joomla-latest`
+- [x] Legacy Proclaim flat `build.properties` compatibility
 
 ### Phase 2 — Reusable CI workflow
 - [ ] `joomla-package-ci.yml` (workflow_call)
@@ -245,13 +255,19 @@ See `examples/` for full per-extension-type setups (library, content-plugin, pac
 - [ ] Migrate one project's `ci.yml` to use it
 
 ### Phase 3 — Config sync
-- [ ] `cwm-sync-configs` with managed-block strategy
-- [ ] Templates: `.gitignore`, `.editorconfig`, `.php-cs-fixer.base.php`, `phpunit.xml`
-- [ ] `cwm-init` to scaffold new projects
+- [x] `cwm-sync-configs` with managed-block strategy (`.gitignore`)
+- [ ] Sync handlers for `.editorconfig`, `.php-cs-fixer.dist.php`
+- [ ] Templates: `.editorconfig`, `.php-cs-fixer.base.php`, `phpunit.xml`
+- [ ] `cwm-init` to scaffold new projects (currently a stub)
 
 ### Phase 4 — Generic builder
 - [ ] `src/Build/PackageBuilder.php` capable of replacing project-specific `build-package.php`s
 - [ ] Migrate at least two projects onto it
+
+### Testing
+- [ ] `tests/` + `phpunit.xml` (composer.json already declares PHPUnit ^11)
+- [ ] Unit tests for `PropertiesReader` (incl. comment-stripping regression),
+      `LinkResolver`, `Linker::relativePath`, `ExtensionVerifier::expectedExtensions`
 
 ## License
 

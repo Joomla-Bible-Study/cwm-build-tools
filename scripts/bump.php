@@ -28,7 +28,6 @@
  * @license GPL-2.0-or-later
  */
 
-const PROJECT_ROOT = __DIR__ . '/../../..';
 $projectRoot = getcwd();
 $configFile  = $projectRoot . '/cwm-build.config.json';
 
@@ -66,8 +65,12 @@ if (!empty($config['manifests']['package'])) {
     $path = $projectRoot . '/' . $config['manifests']['package'];
 
     if ($only === null || $only === 'package') {
-        bumpManifest($path, $version, $date);
-        $bumped++;
+        if (!is_file($path)) {
+            fwrite(STDERR, "Warning: package manifest not found: $path (skipped)\n");
+        } else {
+            bumpManifest($path, $version, $date);
+            $bumped++;
+        }
     }
 }
 

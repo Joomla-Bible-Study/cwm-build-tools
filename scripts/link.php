@@ -28,12 +28,35 @@ if (in_array('--help', $argv, true) || in_array('-h', $argv, true)) {
     echo <<<HELP
 cwm-link — symlink this project's files into every configured Joomla install.
 
-Reads cwm-build.config.json (for the project layout) and build.properties
-(for install paths). Existing files at the link path are removed and
-replaced. Symlinks are always created with relative paths.
+WHAT IT DOES
+  For each install in build.properties, generates the conventional Joomla
+  layout symlinks from the project's manifests:
+    - components: admin/ + site/ + media/ mirrored
+    - libraries:  libraries/<name> + administrator/manifests/libraries/<name>.xml
+    - plugins:    plugins/<group>/<element>
+    - modules:    modules/[admin]/<name>
+  Plus any explicit dev.links[] / dev.internalLinks[] from the config.
 
-Options:
+  Existing files / directories / stale symlinks at link paths are replaced.
+  All symlinks are created with **relative paths** so the dev tree stays
+  portable across machines and CI.
+
+PREREQUISITES
+  - cwm-build.config.json in the current directory
+  - build.properties (run 'composer setup' first, or copy from
+    templates/build.properties.tmpl)
+
+USAGE
+  composer link
+  composer link -- -v           # verbose: print each link
+
+OPTIONS
   -v, --verbose    Print every link as it is created.
+
+RELATED
+  composer link-check    # verify symlinks without recreating
+  composer clean         # remove every dev symlink
+  composer verify        # confirm extensions registered in #__extensions
 
 HELP;
 

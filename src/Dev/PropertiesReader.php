@@ -58,7 +58,7 @@ final class PropertiesReader
             );
         }
 
-        $raw = parse_ini_file($this->path, true, INI_SCANNER_RAW);
+        $raw = self::parseProperties((string) file_get_contents($this->path));
 
         if ($raw === false) {
             throw new \RuntimeException("Could not parse {$this->path} as INI.");
@@ -136,11 +136,33 @@ final class PropertiesReader
         $pathsRaw = (string) ($raw['builder.joomla_paths']
             ?? $raw['builder.joomla_path']
             ?? '');
-        $dir   = trim((string) ($raw['builder.joomla_dir'] ?? ''), '/');
-        $paths = array_values(array_filter(array_map('trim', explode(',', $pathsRaw))));
+        $rawDir = (string) ($raw['builder.joomla_dir'] ?? '');
+        $dir    = trim($rawDir, '/');
+        $paths  = array_values(array_filter(array_map('trim', explode(',', $pathsRaw))));
 
         if ($paths === []) {
             return [];
+        }
+
+        // Issue #2.2: Proclaim's existing build.properties uses
+        // `builder.joomla_dir` as a separate ABSOLUTE path (a Joomla CMS
+        // source clone used for class-signature checks), not as a relative
+        // subpath under each install root. cwm-build-tools treats the same
+        // key as a relative subpath, which is what the property's own
+        // documentation says — but the collision means an existing
+        // /Volumes/.../GitHub/joomla-cms value gets concatenated onto each
+        // install path and produces nonsense like
+        // `/Sites/j5-dev/Volumes/.../GitHub/joomla-cms`. Detect and ignore
+        // absolute values rather than silently break the install paths.
+        if ($dir !== '' && $this->looksAbsolute($rawDir)) {
+            fwrite(
+                \STDERR,
+                "Warning: builder.joomla_dir='{$rawDir}' looks like an absolute path; "
+                . "cwm-build-tools expects a relative subpath under each install root. "
+                . "Ignoring it. (Set to empty, or rename the consumer-side absolute key, "
+                . "to silence this warning.)\n",
+            );
+            $dir = '';
         }
 
         // Discover ids by scanning for `builder.<id>.url` keys.
@@ -200,6 +222,55 @@ final class PropertiesReader
     private function normaliseLegacyId(string $id): string
     {
         return preg_replace('/dev$/', '', $id) ?? $id;
+    }
+
+    /**
+     * True when the value looks like an absolute filesystem path rather
+     * than a relative subpath. Recognises POSIX `/foo`, Windows drive
+     * paths (`C:\…`, `C:/…`), and UNC paths (`\\server\share`).
+     */
+    private function looksAbsolute(string $value): bool
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            return false;
+        }
+
+        if ($value[0] === '/' || $value[0] === '\\') {
+            return true;
+        }
+
+        // C: or C:/ or C:\
+        return (bool) preg_match('~^[A-Za-z]:[\\\\/]?~', $value);
+    }
+
+    /**
+     * Parse a Java-style properties / INI string, tolerating reserved characters
+     * inside comment lines. PHP's parse_ini_string treats `?{}|&~!()^"[]` as
+     * reserved even when they appear inside `#` or `;` comments — so a stock
+     * `# Full path(s) to your install` line raises a syntax error and the whole
+     * file fails to parse. We strip comment lines first, which is safe because
+     * parse_ini drops them anyway.
+     *
+     * @return  array<string, mixed>|false
+     *
+     * @since   0.4.1-alpha
+     */
+    private static function parseProperties(string $contents): array|false
+    {
+        // Normalise line endings so the regex matches CRLF inputs too.
+        $normalised = str_replace(["\r\n", "\r"], "\n", $contents);
+
+        // Drop any line whose first non-whitespace character is # or ; — these
+        // are comments by both Java-properties and INI conventions.
+        $stripped = preg_replace('/^[ \t]*[#;].*$/m', '', $normalised);
+
+        if ($stripped === null) {
+            return false;
+        }
+
+        return parse_ini_string($stripped, true, INI_SCANNER_RAW);
     }
 
     /**

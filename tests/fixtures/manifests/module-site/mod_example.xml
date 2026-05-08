@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension type="module" client="site" method="upgrade">
+    <name>mod_example</name>
+    <version>1.2.3</version>
+    <creationDate>2026-01-01</creationDate>
+    <author>CWM</author>
+    <description>MOD_EXAMPLE_DESCRIPTION</description>
+    <files>
+        <filename module="mod_example">mod_example.php</filename>
+    </files>
+</extension>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension type="library" method="upgrade">
+    <name>lib_cwmscripture</name>
+    <libraryname>cwmscripture</libraryname>
+    <namespace path="src">CWM\Library\CWMScripture</namespace>
+    <version>1.2.3</version>
+    <creationDate>2026-01-01</creationDate>
+    <author>CWM</author>
+    <description>LIB_CWMSCRIPTURE_DESCRIPTION</description>
+    <files>
+        <folder>src</folder>
+    </files>
+</extension>

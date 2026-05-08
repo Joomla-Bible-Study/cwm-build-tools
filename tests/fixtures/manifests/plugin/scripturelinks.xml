@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension type="plugin" group="content" method="upgrade">
+    <name>plg_content_scripturelinks</name>
+    <namespace path="src">CWM\Plugin\Content\ScriptureLinks</namespace>
+    <version>1.2.3</version>
+    <creationDate>2026-01-01</creationDate>
+    <author>CWM</author>
+    <description>PLG_CONTENT_SCRIPTURELINKS_DESCRIPTION</description>
+    <files>
+        <folder>src</folder>
+    </files>
+</extension>
