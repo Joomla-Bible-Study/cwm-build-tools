@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.1-alpha] - 2026-05-08
+
+Fixes and scaffolder completion driven by the first end-to-end consumer
+adoption pass (Proclaim — see Proclaim PR #1218 / cwm-build-tools issues
+#2 and #4). The CLI surface is unchanged from `v0.4.0-alpha`; consumers
+pinned to `^0.4@alpha` pick this up automatically.
+
 ### Fixed
 
 - `PropertiesReader::installs()` no longer fails on `build.properties` files whose
@@ -16,6 +23,138 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `# Full path(s) to your install` were tripping `cwm-link-check`, `cwm-verify`,
   and any other command that reaches `installs()`. Comment lines are now stripped
   before parsing. Reported in #2.
+- `PropertiesReader::fromLegacyFlat()` now detects an absolute `builder.joomla_dir`
+  (POSIX `/foo`, Windows `C:\foo`, UNC `\\server\share`) and ignores it with a
+  stderr warning, instead of concatenating it onto each install path and producing
+  nonsense like `/Sites/j5-dev/Volumes/.../GitHub/joomla-cms`. Proclaim's existing
+  `build.properties` uses the same key as a separate absolute CMS-source path; the
+  collision broke `cwm-link-check` / `cwm-verify` until the value was unset.
+  Reported in #2.2.
+- `release.sh`: `git describe --tags` now runs against `HEAD` (the bump commit we
+  just pushed) instead of `HEAD~1`, so the previous-tag lookup resolves correctly
+  even on the first release of a session. The step-3 staging now does
+  `git add -u` (tracked changes only) before the catch-all `git add -A`, with a
+  comment explaining the safety. Pre-checks already gate on a clean tree.
+- `bump.php`: validates the package manifest exists before rewriting it (matches
+  the existing sub-extension behavior). Drops the unused `PROJECT_ROOT` constant.
+- `cwm-ars-create-stream` 404 fallback now echoes the values the user passed
+  in (`--name`, `--element`, `--type`, `--category-id`) as a copy-paste-friendly
+  form template, plus a deep link straight to the Update Streams admin view at
+  the configured `ars.endpoint`. Saves having to scroll back through shell history.
+- `ExtensionVerifier::verify()` default `$reconcile` flipped from `true` to
+  `false`. The `verify.php` CLI passes the right flag either way; this just makes
+  direct callers safer (no automatic INSERTs unless explicitly requested).
+- `setup.php`: refuses to run without `cwm-build.config.json` (with a hint
+  pointing at `cwm-init`); refuses to run when stdin is not a TTY (CI-safe);
+  lowercases install ids so they match what `LinkResolver` / `ExtensionVerifier`
+  expect; warns when the configured Joomla path doesn't exist; prints a
+  next-steps banner after writing `build.properties`.
+- `clean.php`: explicit notice when `cwm-build.config.json` is missing or invalid,
+  instead of silently scanning nothing.
+- `scripts/sync-languages.py` cache files (`translations.json`, `sources.json`)
+  now live under `<project_root>/build/.cwm-cache/` instead of inside the install
+  directory at `libraries/vendor/cwm/build-tools/scripts/`. The previous location
+  was wiped by every `composer install`, silently destroying the translation cache
+  (~1.3 MB in the Proclaim case) and re-billing the API on the next sync. Reported
+  in #4.8.
+
+### Added — `cwm-init` is functional
+
+`bin/cwm-init` previously dispatched to a `scripts/init.php` that didn't
+exist. It's now a working interactive scaffolder.
+
+- Walks the project tree to detect: package manifest (`build/pkg_*.xml`,
+  `pkg_*.xml`), top-level extension type/name (component, library, package
+  wrapper), sub-extension manifests (libraries, plugins, modules, including
+  symlinked ones — deduped by `realpath()`), GitHub origin from `.git/config`
+  (no subprocess), preferred release branch (prefers `main`/`master`,
+  falls back to `origin/HEAD`), development branch (prefers
+  `development`/`develop`), build command + output directory paired together
+  (Proclaim's `build/proclaim_build.php` → `build/packages/`, CWMScripture's
+  `build/build-package.php` → `build/dist/`), changelog file, versions.json,
+  and announcement command. Every prompt is pre-filled with what was found;
+  press Enter to accept or type an override.
+- Warns at runtime when `releaseBranch` and `developmentBranch` resolve to
+  the same value and offers a re-prompt (release.sh step 7 churns when
+  they're identical).
+- Manages consumer `composer.json`: adds `cwm/build-tools` to `require-dev`
+  with `^0.4@alpha`, adds the VCS `repositories[]` entry for the GitHub repo,
+  and wires 15 standard `vendor/bin/cwm-*` composer scripts. Existing entries
+  are preserved — the conflict report names them so the consumer can finish
+  the migration by hand. Idempotent: re-running won't duplicate any entry.
+- Seeds `vendors[]` from `build/check-vendor-versions.js` /
+  `build/update-vendors.js` if they exist, falling back to `package.json`
+  `dependencies`. Scoped packages (`@vendor/name`) get the leaf as the
+  default display label.
+- Detects stale runtime artifacts left behind by tools cwm-build-tools now
+  provides (`build/__pycache__/`, the old translation/source caches, plus
+  10 migrated `build/` scripts) and offers — but never automatically does
+  — to remove them. Default is N because deleting tracked files needs
+  consumer review.
+- Emits a `package.json` migration suggestion block. SOURCE_DIR / OUTPUT_DIR
+  are too project-specific to auto-rewrite — the safe path is to surface
+  the recommended shape so the consumer can copy-paste while reviewing the
+  paths against their own source layout. Path arguments in legacy commands
+  are preserved verbatim into the `SOURCE_DIR` / `OUTPUT_DIR` env vars
+  where extractable; placeholders are emitted otherwise.
+- `--non-interactive` accepts all detected defaults (CI-friendly).
+  `--force` overwrites an existing `cwm-build.config.json`.
+- After writing the config, runs `cwm-sync-configs` automatically so the
+  managed gitignore block lands on the same run.
+
+### Added — `cwm-sync-configs` handlers
+
+- `eslint.config.mjs` handler: writes a starter wrapper that imports
+  `templates/eslint.config.base.mjs` from the consumer's vendor-dir
+  (resolved from `composer.json` `config.vendor-dir`). When a config
+  already exists, it leaves it alone — but prints the exact `import` line
+  to add when the existing file doesn't yet extend the shared base.
+- `gitignore.outputPaths[]` and `gitignore.mediaPaths[]` config schema
+  fields. When present, these REPLACE the auto-derived defaults, letting a
+  project with a non-standard layout (Proclaim's `/media/com_proclaim/` +
+  `/media/lib_cwmscripture/` mix instead of a single `/media/<stripped>/`)
+  not fight the generator. `cwm-init` populates them by walking
+  `<project>/media/<x>/(js|css)/` to find dirs that actually receive built
+  JS/CSS.
+- The auto-derived defaults are now scoped to extension types where the
+  convention holds: `library` and `component` map cleanly to
+  `/media/<stripped>/`; `package`, `plugin`, and `module` no longer get
+  bogus media patterns. Output dir comes from `build.outputGlob`'s
+  dirname so `build/packages/` (Proclaim) and `build/dist/` (CWMScripture)
+  both render correctly without config.
+- New gitignore entry: `/build/.cwm-cache/` (where the relocated
+  sync-languages cache now lives).
+
+### Added — testing scaffold
+
+- `phpunit.xml` + `tests/Dev/` with 40 unit tests / 100 assertions:
+  `PropertiesReaderTest` (12 tests, including regressions for the
+  comment-strip and absolute-`joomla_dir` fixes above), `LinkerTest`
+  (13 tests for `relativePath()` edge cases plus check / link / unlink),
+  `LinkResolverTest` (9 tests for auto-derivation per extension type and
+  explicit dev-link interpolation), `ExtensionVerifierTest` (6 tests for
+  `expectedExtensions()` across component, library, plugin manifests).
+- Strict-mode `phpunit.xml` (`failOnDeprecation`, `failOnNotice`,
+  `failOnWarning`, `beStrictAboutOutputDuringTests`); random execution
+  order to surface order-dependent flakes.
+- `composer test` script.
+- `.gitattributes` `export-ignore` + `composer.json` `archive.exclude`
+  for `tests/`, `phpunit.xml`, `.github/`, `.idea/`, `.gitignore`, etc.
+  — so the dist zip Composer downloads into every consuming project's
+  `vendor/cwm/build-tools/` doesn't ship dev-only files.
+
+### Added — sharper `--help` everywhere
+
+`setup`, `link`, `link-check`, `clean`, `verify`, `joomla-install`, and
+`joomla-latest` now follow a consistent `--help` shape: WHAT IT DOES,
+PREREQUISITES, USAGE (with concrete examples), OPTIONS, RELATED. `verify`
+also documents EXIT CODE for CI gating.
+
+### Documentation
+
+- README roadmap reflects Phase 1 actual state (release pipeline
+  mostly done; dev-env commands shipped in `0.4.0-alpha`) and surfaces a
+  Testing TODO that this release closes.
 
 ## [0.4.0-alpha] - 2026-05-07
 
