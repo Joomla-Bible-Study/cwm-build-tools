@@ -58,7 +58,7 @@ final class PropertiesReader
             );
         }
 
-        $raw = parse_ini_file($this->path, true, INI_SCANNER_RAW);
+        $raw = self::parseProperties((string) file_get_contents($this->path));
 
         if ($raw === false) {
             throw new \RuntimeException("Could not parse {$this->path} as INI.");
@@ -200,6 +200,34 @@ final class PropertiesReader
     private function normaliseLegacyId(string $id): string
     {
         return preg_replace('/dev$/', '', $id) ?? $id;
+    }
+
+    /**
+     * Parse a Java-style properties / INI string, tolerating reserved characters
+     * inside comment lines. PHP's parse_ini_string treats `?{}|&~!()^"[]` as
+     * reserved even when they appear inside `#` or `;` comments — so a stock
+     * `# Full path(s) to your install` line raises a syntax error and the whole
+     * file fails to parse. We strip comment lines first, which is safe because
+     * parse_ini drops them anyway.
+     *
+     * @return  array<string, mixed>|false
+     *
+     * @since   0.4.1-alpha
+     */
+    private static function parseProperties(string $contents): array|false
+    {
+        // Normalise line endings so the regex matches CRLF inputs too.
+        $normalised = str_replace(["\r\n", "\r"], "\n", $contents);
+
+        // Drop any line whose first non-whitespace character is # or ; — these
+        // are comments by both Java-properties and INI conventions.
+        $stripped = preg_replace('/^[ \t]*[#;].*$/m', '', $normalised);
+
+        if ($stripped === null) {
+            return false;
+        }
+
+        return parse_ini_string($stripped, true, INI_SCANNER_RAW);
     }
 
     /**

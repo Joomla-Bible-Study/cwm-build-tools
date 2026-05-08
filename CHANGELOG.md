@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `PropertiesReader::installs()` no longer fails on `build.properties` files whose
+  comments contain PHP-INI-reserved characters like `()`, `[]`, `!`, or `?`.
+  PHP's `parse_ini_*` raises a syntax error on those even when they appear inside
+  `#`/`;` comment lines, so consumers shipping stock comments such as
+  `# Full path(s) to your install` were tripping `cwm-link-check`, `cwm-verify`,
+  and any other command that reaches `installs()`. Comment lines are now stripped
+  before parsing. Reported in #2.
+
 ## [0.4.0-alpha] - 2026-05-07
 
 ### Added — dev-environment commands lifted from Proclaim
