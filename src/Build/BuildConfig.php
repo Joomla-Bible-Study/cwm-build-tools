@@ -36,6 +36,7 @@ final class BuildConfig
      * @param list<string>                          $includeRoots           When set, only files starting with one of these prefixes are included (subdirectory allowlist).
      * @param list<string>                          $includeRootExtensions  When set with `includeRoots`, allows root-level files with these extensions through the include filter.
      * @param array{mode: string, dirs?: list<string>, command?: string}|null $preBuild Optional pre-build hook.
+     * @param array{enabled: bool, timeout: int}|null $versionPrompt Optional 3-way version prompt (manifest / date-stamped / custom). Only fires when interactive AND no `--version` override is given.
      */
     public function __construct(
         public readonly string $outputDir,
@@ -51,6 +52,7 @@ final class BuildConfig
         public readonly bool $vendorPrune = false,
         public readonly array $includeRoots = [],
         public readonly array $includeRootExtensions = [],
+        public readonly ?array $versionPrompt = null,
     ) {
     }
 
@@ -136,6 +138,23 @@ final class BuildConfig
             }
         }
 
+        $versionPrompt = null;
+
+        if (isset($cfg['versionPrompt'])) {
+            if (!is_array($cfg['versionPrompt'])) {
+                throw new \InvalidArgumentException('build.versionPrompt must be an object');
+            }
+
+            $enabled = isset($cfg['versionPrompt']['enabled']) ? (bool) $cfg['versionPrompt']['enabled'] : false;
+            $timeout = isset($cfg['versionPrompt']['timeout']) ? (int) $cfg['versionPrompt']['timeout'] : 10;
+
+            if ($timeout < 0) {
+                throw new \InvalidArgumentException('build.versionPrompt.timeout must be a non-negative integer');
+            }
+
+            $versionPrompt = ['enabled' => $enabled, 'timeout' => $timeout];
+        }
+
         return new self(
             outputDir:             (string) $cfg['outputDir'],
             outputName:            (string) $cfg['outputName'],
@@ -150,6 +169,7 @@ final class BuildConfig
             vendorPrune:           $vendorPrune,
             includeRoots:          $includeRoots,
             includeRootExtensions: $includeRootExtensions,
+            versionPrompt:         $versionPrompt,
         );
     }
 

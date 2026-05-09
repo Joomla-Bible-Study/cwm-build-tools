@@ -61,6 +61,18 @@ final class PackageBuilder
         $reader  = new ManifestReader($manifestPath);
         $version = $versionOverride ?? $reader->version();
 
+        // Optional 3-way version prompt — only fires when interactive AND no
+        // explicit `--version` override was given. Mirrors Proclaim's existing
+        // doBuild() prompt so a developer running `cwm-build` ad-hoc can pick
+        // a date-stamped pre-release version without touching the manifest.
+        if ($versionOverride === null
+            && $this->config->versionPrompt !== null
+            && ($this->config->versionPrompt['enabled'] ?? false)
+            && !Prompt::isNonInteractive()
+        ) {
+            $version = $this->promptForVersion($version, (int) $this->config->versionPrompt['timeout']);
+        }
+
         if ($this->config->preBuild !== null) {
             $this->runPreBuild($this->config->preBuild);
         }
@@ -405,6 +417,45 @@ final class PackageBuilder
     {
         if ($this->verbose) {
             echo $line . "\n";
+        }
+    }
+
+    /**
+     * 3-way prompt: keep manifest version, use a date-stamped pre-release,
+     * or enter a custom value. Mirrors Proclaim's existing doBuild() prompt.
+     *
+     * Falls back to $manifestVersion on any unrecognized choice or empty
+     * custom input.
+     */
+    private function promptForVersion(string $manifestVersion, int $timeout): string
+    {
+        $dateStamped = $manifestVersion . '.' . date('Ymd');
+
+        echo "\nVersion options:\n";
+        echo "  [1] Use manifest version $manifestVersion\n";
+        echo "  [2] Use date-stamped pre-release $dateStamped\n";
+        echo "  [3] Enter a custom version\n";
+
+        $choice = Prompt::ask('Choice', '1', $timeout);
+
+        switch ($choice) {
+            case '2':
+                return $dateStamped;
+
+            case '3':
+                $custom = Prompt::ask('Custom version', null, 0);
+
+                if ($custom === null || trim($custom) === '') {
+                    echo "  (empty input — falling back to manifest version)\n";
+
+                    return $manifestVersion;
+                }
+
+                return trim($custom);
+
+            case '1':
+            default:
+                return $manifestVersion;
         }
     }
 }
