@@ -219,6 +219,258 @@ PHP;
         ]);
     }
 
+    // --- PR C: strict-mode excludes, vendor prune, include filter, run pre-build ---
+
+    #[Test]
+    public function strictModeMatchesAllFourPositionsForOnePattern(): void
+    {
+        // Files Proclaim's exact 4-mode logic must catch with a single ".git" entry.
+        $this->writeManifest('proclaim.xml', '10.3.2');
+        $this->writeFile('admin/index.html', '');                    // included
+        $this->writeFile('.git/HEAD', '');                            // exact (root prefix '.git/')
+        $this->writeFile('admin/.git/HEAD', '');                      // contained '/.git/'
+        $this->writeFile('admin/sub/.git', '');                       // suffix '/.git'
+        $this->writeFile('libraries/.git/x.txt', '');                 // contained
+        // A path that contains "git" but not as a directory boundary should NOT be excluded.
+        $this->writeFile('admin/widget.html', '');                    // included (contains 'git' but not in 4-mode)
+
+        $builder = new PackageBuilder($this->makeProclaimConfig(['.git']), $this->tmpDir);
+        $this->expectOutputRegex('/Building com_proclaim-10\.3\.2\.zip/');
+        $zip = $builder->build();
+
+        $entries = $this->zipEntries($zip);
+        $this->assertContains('admin/index.html', $entries);
+        $this->assertContains('admin/widget.html', $entries);
+        $this->assertNotContains('.git/HEAD', $entries);
+        $this->assertNotContains('admin/.git/HEAD', $entries);
+        $this->assertNotContains('admin/sub/.git', $entries);
+        $this->assertNotContains('libraries/.git/x.txt', $entries);
+    }
+
+    #[Test]
+    public function strictModeDoesNotOvermatchSubstrings(): void
+    {
+        // Pattern 'git' under contains-mode would match 'admin/widget.html' (contains "git").
+        // Strict mode should NOT — strict requires '/git/' or '/git' or 'git/' or exact 'git'.
+        $this->writeManifest('proclaim.xml', '1.0.0');
+        $this->writeFile('admin/widget.html', '');
+        $this->writeFile('admin/git/HEAD', '');
+
+        $builder = new PackageBuilder($this->makeProclaimConfig(['git']), $this->tmpDir);
+        $this->expectOutputRegex('/Package built/');
+        $zip = $builder->build();
+
+        $entries = $this->zipEntries($zip);
+        $this->assertContains('admin/widget.html', $entries);
+        $this->assertNotContains('admin/git/HEAD', $entries);
+    }
+
+    #[Test]
+    public function excludeExtensionsDropsMapFiles(): void
+    {
+        $this->writeManifest('proclaim.xml', '1.0.0');
+        $this->writeFile('admin/script.js', '');
+        $this->writeFile('admin/script.js.map', '');
+        $this->writeFile('media/foo.css', '');
+        $this->writeFile('media/foo.css.map', '');
+
+        $builder = new PackageBuilder(
+            $this->makeProclaimConfig([], ['excludeExtensions' => ['map']]),
+            $this->tmpDir
+        );
+        $this->expectOutputRegex('/Package built/');
+        $zip = $builder->build();
+
+        $entries = $this->zipEntries($zip);
+        $this->assertContains('admin/script.js', $entries);
+        $this->assertContains('media/foo.css', $entries);
+        $this->assertNotContains('admin/script.js.map', $entries);
+        $this->assertNotContains('media/foo.css.map', $entries);
+    }
+
+    #[Test]
+    public function excludePathsGlobMatchesBackupSqlFiles(): void
+    {
+        // The exact rule Proclaim's existing script bakes in (lines 277-279).
+        $this->writeManifest('proclaim.xml', '1.0.0');
+        $this->writeFile('media/backup/db.sql', '-- DDL');
+        $this->writeFile('media/backup/sub/old.sql', '-- DDL');
+        $this->writeFile('media/keep.sql', '-- KEEP');
+
+        $builder = new PackageBuilder(
+            $this->makeProclaimConfig([], ['excludePaths' => ['media/backup/*.sql']]),
+            $this->tmpDir
+        );
+        $this->expectOutputRegex('/Package built/');
+        $zip = $builder->build();
+
+        $entries = $this->zipEntries($zip);
+        $this->assertContains('media/keep.sql', $entries);
+        $this->assertNotContains('media/backup/db.sql', $entries);
+        $this->assertNotContains('media/backup/sub/old.sql', $entries);
+    }
+
+    #[Test]
+    public function vendorPruneDropsComposerMetadataAndDocs(): void
+    {
+        $this->writeManifest('proclaim.xml', '1.0.0');
+        $this->writeFile('libraries/vendor/composer/installed.json', '{}');
+        $this->writeFile('libraries/vendor/composer/installed.php', '<?php');
+        $this->writeFile('libraries/vendor/symfony/dependency/README.md', '# readme');
+        $this->writeFile('libraries/vendor/symfony/dependency/CHANGELOG.md', '# changelog');
+        $this->writeFile('libraries/vendor/symfony/dependency/LICENSE', 'mit');
+        $this->writeFile('libraries/vendor/symfony/dependency/src/X.php', '<?php // keep');
+        // README outside vendor — must be kept (vendorPrune only acts on vendor subtrees).
+        $this->writeFile('libraries/README.md', 'lib readme');
+
+        $builder = new PackageBuilder(
+            $this->makeProclaimConfig([], ['vendorPrune' => true]),
+            $this->tmpDir
+        );
+        $this->expectOutputRegex('/Package built/');
+        $zip = $builder->build();
+
+        $entries = $this->zipEntries($zip);
+        $this->assertContains('libraries/vendor/symfony/dependency/src/X.php', $entries);
+        $this->assertContains('libraries/README.md', $entries);
+        $this->assertNotContains('libraries/vendor/composer/installed.json', $entries);
+        $this->assertNotContains('libraries/vendor/composer/installed.php', $entries);
+        $this->assertNotContains('libraries/vendor/symfony/dependency/README.md', $entries);
+        $this->assertNotContains('libraries/vendor/symfony/dependency/CHANGELOG.md', $entries);
+        $this->assertNotContains('libraries/vendor/symfony/dependency/LICENSE', $entries);
+    }
+
+    #[Test]
+    public function includeRootsFilterDropsPathsOutsideAllowlist(): void
+    {
+        $this->writeManifest('proclaim.xml', '1.0.0');
+        $this->writeFile('admin/x.php', '<?php');
+        $this->writeFile('media/y.css', '');
+        $this->writeFile('libraries/z.php', '<?php');
+        // Not in any allowlisted root and not a root-level allowlist-ext file:
+        $this->writeFile('docs/architecture.md', '# arch');
+        $this->writeFile('scratch/temp.txt', 'tmp');
+
+        $builder = new PackageBuilder(
+            $this->makeProclaimConfig([], [
+                'includeRoots' => ['admin/', 'media/', 'libraries/'],
+            ]),
+            $this->tmpDir
+        );
+        $this->expectOutputRegex('/Package built/');
+        $zip = $builder->build();
+
+        $entries = $this->zipEntries($zip);
+        $this->assertContains('admin/x.php', $entries);
+        $this->assertContains('media/y.css', $entries);
+        $this->assertContains('libraries/z.php', $entries);
+        $this->assertNotContains('docs/architecture.md', $entries);
+        $this->assertNotContains('scratch/temp.txt', $entries);
+    }
+
+    #[Test]
+    public function includeRootExtensionsAdmitsAllowlistedRootFiles(): void
+    {
+        $this->writeManifest('proclaim.xml', '1.0.0');
+        $this->writeFile('admin/x.php', '<?php');
+        // Root-level files: only the allowlisted extensions should land in zip.
+        // (proclaim.xml is the manifest — it lands at zip root through the
+        // dedicated manifest path, not the source walk; tested elsewhere.)
+        $this->writeFile('LICENSE.txt', 'GPL2');
+        $this->writeFile('README.md', '# readme');
+        $this->writeFile('package.json', '{}');                        // .json not allowed
+        $this->writeFile('docs.html', '<html/>');                       // .html not allowed
+
+        $builder = new PackageBuilder(
+            $this->makeProclaimConfig([], [
+                'includeRoots'          => ['admin/'],
+                'includeRootExtensions' => ['xml', 'txt', 'md'],
+            ]),
+            $this->tmpDir
+        );
+        $this->expectOutputRegex('/Package built/');
+        $zip = $builder->build();
+
+        $entries = $this->zipEntries($zip);
+        $this->assertContains('admin/x.php', $entries);
+        $this->assertContains('LICENSE.txt', $entries);
+        $this->assertContains('README.md', $entries);
+        $this->assertNotContains('package.json', $entries);
+        $this->assertNotContains('docs.html', $entries);
+    }
+
+    #[Test]
+    public function runModePreBuildExecutesCommand(): void
+    {
+        $this->writeManifest('proclaim.xml', '1.0.0');
+        $this->writeFile('admin/x.php', '<?php');
+
+        // Echo a sentinel into a marker file we can assert was created.
+        $marker = $this->tmpDir . '/_marker.txt';
+        $cmd    = 'printf hello > ' . escapeshellarg($marker);
+
+        $builder = new PackageBuilder(
+            $this->makeProclaimConfig([], [
+                'preBuild' => ['mode' => 'run', 'command' => $cmd],
+            ]),
+            $this->tmpDir
+        );
+        $this->expectOutputRegex('/Running pre-build:/');
+        $builder->build();
+
+        $this->assertFileExists($marker);
+        $this->assertSame('hello', file_get_contents($marker));
+    }
+
+    #[Test]
+    public function runModePreBuildAbortsOnNonZeroExit(): void
+    {
+        $this->writeManifest('proclaim.xml', '1.0.0');
+        $this->writeFile('admin/x.php', '<?php');
+
+        $builder = new PackageBuilder(
+            $this->makeProclaimConfig([], [
+                'preBuild' => ['mode' => 'run', 'command' => 'false'],
+            ]),
+            $this->tmpDir
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Pre-build command failed');
+        $this->expectOutputRegex('/Running pre-build/');
+        $builder->build();
+    }
+
+    #[Test]
+    public function buildConfigRejectsRunPreBuildWithoutCommand(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('build.preBuild.command is required when mode is "run"');
+
+        BuildConfig::fromArray([
+            'outputDir'  => 'build/dist',
+            'outputName' => 'foo-{version}.zip',
+            'manifest'   => 'foo.xml',
+            'sources'    => [['from' => 'src', 'to' => 'src']],
+            'preBuild'   => ['mode' => 'run'],
+        ]);
+    }
+
+    #[Test]
+    public function buildConfigRejectsInvalidExcludeMatchMode(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('build.excludeMatchMode');
+
+        BuildConfig::fromArray([
+            'outputDir'        => 'build/dist',
+            'outputName'       => 'foo-{version}.zip',
+            'manifest'         => 'foo.xml',
+            'sources'          => [['from' => 'src', 'to' => 'src']],
+            'excludeMatchMode' => 'fuzzy',
+        ]);
+    }
+
     // --- Helpers ---
 
     /**
@@ -248,6 +500,28 @@ PHP;
     private function makeLibConfig(): BuildConfig
     {
         return BuildConfig::fromArray($this->libConfigArray());
+    }
+
+    /**
+     * Build a Proclaim-shape BuildConfig: walks the project root (`from: '.'`)
+     * with strict-mode 4-mode excludes. Tests pass `$excludes` as positional
+     * (the most-tweaked field) and `$overrides` for the rest.
+     *
+     * @param  list<string>          $excludes
+     * @param  array<string, mixed>  $overrides
+     */
+    private function makeProclaimConfig(array $excludes = [], array $overrides = []): BuildConfig
+    {
+        $base = [
+            'outputDir'        => 'build/dist',
+            'outputName'       => 'com_proclaim-{version}.zip',
+            'manifest'         => 'proclaim.xml',
+            'sources'          => [['from' => '.', 'to' => '']],
+            'excludes'         => $excludes,
+            'excludeMatchMode' => 'strict',
+        ];
+
+        return BuildConfig::fromArray(array_merge($base, $overrides));
     }
 
     private function writeManifest(string $relPath, string $version): void
