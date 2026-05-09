@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `templates/build-assets.js` — generic version of Proclaim's
+  `build/build-assets.js` that copies images, mirrors a manually-managed
+  vendor source tree, and cherry-picks files/dirs out of npm packages in
+  `node_modules/`. Driven by a new `assets:` block in
+  `cwm-build.config.json`; supports CSS minification (`minifyCss: true`),
+  pre-clean of a destination subdir (`cleanDest`), and filename glob
+  filters on directory copies (`match: "*.umd.js"`). Schema paths are
+  source-tree paths so adopting this template doesn't require manifest
+  changes — the `<media folder=…>` element keeps controlling install-time
+  destination as before. Wire from `package.json` `build:assets`.
+  Reported in #7.
+
 - `cwm-joomla-cms-deps` binary + `scripts/joomla-cms-deps.php` — generic
   version of the Proclaim-side `build/joomla-cms-deps.php` that clones
   `joomla-cms` source for unit tests to require directly. New optional
@@ -32,7 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   binary is for CWM-family releases. Wire into release step 8 by setting
   `announcement.command: "cwm-article"` in `cwm-build.config.json`. Reported
   in #7.
-
 - `cwm-release`: pre-flight steps before the version bump now (a) `git fetch
   origin --prune --tags`, (b) `git pull --ff-only origin <release-branch>` and
   abort with guidance if local has diverged, (c) `git submodule update --init

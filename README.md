@@ -14,7 +14,7 @@ Across `Proclaim`, `lib_cwmscripture`, `CWMScriptureLinks`, and `plg_task_cwmscr
 | **Scripts** | Generic 8-step release pipeline, multi-manifest version bumper, config syncer | `scripts/` |
 | **PHP library** | `ProjectConfig`, `ManifestReader`, `PackageBuilder`, `ArsPublisher`, `Bumper` | `src/` (PSR-4 `CWM\BuildTools\`) |
 | **Reusable GH Actions** | `joomla-package-ci.yml`, `joomla-library-ci.yml` (called via `workflow_call`) | `.github/workflows/` |
-| **Synced config templates** | `.gitignore` block, `.editorconfig`, `.php-cs-fixer.base.php`, `phpunit.xml` boilerplate, `eslint.config.base.mjs`, `rollup.config.js`, `build-css.js`, `vendor-check.js`, `vendor-update.js`, `versions.json.tmpl` | `templates/` |
+| **Synced config templates** | `.gitignore` block, `.editorconfig`, `.php-cs-fixer.base.php`, `phpunit.xml` boilerplate, `eslint.config.base.mjs`, `rollup.config.js`, `build-css.js`, `build-assets.js`, `vendor-check.js`, `vendor-update.js`, `versions.json.tmpl` | `templates/` |
 
 ## Distribution
 
