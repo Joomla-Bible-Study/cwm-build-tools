@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `cwm-joomla-cms-deps` binary + `scripts/joomla-cms-deps.php` — generic
+  version of the Proclaim-side `build/joomla-cms-deps.php` that clones
+  `joomla-cms` source for unit tests to require directly. New optional
+  config fields `testing.joomlaCmsVersion` (defaults to `5.4.3`) and
+  `testing.joomlaCmsPath` (defaults to `<cwd-parent>/joomla-cms`); CLI
+  flags `-v`/`--version` and `-p`/`--path` override either. Backward-
+  compatible with the legacy `tests.joomla_cms_path` key in
+  `build.properties` so existing Proclaim setups keep working before
+  consumers migrate. Wire from `composer.json` `post-install-cmd`.
+  Reported in #7.
+
 - `cwm-article` binary + `scripts/cwm-article.sh` — generic version of the
   Proclaim-side `build/cwm-article.sh` that posts a "<Extension> X.Y.Z
   Released" announcement to christianwebministries.org, features it, and

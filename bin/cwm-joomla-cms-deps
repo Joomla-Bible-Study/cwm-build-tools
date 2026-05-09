@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#
+# cwm-joomla-cms-deps — clone joomla-cms source for unit testing.
+#
+# Provides the Joomla CMS source tree that PHPUnit tests `require` directly.
+# No-op when the target directory already exists.
+#
+# Reads testing.joomlaCmsVersion / testing.joomlaCmsPath from
+# cwm-build.config.json when present, falls back to tests.joomla_cms_path
+# in build.properties, then to <cwd-parent>/joomla-cms.
+#
+# Typical wiring is from a consumer's composer.json post-install-cmd:
+#   "scripts": {
+#       "post-install-cmd": ["cwm-joomla-cms-deps"]
+#   }
+#
+# Usage:
+#   cwm-joomla-cms-deps                     # config / default
+#   cwm-joomla-cms-deps -v 5.4.5            # override version
+#   cwm-joomla-cms-deps -p ../my-joomla     # override path
+#   cwm-joomla-cms-deps --help
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/joomla-cms-deps.php" "$@"

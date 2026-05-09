@@ -48,7 +48,8 @@
         "bin/cwm-clean",
         "bin/cwm-verify",
         "bin/cwm-joomla-install",
-        "bin/cwm-joomla-latest"
+        "bin/cwm-joomla-latest",
+        "bin/cwm-joomla-cms-deps"
     ],
     "config": {
         "sort-packages": true,
