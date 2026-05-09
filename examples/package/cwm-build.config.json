@@ -36,5 +36,36 @@
     "announcement": {
         "command": "cwm-article",
         "bulletsDir": "build"
+    },
+    "_assets_comment": "Paths in the assets block are SOURCE-TREE paths, not install-time paths. They should match what the project's existing build/build-assets.js wrote to before adopting this template — typically media/images and media/vendor/<pkg> at the project root. The manifest's <media folder=...> element controls where these end up at install time.",
+    "assets": {
+        "images":            { "from": "build/media_source/images", "to": "media/images" },
+        "vendorMediaSource": { "from": "build/media_source/vendor", "to": "media/vendor" },
+        "vendorOutputDir":   "media/vendor",
+        "packages": [
+            {
+                "name": "chart.js",
+                "files": [
+                    { "from": "dist/chart.umd.min.js", "to": "chart.js/chart.umd.min.js" }
+                ]
+            },
+            {
+                "name": "@fancyapps/ui",
+                "cleanDest": "fancybox",
+                "files": [
+                    { "from": "dist/fancybox/fancybox.umd.js", "to": "fancybox/fancybox.umd.js" },
+                    { "from": "dist/fancybox/fancybox.css",    "to": "fancybox/fancybox.css", "minifyCss": true }
+                ],
+                "dirs": [
+                    { "from": "dist/fancybox/l10n", "to": "fancybox/l10n", "match": "*.umd.js" }
+                ]
+            },
+            {
+                "name": "sortablejs",
+                "files": [
+                    { "from": "Sortable.min.js", "to": "sortable/Sortable.min.js" }
+                ]
+            }
+        ]
     }
 }
