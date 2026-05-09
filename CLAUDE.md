@@ -1,6 +1,33 @@
 # CLAUDE.md
 
-Context for AI-assisted work on `cwm/build-tools`. Read this first.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+```bash
+# Tests — phpunit 11.5, strict mode (fails on warnings/notices/deprecations)
+composer test                                              # full suite
+vendor/bin/phpunit                                         # equivalent
+vendor/bin/phpunit tests/Dev/PropertiesReaderTest.php      # single file
+vendor/bin/phpunit --filter <method_name>                  # single test method
+vendor/bin/phpunit --testdox                               # human-readable output
+
+# Smoke-test cwm-init against a fresh fixture (does not require a real project)
+mkdir -p /tmp/cwm-smoke && cd /tmp/cwm-smoke && \
+  echo '{"name":"x"}' > composer.json && \
+  php /path/to/cwm-build-tools/scripts/init.php --non-interactive
+
+# Verify dist exclusions — what would Composer ship to consumers?
+git archive --worktree-attributes --format=tar HEAD | tar -t   # full list
+git archive --worktree-attributes --format=tar HEAD | tar -t | \
+  grep -E '^(tests/|phpunit|CLAUDE|\.github/|\.git)'            # should be empty
+```
+
+**No lint runner is wired up.** `friendsofphp/php-cs-fixer` is in
+`require-dev` but there's no `.php-cs-fixer.dist.php` config and no
+`composer lint` script. If linting is needed, the project's eslint
+template lives at `templates/eslint.config.base.mjs` (for consumers,
+not this repo's source).
 
 ## What this project is
 
@@ -229,18 +256,16 @@ developer-supplied:
 - XXE in manifest XML: project-controlled.
 - Path traversal in `cwm-build.config.json` paths: author-controlled.
 
-## Testing
+## Testing conventions
 
-```bash
-composer test        # phpunit
-vendor/bin/phpunit   # equivalent
-```
+Run commands are at the top of this file. Conventions worth knowing:
 
-`phpunit.xml` runs in strict mode (`failOnWarning`,
-`failOnDeprecation`, `failOnNotice`, `beStrictAboutOutputDuringTests`)
-with random execution order. Tests use real fixture XML files committed
-to `tests/fixtures/manifests/`; don't generate fixtures on the fly.
-
-When fixing a bug found in the wild, **add a regression test** —
-that's how the parse_ini comment-strip fix (#2.1) and the absolute
-`joomla_dir` rejection (#2.2) are pinned.
+- Tests use **real fixture XML files** committed to
+  `tests/fixtures/manifests/`. Don't generate fixtures on the fly —
+  they're meant to be reviewable in PRs.
+- `phpunit.xml` runs in strict mode (`failOnWarning`,
+  `failOnDeprecation`, `failOnNotice`, `beStrictAboutOutputDuringTests`)
+  with random execution order, so order-dependent flakes surface early.
+- When fixing a bug found in the wild, **add a regression test** —
+  that's how the parse_ini comment-strip fix (#2.1) and the absolute
+  `joomla_dir` rejection (#2.2) are pinned to PropertiesReaderTest.
