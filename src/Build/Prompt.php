@@ -76,10 +76,19 @@ final class Prompt
      */
     public static function isNonInteractive(): bool
     {
-        return !stream_isatty(STDIN)
-            || !stream_isatty(STDOUT)
-            || getenv('CI') !== false
-            || getenv('CWM_NONINTERACTIVE') !== false;
+        // Env-var checks first — they're cheap and short-circuit before we
+        // touch the STDIN/STDOUT predefined resources. Important under
+        // PHPUnit's random-order runner: an earlier test that fclose'd
+        // either constant would otherwise turn `stream_isatty(STDIN)` into
+        // a TypeError ("supplied resource is not a valid stream resource").
+        if (getenv('CI') !== false || getenv('CWM_NONINTERACTIVE') !== false) {
+            return true;
+        }
+
+        // Defensive: only call stream_isatty when we still have valid
+        // resource handles. is_resource() returns false for closed streams.
+        return !is_resource(STDIN)  || !stream_isatty(STDIN)
+            || !is_resource(STDOUT) || !stream_isatty(STDOUT);
     }
 
     /**
