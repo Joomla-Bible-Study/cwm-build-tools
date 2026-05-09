@@ -7,21 +7,35 @@ namespace CWM\BuildTools\Build;
 /**
  * Parsed `build:` block of `cwm-build.config.json`.
  *
- * Captures only the fields needed by the lib_cwmscripture-shape build flow
- * (the simplest of the three consumer shapes the consolidation targets — see
- * issue #5). Subsequent PRs add fields for Proclaim's strict-mode filtering,
- * vendor pruning, auto-run pre-build, and interactive version prompting.
+ * Supports both the lib_cwmscripture-shape build flow (loose `str_contains`
+ * excludes, optional `ensure-minified` pre-build gate) and the Proclaim-shape
+ * flow (strict 4-mode exclude matching, vendor pruning, auto-run pre-build,
+ * include-roots filter, root-extension allowlist).
+ *
+ * Defaults preserve PR B's lib_cwmscripture shape; opt into Proclaim-shape
+ * features via `excludeMatchMode: "strict"`, `vendorPrune: true`,
+ * `includeRoots`, `includeRootExtensions`, `excludeExtensions`, `excludePaths`,
+ * and `preBuild.mode: "run"`.
  */
 final class BuildConfig
 {
+    public const MATCH_CONTAINS = 'contains';
+    public const MATCH_STRICT   = 'strict';
+
     /**
-     * @param string                                       $outputDir       Absolute or project-relative directory for the built zip.
-     * @param string                                       $outputName      Output filename pattern; supports `{version}` substitution.
-     * @param string                                       $manifest        Project-relative path to the manifest XML; version is read from its <version> element.
-     * @param string|null                                  $scriptFile      Optional install scriptfile, added at zip root if present.
-     * @param list<array{from: string, to: string}>        $sources         Source directories with their zip-path prefix.
-     * @param list<string>                                 $excludes        Path substrings to skip (str_contains semantics).
-     * @param array{mode: string, dirs?: list<string>}|null $preBuild       Optional pre-build gate config.
+     * @param string                                $outputDir              Absolute or project-relative directory for the built zip.
+     * @param string                                $outputName             Output filename pattern; supports `{version}` substitution.
+     * @param string                                $manifest               Project-relative path to the manifest XML; version is read from its <version> element.
+     * @param string|null                           $scriptFile             Optional install scriptfile, added at zip root if present.
+     * @param list<array{from: string, to: string}> $sources                Source directories with their zip-path prefix.
+     * @param list<string>                          $excludes               Path patterns to skip; matched per `excludeMatchMode`.
+     * @param string                                $excludeMatchMode       `"contains"` (default — PR B/lib_cwmscripture) or `"strict"` (4-mode — Proclaim).
+     * @param list<string>                          $excludeExtensions      Bare extensions (no leading dot) to drop, e.g. `["map"]`.
+     * @param list<string>                          $excludePaths           fnmatch glob patterns matched against the relative path, e.g. `["media/backup/*.sql"]`.
+     * @param bool                                  $vendorPrune            When true, drop Composer metadata + doc/license files inside any `vendor/` subtree.
+     * @param list<string>                          $includeRoots           When set, only files starting with one of these prefixes are included (subdirectory allowlist).
+     * @param list<string>                          $includeRootExtensions  When set with `includeRoots`, allows root-level files with these extensions through the include filter.
+     * @param array{mode: string, dirs?: list<string>, command?: string}|null $preBuild Optional pre-build hook.
      */
     public function __construct(
         public readonly string $outputDir,
@@ -31,6 +45,12 @@ final class BuildConfig
         public readonly array $sources,
         public readonly array $excludes,
         public readonly ?array $preBuild,
+        public readonly string $excludeMatchMode = self::MATCH_CONTAINS,
+        public readonly array $excludeExtensions = [],
+        public readonly array $excludePaths = [],
+        public readonly bool $vendorPrune = false,
+        public readonly array $includeRoots = [],
+        public readonly array $includeRootExtensions = [],
     ) {
     }
 
@@ -64,13 +84,21 @@ final class BuildConfig
             $sources[] = ['from' => (string) $src['from'], 'to' => (string) $src['to']];
         }
 
-        $rawExcludes = $cfg['excludes'] ?? [];
+        $excludes              = self::stringList($cfg, 'excludes');
+        $excludeExtensions     = array_map(static fn (string $e): string => ltrim($e, '.'), self::stringList($cfg, 'excludeExtensions'));
+        $excludePaths          = self::stringList($cfg, 'excludePaths');
+        $includeRoots          = self::stringList($cfg, 'includeRoots');
+        $includeRootExtensions = array_map(static fn (string $e): string => ltrim($e, '.'), self::stringList($cfg, 'includeRootExtensions'));
 
-        if (!is_array($rawExcludes)) {
-            throw new \InvalidArgumentException('build.excludes must be an array of strings');
+        $matchMode = $cfg['excludeMatchMode'] ?? self::MATCH_CONTAINS;
+
+        if (!is_string($matchMode) || !in_array($matchMode, [self::MATCH_CONTAINS, self::MATCH_STRICT], true)) {
+            throw new \InvalidArgumentException(
+                'build.excludeMatchMode must be "contains" or "strict" (got ' . var_export($matchMode, true) . ')'
+            );
         }
 
-        $excludes = array_values(array_map('strval', $rawExcludes));
+        $vendorPrune = isset($cfg['vendorPrune']) ? (bool) $cfg['vendorPrune'] : false;
 
         $preBuild = null;
 
@@ -81,33 +109,64 @@ final class BuildConfig
 
             $mode = (string) $cfg['preBuild']['mode'];
 
-            if ($mode !== 'ensure-minified') {
+            if (!in_array($mode, ['ensure-minified', 'run'], true)) {
                 throw new \InvalidArgumentException(
-                    "build.preBuild.mode must be 'ensure-minified' (got '$mode'). " .
-                    "Other modes (e.g. 'run', 'gate') are reserved for future PRs."
+                    "build.preBuild.mode must be one of: ensure-minified, run (got '$mode')"
                 );
             }
 
-            $dirs = $cfg['preBuild']['dirs'] ?? [];
+            $preBuild = ['mode' => $mode];
 
-            if (!is_array($dirs)) {
-                throw new \InvalidArgumentException('build.preBuild.dirs must be an array of strings');
+            if ($mode === 'ensure-minified') {
+                $dirs = $cfg['preBuild']['dirs'] ?? [];
+
+                if (!is_array($dirs)) {
+                    throw new \InvalidArgumentException('build.preBuild.dirs must be an array of strings');
+                }
+
+                $preBuild['dirs'] = array_values(array_map('strval', $dirs));
+            } elseif ($mode === 'run') {
+                $command = $cfg['preBuild']['command'] ?? '';
+
+                if (!is_string($command) || trim($command) === '') {
+                    throw new \InvalidArgumentException('build.preBuild.command is required when mode is "run"');
+                }
+
+                $preBuild['command'] = $command;
             }
-
-            $preBuild = [
-                'mode' => $mode,
-                'dirs' => array_values(array_map('strval', $dirs)),
-            ];
         }
 
         return new self(
-            outputDir:  (string) $cfg['outputDir'],
-            outputName: (string) $cfg['outputName'],
-            manifest:   (string) $cfg['manifest'],
-            scriptFile: isset($cfg['scriptFile']) && is_string($cfg['scriptFile']) ? $cfg['scriptFile'] : null,
-            sources:    $sources,
-            excludes:   $excludes,
-            preBuild:   $preBuild,
+            outputDir:             (string) $cfg['outputDir'],
+            outputName:            (string) $cfg['outputName'],
+            manifest:              (string) $cfg['manifest'],
+            scriptFile:            isset($cfg['scriptFile']) && is_string($cfg['scriptFile']) ? $cfg['scriptFile'] : null,
+            sources:               $sources,
+            excludes:              $excludes,
+            preBuild:              $preBuild,
+            excludeMatchMode:      $matchMode,
+            excludeExtensions:     $excludeExtensions,
+            excludePaths:          $excludePaths,
+            vendorPrune:           $vendorPrune,
+            includeRoots:          $includeRoots,
+            includeRootExtensions: $includeRootExtensions,
         );
+    }
+
+    /**
+     * Pull a list-of-strings field, defaulting to []; validates the type.
+     *
+     * @param  array<string, mixed> $cfg
+     * @return list<string>
+     */
+    private static function stringList(array $cfg, string $key): array
+    {
+        $raw = $cfg[$key] ?? [];
+
+        if (!is_array($raw)) {
+            throw new \InvalidArgumentException("build.$key must be an array of strings");
+        }
+
+        return array_values(array_map('strval', $raw));
     }
 }
