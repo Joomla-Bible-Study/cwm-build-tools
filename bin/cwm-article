@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+#
+# cwm-article — post a "<Extension> X.Y.Z Released" announcement article to
+# christianwebministries.org.
+#
+# Reads cwm-build.config.json for extension display name, package manifest,
+# and GitHub repo. Bullets file is positional or via $BULLETS_FILE.
+#
+# Usage from a consuming project:
+#   composer cwm-article -- 1.2.3 build/release-bullets-1.2.3.txt
+#   cwm-article 1.2.3                    # version from package manifest
+#   DRY_RUN=1 cwm-article 1.2.3 b.txt    # preview without posting
+#
+# Wired into cwm-release step 8 by setting in cwm-build.config.json:
+#   "announcement": { "command": "cwm-article", "bulletsDir": "build" }
+#
+set -euo pipefail
+
+PROJECT_ROOT="$(pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ ! -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
+    echo "Error: cwm-build.config.json not found in $PROJECT_ROOT"
+    echo "Run 'cwm-init' to scaffold one, or see"
+    echo "  ${TOOLS_DIR}/examples/ for reference configs."
+    exit 1
+fi
+
+exec bash "${TOOLS_DIR}/scripts/cwm-article.sh" "$@"

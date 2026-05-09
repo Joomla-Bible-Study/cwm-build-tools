@@ -40,6 +40,7 @@
         "bin/cwm-ars-list",
         "bin/cwm-ars-create-stream",
         "bin/cwm-changelog",
+        "bin/cwm-article",
         "bin/cwm-init",
         "bin/cwm-setup",
         "bin/cwm-link",

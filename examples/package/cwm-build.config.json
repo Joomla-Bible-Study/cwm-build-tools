@@ -1,7 +1,8 @@
 {
     "extension": {
         "type": "package",
-        "name": "pkg_cwmscripture"
+        "name": "pkg_cwmscripture",
+        "displayName": "CWM Scripture"
     },
     "manifests": {
         "package": "build/pkg_cwmscripture.xml",
@@ -31,5 +32,9 @@
     "changelog": {
         "file": "build/cwmscripture-changelog.xml",
         "url":  "https://raw.githubusercontent.com/Joomla-Bible-Study/CWMScriptureLinks/main/build/cwmscripture-changelog.xml"
+    },
+    "announcement": {
+        "command": "cwm-article",
+        "bulletsDir": "build"
     }
 }

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `cwm-article` binary + `scripts/cwm-article.sh` — generic version of the
+  Proclaim-side `build/cwm-article.sh` that posts a "<Extension> X.Y.Z
+  Released" announcement to christianwebministries.org, features it, and
+  un-features the previous featured article. Reads `extension.name`,
+  `extension.displayName` (new optional field — falls back to stripping
+  `pkg_/com_/lib_/mod_/plg_` from `extension.name` and uppercasing the first
+  char), `manifests.package` (version-detection source when no VERSION arg),
+  and `github.owner`/`github.repo` from `cwm-build.config.json`. CWM-team
+  body copy and `christianwebministries.org` site URL stay hard-coded — this
+  binary is for CWM-family releases. Wire into release step 8 by setting
+  `announcement.command: "cwm-article"` in `cwm-build.config.json`. Reported
+  in #7.
+
 - `cwm-release`: pre-flight steps before the version bump now (a) `git fetch
   origin --prune --tags`, (b) `git pull --ff-only origin <release-branch>` and
   abort with guidance if local has diverged, (c) `git submodule update --init
