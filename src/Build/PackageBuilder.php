@@ -12,12 +12,11 @@ use ZipArchive;
 /**
  * Builds an installable extension zip per a {@see BuildConfig}.
  *
- * Phase 1 — covers the lib_cwmscripture build shape: read manifest version,
- * optionally gate on minified asset presence, then walk one or more source
- * directories into the zip with a configurable per-source prefix. Excludes
- * are matched as path substrings (`str_contains`), the loose mode used by
- * lib_cwmscripture and CWMScriptureLinks. Strict-mode (Proclaim's 4-mode
- * exclude + vendor prune + root-ext include) lands in a follow-up PR.
+ * Supports both the lib_cwmscripture-shape build flow (loose `str_contains`
+ * excludes, optional `ensure-minified` pre-build gate, multiple sources with
+ * per-source zip prefix) and the Proclaim-shape flow (strict 4-mode exclude
+ * matching, vendor pruning, include-roots filter, root-extension allowlist,
+ * auto-run pre-build via `passthru`).
  *
  * Path semantics:
  *   - `BuildConfig::manifest` and `BuildConfig::scriptFile` are
@@ -30,6 +29,11 @@ use ZipArchive;
  */
 final class PackageBuilder
 {
+    /** Files dropped from any `vendor/` subtree when vendorPrune is on. */
+    private const VENDOR_PRUNE_DOC_NAMES = [
+        'README', 'CHANGELOG', 'BACKERS', 'AUTHORS', 'CONTRIBUTING', 'UPGRADE', 'SECURITY', 'LICENSE', 'COPYING',
+    ];
+
     public function __construct(
         private readonly BuildConfig $config,
         private readonly string $projectRoot,
@@ -71,9 +75,9 @@ final class PackageBuilder
         $outputPath = $outputDir . '/' . $outputName;
 
         // Replace any prior build artifact at this exact path. Unlike the
-        // legacy lib_cwmscripture script, we don't wipe the entire dist dir
-        // (that's destructive to unrelated zips); leftover artifacts are
-        // gitignored anyway.
+        // legacy lib_cwmscripture/proclaim_build scripts, we don't wipe the
+        // entire dist dir (that's destructive to unrelated zips); leftover
+        // artifacts are gitignored anyway.
         if (file_exists($outputPath)) {
             unlink($outputPath);
         }
@@ -101,7 +105,7 @@ final class PackageBuilder
         }
 
         foreach ($this->config->sources as $src) {
-            $this->addDirectory($zip, $this->resolve($src['from']), $src['to'], $this->config->excludes);
+            $this->addDirectory($zip, $this->resolve($src['from']), $src['to']);
         }
 
         $fileCount = $zip->numFiles;
@@ -133,24 +137,57 @@ final class PackageBuilder
     }
 
     /**
-     * Run the configured pre-build gate.
+     * Run the configured pre-build hook.
      *
-     * `ensure-minified` is the only mode currently supported. For each listed
-     * directory, every `<name>.<ext>` that isn't already a `.min.<ext>` must
-     * have a corresponding `<name>.min.<ext>` sibling, otherwise the build
-     * fails with a hint to run the project's build step.
+     * Modes:
+     *   - `ensure-minified` — gate on presence of `*.min.{ext}` siblings.
+     *   - `run` — passthru a shell command (Proclaim's auto `npm run build`).
      *
-     * @param array{mode: string, dirs?: list<string>} $preBuild
+     * @param array{mode: string, dirs?: list<string>, command?: string} $preBuild
      */
     private function runPreBuild(array $preBuild): void
     {
-        if ($preBuild['mode'] !== 'ensure-minified') {
+        if ($preBuild['mode'] === 'ensure-minified') {
+            $this->ensureMinifiedAssets($preBuild['dirs'] ?? []);
+
             return;
         }
 
+        if ($preBuild['mode'] === 'run') {
+            $command = (string) ($preBuild['command'] ?? '');
+
+            // BuildConfig validates this, but defense in depth.
+            if (trim($command) === '') {
+                throw new \RuntimeException('preBuild.mode "run" requires a non-empty command');
+            }
+
+            // The command may use shell features (&&, env vars, redirects) — passthru
+            // gives the user live progress output. Per CLAUDE.md the build config is
+            // trusted (committed by the project author), so the shell semantics are OK.
+            echo "Running pre-build: $command\n";
+
+            $exitCode = 0;
+            passthru($command, $exitCode);
+
+            if ($exitCode !== 0) {
+                throw new \RuntimeException("Pre-build command failed with exit $exitCode");
+            }
+
+            echo "\n";
+        }
+    }
+
+    /**
+     * For each listed dir, every `<name>.<ext>` that isn't already a `.min.<ext>`
+     * must have a corresponding `<name>.min.<ext>` sibling.
+     *
+     * @param list<string> $dirs
+     */
+    private function ensureMinifiedAssets(array $dirs): void
+    {
         $missing = [];
 
-        foreach ($preBuild['dirs'] ?? [] as $relDir) {
+        foreach ($dirs as $relDir) {
             $absDir = $this->resolve($relDir);
 
             if (!is_dir($absDir)) {
@@ -170,7 +207,6 @@ final class PackageBuilder
 
                 $ext = $m[1];
 
-                // Already a minified version — skip.
                 if (str_ends_with($entry, '.min.' . $ext)) {
                     continue;
                 }
@@ -197,10 +233,8 @@ final class PackageBuilder
 
     /**
      * Walk a source directory and add its files to the zip under $zipPrefix.
-     *
-     * @param list<string> $excludes
      */
-    private function addDirectory(ZipArchive $zip, string $sourcePath, string $zipPrefix, array $excludes): void
+    private function addDirectory(ZipArchive $zip, string $sourcePath, string $zipPrefix): void
     {
         if (!is_dir($sourcePath)) {
             echo "  SKIP: $sourcePath (not found)\n";
@@ -224,10 +258,12 @@ final class PackageBuilder
                 continue;
             }
 
-            $filePath     = $file->getRealPath();
-            $relativePath = substr($filePath, strlen($sourceReal) + 1);
+            $filePath = $file->getRealPath();
+            // Normalize separators to forward-slash so cross-platform
+            // patterns and globs match on Windows too.
+            $relativePath = str_replace('\\', '/', substr($filePath, strlen($sourceReal) + 1));
 
-            if (self::matchesExclude($relativePath, $excludes)) {
+            if (!$this->shouldInclude($relativePath)) {
                 continue;
             }
 
@@ -239,17 +275,130 @@ final class PackageBuilder
     }
 
     /**
-     * @param list<string> $excludes
+     * Decide whether a file (by its source-relative path) lands in the zip.
+     *
+     * Excludes are checked first, then includes (when configured). When
+     * `includeRoots` and `includeRootExtensions` are both empty (the default
+     * lib_cwmscripture shape), everything not explicitly excluded is included.
      */
-    private static function matchesExclude(string $path, array $excludes): bool
+    private function shouldInclude(string $relativePath): bool
     {
-        foreach ($excludes as $pattern) {
-            if ($pattern !== '' && str_contains($path, $pattern)) {
+        if ($this->matchesExcludes($relativePath)) {
+            return false;
+        }
+
+        if ($this->config->includeRoots === [] && $this->config->includeRootExtensions === []) {
+            return true;
+        }
+
+        return $this->matchesIncludes($relativePath);
+    }
+
+    /**
+     * Apply every configured exclusion rule against the relative path.
+     *
+     * Order: excludeMatchMode list → excludeExtensions → excludePaths globs →
+     * vendorPrune. Any match short-circuits to `true`.
+     */
+    private function matchesExcludes(string $relativePath): bool
+    {
+        foreach ($this->config->excludes as $pattern) {
+            if ($pattern === '') {
+                continue;
+            }
+
+            if ($this->config->excludeMatchMode === BuildConfig::MATCH_STRICT) {
+                if (self::matchesStrict($relativePath, $pattern)) {
+                    return true;
+                }
+            } elseif (str_contains($relativePath, $pattern)) {
+                return true;
+            }
+        }
+
+        if ($this->config->excludeExtensions !== []) {
+            $ext = pathinfo($relativePath, PATHINFO_EXTENSION);
+
+            if ($ext !== '' && in_array($ext, $this->config->excludeExtensions, true)) {
+                return true;
+            }
+        }
+
+        foreach ($this->config->excludePaths as $glob) {
+            if ($glob !== '' && fnmatch($glob, $relativePath)) {
+                return true;
+            }
+        }
+
+        if ($this->config->vendorPrune && str_contains($relativePath, '/vendor/')) {
+            $basename = basename($relativePath);
+
+            if ($basename === 'installed.json' || $basename === 'installed.php') {
+                return true;
+            }
+
+            $upper = strtoupper(pathinfo($basename, PATHINFO_FILENAME));
+
+            if (in_array($upper, self::VENDOR_PRUNE_DOC_NAMES, true)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * Strict 4-mode pattern match: exact, prefix-with-slash, contained-with-slashes,
+     * suffix-after-slash. Matches Proclaim's `proclaim_build.php` semantics.
+     */
+    private static function matchesStrict(string $path, string $pattern): bool
+    {
+        $clean = rtrim($pattern, '/');
+
+        if ($clean === '') {
+            return false;
+        }
+
+        if ($path === $clean) {
+            return true;
+        }
+
+        if (str_starts_with($path, $clean . '/')) {
+            return true;
+        }
+
+        if (str_contains($path, '/' . $clean . '/')) {
+            return true;
+        }
+
+        return str_ends_with($path, '/' . $clean);
+    }
+
+    /**
+     * Apply the include filter: at least one of (a) the path starts with a
+     * configured root prefix, or (b) the file is at the source root and has
+     * an extension on the root-extensions allowlist.
+     */
+    private function matchesIncludes(string $relativePath): bool
+    {
+        foreach ($this->config->includeRoots as $root) {
+            if ($root !== '' && str_starts_with($relativePath, $root)) {
+                return true;
+            }
+        }
+
+        if ($this->config->includeRootExtensions === []) {
+            return false;
+        }
+
+        // Root-level files only — those with no '/' in the source-relative path.
+        if (str_contains($relativePath, '/')) {
+            return false;
+        }
+
+        $ext = pathinfo($relativePath, PATHINFO_EXTENSION);
+
+        return $ext !== '' && in_array($ext, $this->config->includeRootExtensions, true);
     }
 
     private function log(string $line): void

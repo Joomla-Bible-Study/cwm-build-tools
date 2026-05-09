@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `cwm-build` strict-mode + filtering features for the Proclaim-shape build
+  flow. New optional `build:` schema fields (PR C of #5):
+  - `excludeMatchMode: "strict"` — Proclaim's 4-mode pattern matching
+    (exact / prefix-with-slash / contained-with-slashes / suffix-after-slash)
+    that catches `.git` at any depth without over-matching the substring "git"
+    inside unrelated filenames. Defaults to `"contains"` (PR B behavior).
+  - `excludeExtensions: ["map"]` — bare extension allowlist; `.map` files
+    are dropped at any path.
+  - `excludePaths: ["media/backup/*.sql"]` — fnmatch glob patterns matched
+    against the relative path; covers Proclaim's `media/backup/*.sql` rule.
+  - `vendorPrune: true` — drop Composer metadata (`installed.json`,
+    `installed.php`) and doc/license files (`README*`, `CHANGELOG*`,
+    `BACKERS*`, `AUTHORS*`, `CONTRIBUTING*`, `UPGRADE*`, `SECURITY*`,
+    `LICENSE*`, `COPYING*`) inside any `vendor/` subtree.
+  - `includeRoots: ["admin/", "media/", ...]` — subdirectory allowlist;
+    only files starting with one of these prefixes are included.
+  - `includeRootExtensions: ["php", "xml", "txt", "md"]` — root-level
+    files (no `/` in path) with one of these extensions are also admitted
+    through the include filter (Proclaim's `proclaim.xml`, `LICENSE.txt`,
+    `README.md` at project root).
+  - `preBuild.mode: "run"` + `preBuild.command` — auto-execute a shell
+    command (`passthru`) before the zip walk; non-zero exit aborts.
+    Matches Proclaim's `npm install && npm run build` step. Build config
+    is trusted (committed by the project author) so shell semantics are
+    OK per the threat model.
+  11 new tests / 56 assertions covering each of the above plus the
+  combined Proclaim-shape (strict + vendor-prune + includeRoots +
+  includeRootExtensions). Defaults preserve PR B's behavior; adopting any
+  of these is opt-in. The interactive 3-way version prompt
+  (`versionPrompt`) is deferred to a small follow-up after PR A
+  (`Build\Prompt`) merges.
+
 - `cwm-build` binary + `scripts/build.php` + `src/Build/PackageBuilder` +
   `src/Build/BuildConfig` — generic Joomla extension zip builder driven by a
   `build:` block in `cwm-build.config.json`. Phase 1 covers the
