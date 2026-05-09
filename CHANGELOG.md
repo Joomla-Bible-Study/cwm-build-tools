@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.1-alpha] - 2026-05-09
+
+Patch release for one bug surfaced during the lib_cwmscripture migration
+to v0.5.0-alpha.
+
+### Fixed
+
+- `cwm-build` `preBuild.mode: "ensure-minified"` gate now only checks
+  primary asset extensions (`.js`, `.css`). Earlier the gate iterated
+  every extension in the configured directories and reported spurious
+  failures like `foo.min.js.map → expected foo.min.js.min.map` for
+  source-map (`.map`) and gzip (`.gz`) companions of already-minified
+  files. The first end-to-end consumer migration (lib_cwmscripture)
+  surfaced this immediately; consumers of v0.5.0-alpha that hit the
+  same gate failure should bump to `^0.5@alpha` (auto-picks 0.5.1) or
+  pin to `0.5.1-alpha` directly. Regression test added.
+
 ## [0.5.0-alpha] - 2026-05-09
 
 First minor bump on the alpha line. Consolidates the per-consumer build /
