@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `CWM\BuildTools\Build\Prompt` — extracted the interactive `ask()` helper
+  (with the fixed countdown ANSI redraw — the `\r\033[K` clear-to-EOL that
+  prevents stray "0" artifacts when "(10s):" is replaced by "(9s):") from
+  Proclaim's `build/proclaim_build.php` into a reusable PSR-4 class. Honors
+  `$CI` and `$CWM_NONINTERACTIVE` for CI-safe defaults; uses array-form
+  `proc_open` for the `stty` calls (no shell, no metachar interpretation —
+  per the project's security guardrails). Foundation for the upcoming
+  `cwm-build` / `cwm-package` consolidation (#5). 7 unit tests covering the
+  non-interactive paths and `isNonInteractive()` env detection.
+
 - `templates/build-assets.js` — generic version of Proclaim's
   `build/build-assets.js` that copies images, mirrors a manually-managed
   vendor source tree, and cherry-picks files/dirs out of npm packages in
