@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#
+# cwm-build — build an installable Joomla extension zip from
+# cwm-build.config.json.
+#
+# Reads the `build:` block of cwm-build.config.json in the project root and
+# produces an installable zip under build.outputDir. See `cwm-build --help`
+# for full usage.
+#
+# Usage from a consuming project:
+#   composer cwm-build                       # full build
+#   composer cwm-build -- -v                 # verbose
+#   composer cwm-build -- --version 1.2.3    # override version
+#
+set -euo pipefail
+
+PROJECT_ROOT="$(pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ ! -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
+    echo "Error: cwm-build.config.json not found in $PROJECT_ROOT"
+    echo "Run 'cwm-init' to scaffold one, or see"
+    echo "  ${TOOLS_DIR}/examples/ for reference configs."
+    exit 1
+fi
+
+exec php "${TOOLS_DIR}/scripts/build.php" "$@"

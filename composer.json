@@ -33,6 +33,7 @@
     "bin": [
         "bin/cwm-release",
         "bin/cwm-bump",
+        "bin/cwm-build",
         "bin/cwm-package",
         "bin/cwm-sync-configs",
         "bin/cwm-sync-languages",
