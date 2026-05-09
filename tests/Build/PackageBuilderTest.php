@@ -178,6 +178,37 @@ PHP;
     }
 
     #[Test]
+    public function ensureMinifiedGateIgnoresDerivedFiles(): void
+    {
+        // Regression: an earlier implementation iterated every extension in
+        // the gated directories and treated `.map` / `.gz` companions as
+        // "primary assets that need a minified sibling", producing spurious
+        // failures like `foo.min.js.map → expected foo.min.js.min.map`. The
+        // gate should only check actual primary `.js`/`.css` files.
+        $this->writeManifest('cwmscripture.xml', '1.0.0');
+        $this->writeFile('src/Foo.php', '<?php');
+        // Real primary assets + their minified pairs
+        $this->writeFile('media/lib_cwmscripture/js/scripture-tooltip.js', 'console.log');
+        $this->writeFile('media/lib_cwmscripture/js/scripture-tooltip.min.js', 'console.log');
+        // Source maps + gzip companions that don't need their own minified pair
+        $this->writeFile('media/lib_cwmscripture/js/scripture-tooltip.min.js.map', '{}');
+        $this->writeFile('media/lib_cwmscripture/js/scripture-tooltip.min.js.gz', '');
+        $this->writeFile('media/lib_cwmscripture/js/scripture-tooltip.js.map', '{}');
+        // Asset-bundle metadata
+        $this->writeFile('media/lib_cwmscripture/js/joomla.asset.json', '{}');
+        // CSS path with the same shape
+        $this->writeFile('media/lib_cwmscripture/css/scripture-text.css', '.s{}');
+        $this->writeFile('media/lib_cwmscripture/css/scripture-text.min.css', '.s{}');
+        $this->writeFile('media/lib_cwmscripture/css/scripture-text.min.css.map', '{}');
+
+        $builder = new PackageBuilder($this->makeLibConfig(), $this->tmpDir);
+
+        $this->expectOutputRegex('/Package built/');
+        $zipPath = $builder->build();
+        $this->assertFileExists($zipPath);
+    }
+
+    #[Test]
     public function buildConfigRejectsMissingRequired(): void
     {
         $this->expectException(\InvalidArgumentException::class);

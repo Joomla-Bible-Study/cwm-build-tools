@@ -197,6 +197,15 @@ final class PackageBuilder
      */
     private function ensureMinifiedAssets(array $dirs): void
     {
+        // Only check primary web-asset extensions. Other files in the same
+        // directory (e.g. `*.min.js.map` source maps, `*.min.js.gz` rollup
+        // gzips, `joomla.asset.json`) are not "primary assets that need a
+        // minified sibling" — they're derived from the minified version, or
+        // configuration metadata. Earlier versions of this gate iterated
+        // every extension and produced spurious failures like
+        // `foo.min.js.map → expected foo.min.js.min.map`.
+        $primaryExtensions = ['js', 'css'];
+
         $missing = [];
 
         foreach ($dirs as $relDir) {
@@ -217,7 +226,11 @@ final class PackageBuilder
                     continue;
                 }
 
-                $ext = $m[1];
+                $ext = strtolower($m[1]);
+
+                if (!in_array($ext, $primaryExtensions, true)) {
+                    continue;
+                }
 
                 if (str_ends_with($entry, '.min.' . $ext)) {
                     continue;
