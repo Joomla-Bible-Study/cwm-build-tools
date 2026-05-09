@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `cwm-release`: pre-flight steps before the version bump now (a) `git fetch
+  origin --prune --tags`, (b) `git pull --ff-only origin <release-branch>` and
+  abort with guidance if local has diverged, (c) `git submodule update --init
+  --recursive` to match working trees to recorded pointers, and (d) warn when
+  a submodule pointer isn't at a tagged release commit (non-blocking — shipping
+  an untagged snapshot is sometimes intentional, but should be deliberate).
+  Catches the "I forgot to pull" and "submodule working tree on a different
+  commit than recorded" failure modes that surfaced during the Proclaim 10.3.2
+  release. Reported in #6.
+
 ## [0.4.1-alpha] - 2026-05-08
 
 Fixes and scaffolder completion driven by the first end-to-end consumer
