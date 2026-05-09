@@ -7,6 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0-alpha] - 2026-05-09
+
+First minor bump on the alpha line. Consolidates the per-consumer build /
+package scripts (Proclaim's `proclaim_build.php`, lib_cwmscripture's
+`build-package.php`, CWMScriptureLinks' `build-package.php`) into two
+generic binaries — `cwm-build` and `cwm-package` — driven by new
+`build:` and `package:` blocks in `cwm-build.config.json`. Adds
+`cwm-article`, `cwm-joomla-cms-deps`, and a parameterized
+`build-assets.js` template (issue #7), plus pre-flight `git pull` /
+submodule sync in `cwm-release` (issue #6).
+
+**Schema is additive**, but `cwm-package` itself changes behavior — see
+the migration guide below before bumping. Consumers pinned to `^0.4@alpha`
+do **not** auto-pick this up; they must update their constraint to
+`^0.5@alpha` (or pin to `0.5.0-alpha`) and adopt the new schema fields.
+
+### Migration guide
+
+| Concern | Old (0.4.x) | New (0.5.0) |
+|---|---|---|
+| Build a single zip | `"command": "php build/build-package.php"` (project script) | `"command": "cwm-build"` + new `build:` schema fields below |
+| Assemble multi-ext package | `"command": "php build/proclaim_build.php package"` (project script) | `"command": "cwm-package"` + new `package:` block |
+| `cwm-package` binary | thin `bash -c $build.command` shim | generic assembler reading `package:` block |
+| `cwm-build` binary | did not exist | new — see below |
+
+**Required `composer.json` change** (consumers using cwm-build-tools):
+
+```json
+{
+    "require-dev": {
+        "cwm/build-tools": "^0.5@alpha"
+    }
+}
+```
+
+**Required `cwm-build.config.json` additions** to use the new binaries:
+
+- For a single-extension build (lib_cwmscripture-shape):
+  ```json
+  "build": {
+      "command":    "cwm-build",
+      "outputGlob": "build/dist/lib_cwmscripture-*.zip",
+      "outputDir":  "build/dist",
+      "outputName": "lib_cwmscripture-{version}.zip",
+      "manifest":   "cwmscripture.xml",
+      "scriptFile": "script.php",
+      "sources": [
+          { "from": "src",                    "to": "lib_cwmscripture/src" },
+          { "from": "media/lib_cwmscripture", "to": "media/lib_cwmscripture" }
+      ],
+      "excludes": [".git", ".DS_Store", "node_modules"],
+      "preBuild": {
+          "mode": "ensure-minified",
+          "dirs": ["media/lib_cwmscripture/js", "media/lib_cwmscripture/css"]
+      }
+  }
+  ```
+
+- For a Proclaim-shape strict build, additionally set `excludeMatchMode:
+  "strict"`, `vendorPrune: true`, `includeRoots`, `includeRootExtensions`,
+  `excludeExtensions`, `excludePaths`, and `preBuild.mode: "run"` with
+  `preBuild.command: "npm install && npm run build"`.
+
+- For a multi-extension package wrapper:
+  ```json
+  "package": {
+      "manifest":     "build/pkg_proclaim.xml",
+      "outputDir":    "build/dist",
+      "outputName":   "pkg_proclaim-{version}.zip",
+      "innerLayout":  "packages-prefix",
+      "installer":    "build/script.install.php",
+      "languageFiles": [
+          { "from": "build/language/en-GB/en-GB.pkg_proclaim.sys.ini",
+            "to":   "language/en-GB/en-GB.pkg_proclaim.sys.ini" }
+      ],
+      "includes": [
+          { "type": "self",     "outputName": "com_proclaim.zip" },
+          { "type": "subBuild", "path": "libraries/lib_cwmscripture",
+            "buildScript": "build/build-package.php",
+            "distGlob":    "build/dist/lib_cwmscripture-*.zip",
+            "outputName":  "lib_cwmscripture.zip" }
+      ]
+  }
+  ```
+
+After migration the project's own `build/build-package.php` /
+`build/proclaim_build.php` scripts can be deleted.
+
 ### Added
 
 - `cwm-build` 3-way interactive version prompt — new optional
