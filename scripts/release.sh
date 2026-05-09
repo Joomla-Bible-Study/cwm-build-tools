@@ -65,6 +65,44 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
 fi
 
+# --- Pre-flight: sync with origin ---
+# Catches the "I forgot to pull" failure mode where the release builds from
+# stale parent state, and the "submodule working tree on a different commit
+# than recorded" failure mode where the package silently embeds an unintended
+# snapshot. Both happened during the Proclaim 10.3.2 release pass (issue #6).
+echo "[pre-flight] Fetching origin..."
+git fetch origin --prune --tags
+
+echo "[pre-flight] Pulling ${RELEASE_BRANCH} (fast-forward only)..."
+if ! git pull --ff-only origin "$RELEASE_BRANCH"; then
+    echo ""
+    echo "Error: Local ${RELEASE_BRANCH} has diverged from origin/${RELEASE_BRANCH}."
+    echo "Resolve manually before running release."
+    echo "  Inspect: git status && git log @{u}.."
+    echo "  Rebase:  git pull --rebase origin ${RELEASE_BRANCH}"
+    exit 1
+fi
+
+# `submodule update` is a no-op when no submodules are configured.
+echo "[pre-flight] Syncing submodules to recorded pointers..."
+git submodule update --init --recursive
+
+# Warn (don't block) when a submodule pointer isn't at a tagged release commit.
+# Shipping an untagged snapshot is sometimes intentional, but it should be a
+# deliberate choice — surface it loudly.
+if [ -f .gitmodules ]; then
+    git submodule foreach --quiet '
+        ptr=$(git rev-parse HEAD)
+        if ! git describe --exact-match --tags "$ptr" >/dev/null 2>&1; then
+            short=$(echo "$ptr" | cut -c1-8)
+            echo "  WARNING: submodule $name pointer ${short} is not at a tagged release."
+            echo "           The package will embed a snapshot, not a tagged version."
+            echo "           If this is unintentional, release the submodule first."
+        fi
+    '
+fi
+echo ""
+
 # --- Get version ---
 if [ -n "${1:-}" ]; then
     VERSION="$1"
