@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `cwm-package` rewritten — replaces the prior thin shell-pass-through wrapper
+  (`bash -c $build.command`) with a generic Joomla multi-extension package
+  assembler driven by a new `package:` block in `cwm-build.config.json`. New
+  classes: `src/Build/PackageConfig` and `src/Build/Packager`; CLI script
+  `scripts/package.php`. Supports four `includes[]` entry types:
+  - `self` — invoke `cwm-build` on the project's own `build:` block, then
+    bundle the result. Handles Proclaim's "step 3: build com_proclaim".
+  - `subBuild` — array-form `proc_open` of `php <buildScript> [args]` inside
+    `path`, then glob `distGlob` (relative to `path`) for the produced zip.
+    Handles Proclaim's two `passthru('php …/build-package.php …')` calls
+    (including the `--plugin-only` arg) during transition while sub-extensions
+    still ship their own scripts.
+  - `prebuilt` — assume already on disk; glob `distGlob` (project-relative).
+    Multiple matches → most-recently modified wins.
+  - `inline` — nested `BuildConfig`-shaped block; cwm-build runs in-process
+    on it. Handles CSL's `plg_task_cwmscripture` (a sibling directory built
+    in-process).
+
+  Other features: `innerLayout` (`"root"` for outer-zip entries at root vs
+  `"packages-prefix"` for `packages/<outputName>` paths — Proclaim's layout),
+  optional `installer` scriptfile, `languageFiles[]` with explicit `from`/`to`
+  paths, opt-in `verify.expectedEntries[]` self-check (CSL's verifyPackage
+  feature). Staging dir is a unique scratch dir under `sys_get_temp_dir()`
+  cleaned up on success or failure (no shell-driven `rm -rf` calls; native
+  PHP recursion with `is_link()` guards per CLAUDE.md).
+
+  20 new unit tests / 79 assertions covering all 4 include types, both inner
+  layouts, version override, installer + language file placement, verify
+  pass/fail, and config validation (required fields, invalid type, invalid
+  layout, subBuild missing path, inline missing nested config). PR D of #5.
+
 - `cwm-build` strict-mode + filtering features for the Proclaim-shape build
   flow. New optional `build:` schema fields (PR C of #5):
   - `excludeMatchMode: "strict"` — Proclaim's 4-mode pattern matching

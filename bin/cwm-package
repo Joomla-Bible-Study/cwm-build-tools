@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 #
-# cwm-package — invoke the project's build command from cwm-build.config.json.
+# cwm-package — assemble a multi-extension Joomla package zip from
+# cwm-build.config.json.
 #
-# This is a thin wrapper around build.command in the config file. The actual
-# zip-building logic stays project-specific for now (Phase 4 will introduce
-# a generic builder that can replace project-specific build-package.php
-# files where they're similar enough).
+# Reads the `package:` block of cwm-build.config.json in the project root
+# and assembles an installable wrapper zip with one or more child extension
+# zips. Supports four `includes[]` entry types (`self`, `subBuild`,
+# `prebuilt`, `inline`). See `cwm-package --help` for full usage.
+#
+# Usage from a consuming project:
+#   composer cwm-package                       # full assembly
+#   composer cwm-package -- -v                 # verbose
+#   composer cwm-package -- --version 1.2.3    # override version
 #
 set -euo pipefail
 
@@ -14,15 +20,9 @@ TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if [ ! -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
     echo "Error: cwm-build.config.json not found in $PROJECT_ROOT"
+    echo "Run 'cwm-init' to scaffold one, or see"
+    echo "  ${TOOLS_DIR}/examples/ for reference configs."
     exit 1
 fi
 
-BUILD_CMD=$(php -r '$c = json_decode(file_get_contents("cwm-build.config.json"), true); echo $c["build"]["command"] ?? "";')
-
-if [ -z "$BUILD_CMD" ]; then
-    echo "Error: build.command not set in cwm-build.config.json"
-    exit 1
-fi
-
-echo "Running: $BUILD_CMD"
-exec bash -c "$BUILD_CMD"
+exec php "${TOOLS_DIR}/scripts/package.php" "$@"
