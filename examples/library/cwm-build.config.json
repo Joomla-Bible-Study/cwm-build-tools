@@ -10,8 +10,24 @@
         ]
     },
     "build": {
-        "command": "npm run build && php build/build-package.php",
-        "outputGlob": "build/dist/lib_cwmscripture-*.zip"
+        "_command_comment": "command + outputGlob are read by cwm-release. command = 'cwm-build' delegates to the generic builder, which reads outputDir/outputName/manifest/scriptFile/sources/excludes/preBuild from this same block. cwm-release then matches outputGlob to find the produced artifact.",
+        "command": "cwm-build",
+        "outputGlob": "build/dist/lib_cwmscripture-*.zip",
+        "outputDir": "build/dist",
+        "outputName": "lib_cwmscripture-{version}.zip",
+        "manifest": "cwmscripture.xml",
+        "scriptFile": "script.php",
+        "sources": [
+            { "from": "src",                    "to": "lib_cwmscripture/src" },
+            { "from": "sql",                    "to": "lib_cwmscripture/sql" },
+            { "from": "language",               "to": "lib_cwmscripture/language" },
+            { "from": "media/lib_cwmscripture", "to": "media/lib_cwmscripture" }
+        ],
+        "excludes": [".git", ".DS_Store", ".idea", "node_modules", ".php-cs-fixer.cache"],
+        "preBuild": {
+            "mode": "ensure-minified",
+            "dirs": ["media/lib_cwmscripture/js", "media/lib_cwmscripture/css"]
+        }
     },
     "ars": {
         "endpoint": "https://www.christianwebministries.org",

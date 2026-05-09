@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `cwm-build` binary + `scripts/build.php` + `src/Build/PackageBuilder` +
+  `src/Build/BuildConfig` — generic Joomla extension zip builder driven by a
+  `build:` block in `cwm-build.config.json`. Phase 1 covers the
+  lib_cwmscripture build shape: read manifest version, optionally gate on
+  presence of `*.min.{js,css}` siblings (`preBuild.mode: "ensure-minified"`),
+  walk one or more source directories with a per-source zip-path prefix, apply
+  loose `str_contains` excludes. CLI flags `-v`/`--verbose`, `--version <ver>`
+  override, `--help`. New schema fields: `build.outputDir`, `outputName`
+  (supports `{version}`), `manifest`, `scriptFile`, `sources[]`, `excludes`,
+  `preBuild`. Coexists with the existing `build.command` / `build.outputGlob`
+  fields used by `cwm-release` — consumers migrate by setting
+  `build.command: "cwm-build"`. Strict-mode filtering, vendor pruning, auto-
+  run pre-build, and the interactive 3-way version prompt land in subsequent
+  PRs (still part of #5). 8 new unit tests / 39 assertions covering the
+  end-to-end build, version override, gate pass/fail, and config validation.
+
 - `CWM\BuildTools\Build\Prompt` — extracted the interactive `ask()` helper
   (with the fixed countdown ANSI redraw — the `\r\033[K` clear-to-EOL that
   prevents stray "0" artifacts when "(10s):" is replaced by "(9s):") from
