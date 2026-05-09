@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `cwm-build` 3-way interactive version prompt — new optional
+  `build.versionPrompt: { enabled, timeout }` config field. When enabled
+  AND the build is run interactively AND no `--version` override is given,
+  cwm-build offers Proclaim's existing 3-way menu before opening the zip:
+  (1) keep the manifest version, (2) use a date-stamped pre-release
+  (`<version>.YYYYMMDD`), or (3) enter a custom value. Default for `timeout`
+  is 10 seconds; choosing nothing within the countdown picks option 1.
+  CI / `$CWM_NONINTERACTIVE` short-circuits to manifest version with a
+  single diagnostic line. `cwm-release` continues to pass `--version`
+  through to the build command, so the release pipeline is unaffected —
+  this only fires for ad-hoc local `cwm-build` runs. 5 new tests covering
+  the non-interactive bypass, override short-circuit, schema validation,
+  and the timeout default. The interactive 3-way path stays manual
+  (PHPUnit can't fake a PTY).
+
 - `cwm-package` rewritten — replaces the prior thin shell-pass-through wrapper
   (`bash -c $build.command`) with a generic Joomla multi-extension package
   assembler driven by a new `package:` block in `cwm-build.config.json`. New

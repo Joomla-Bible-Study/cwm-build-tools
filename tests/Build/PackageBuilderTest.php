@@ -471,6 +471,102 @@ PHP;
         ]);
     }
 
+    // --- 3-way version prompt (versionPrompt) ---
+
+    #[Test]
+    public function versionPromptIsSkippedWhenNonInteractive(): void
+    {
+        // Under PHPUnit (CI=1 or CWM_NONINTERACTIVE=1), Prompt::isNonInteractive()
+        // returns true, so the prompt path is bypassed and the manifest version is
+        // used. No prompt-options output should appear.
+        putenv('CWM_NONINTERACTIVE=1');
+
+        try {
+            $this->writeManifest('proclaim.xml', '10.3.2');
+            $this->writeFile('admin/x.php', '<?php');
+
+            $config = $this->makeProclaimConfig([], [
+                'versionPrompt' => ['enabled' => true, 'timeout' => 5],
+            ]);
+
+            $builder = new PackageBuilder($config, $this->tmpDir);
+            // Build emits "Building com_proclaim-10.3.2.zip" but NOT "Version options:".
+            $this->expectOutputRegex('/Building com_proclaim-10\.3\.2\.zip/');
+            $zip = $builder->build();
+
+            $this->assertSame($this->tmpDir . '/build/dist/com_proclaim-10.3.2.zip', $zip);
+            $this->assertFileExists($zip);
+        } finally {
+            putenv('CWM_NONINTERACTIVE');
+        }
+    }
+
+    #[Test]
+    public function versionOverrideShortCircuitsThePrompt(): void
+    {
+        // Even when versionPrompt is enabled, an explicit --version override
+        // skips the prompt entirely (the override is checked before the
+        // versionPrompt branch).
+        $this->writeManifest('proclaim.xml', '10.3.2');
+        $this->writeFile('admin/x.php', '<?php');
+
+        $config = $this->makeProclaimConfig([], [
+            'versionPrompt' => ['enabled' => true, 'timeout' => 999],
+        ]);
+
+        $builder = new PackageBuilder($config, $this->tmpDir);
+        $this->expectOutputRegex('/Building com_proclaim-9\.9\.9\.zip/');
+        $zip = $builder->build('9.9.9');
+
+        $this->assertSame($this->tmpDir . '/build/dist/com_proclaim-9.9.9.zip', $zip);
+    }
+
+    #[Test]
+    public function buildConfigRejectsNonObjectVersionPrompt(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('build.versionPrompt must be an object');
+
+        BuildConfig::fromArray([
+            'outputDir'     => 'build/dist',
+            'outputName'    => 'foo-{version}.zip',
+            'manifest'      => 'foo.xml',
+            'sources'       => [['from' => 'src', 'to' => 'src']],
+            'versionPrompt' => 'yes',
+        ]);
+    }
+
+    #[Test]
+    public function buildConfigRejectsNegativeVersionPromptTimeout(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('build.versionPrompt.timeout must be a non-negative integer');
+
+        BuildConfig::fromArray([
+            'outputDir'     => 'build/dist',
+            'outputName'    => 'foo-{version}.zip',
+            'manifest'      => 'foo.xml',
+            'sources'       => [['from' => 'src', 'to' => 'src']],
+            'versionPrompt' => ['enabled' => true, 'timeout' => -3],
+        ]);
+    }
+
+    #[Test]
+    public function buildConfigDefaultsVersionPromptTimeoutTo10(): void
+    {
+        $config = BuildConfig::fromArray([
+            'outputDir'     => 'build/dist',
+            'outputName'    => 'foo-{version}.zip',
+            'manifest'      => 'foo.xml',
+            'sources'       => [['from' => 'src', 'to' => 'src']],
+            'versionPrompt' => ['enabled' => true],
+        ]);
+
+        $this->assertNotNull($config->versionPrompt);
+        $this->assertSame(true, $config->versionPrompt['enabled']);
+        $this->assertSame(10, $config->versionPrompt['timeout']);
+    }
+
     // --- Helpers ---
 
     /**
