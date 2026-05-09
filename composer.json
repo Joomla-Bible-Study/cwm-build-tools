@@ -62,6 +62,7 @@
             "/.php-cs-fixer.cache",
             "/.phpunit.cache",
             "/.phpunit.result.cache",
+            "/CLAUDE.md",
             "/phpunit.xml",
             "/phpunit.xml.dist",
             "/tests",
