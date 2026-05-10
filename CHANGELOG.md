@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.2-alpha] - 2026-05-10
+
+Patch release for the version-threading gap surfaced during the Proclaim
+migration to v0.5.0-alpha.
+
+### Changed
+
+- `cwm-package` `self` include now inherits the outer wrapper's version
+  for its inner `cwm-build` invocation. Previously the inner build read
+  its own manifest's `<version>`; if that drifted from the package
+  manifest's `<version>` (e.g. between `cwm-bump` runs, or with
+  `cwm-package --version X` overriding only the outer name) the inner
+  zip would land at a different version than the wrapper. This was the
+  reason the v0.5.0/0.5.1 release notes asked Proclaim to **not** enable
+  `versionPrompt: { enabled: true }` — an interactive prompt could
+  produce mismatched inner and outer versions. With this fix, the outer
+  version (whether from manifest, `--version` CLI override, or future
+  prompt result) is threaded into the `self` include's `cwm-build` call
+  via `PackageBuilder::build($outerVersion)`. `inline`, `subBuild`, and
+  `prebuilt` includes are version-independent (their version sources
+  are nested manifests, sub-build script outputs, and pre-built
+  artifacts respectively) and remain unchanged. Released this as a
+  patch on the alpha line because: (a) no consumer has merged the new
+  binaries yet, only PRs are open against them; (b) the prior behavior
+  was unintentionally inconsistent with the `self` semantic ("this same
+  project") rather than a deliberate API choice. 2 new tests covering
+  the threading invariant + the CLI override path; the diagnostic
+  output line now includes the inherited version (`-> building self
+  (X.zip) at vN.N.N`).
+
+  Once consumers are on `^0.5@alpha` (auto-picks 0.5.2), Proclaim can
+  enable `versionPrompt: { enabled: true }` and have the prompt result
+  flow consistently from `cwm-package`'s outer manifest read into the
+  `self` include's inner build.
+
 ## [0.5.1-alpha] - 2026-05-09
 
 Patch release for one bug surfaced during the lib_cwmscripture migration

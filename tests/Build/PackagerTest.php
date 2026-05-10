@@ -305,7 +305,10 @@ PHP);
         ]);
 
         $packager = new Packager($config, $parentBuild, $this->tmpDir);
-        $this->expectOutputRegex('/building self \(main\.zip\)/');
+        // Outer version is 1.0.0 (build/pkg.xml); the self include uses the
+        // outer version, NOT main.xml's 2.0.0. Diagnostic line surfaces this
+        // so the developer notices version-threading for the self include.
+        $this->expectOutputRegex('/building self \(main\.zip\) at v1\.0\.0/');
         $outer = $packager->package();
 
         $entries = $this->zipEntries($outer);
@@ -314,6 +317,45 @@ PHP);
         $childEntries = $this->zipEntriesOfNested($outer, 'main.zip');
         $this->assertContains('main.xml', $childEntries);
         $this->assertContains('src/Foo.php', $childEntries);
+
+        // The self include's intermediate zip (left in the parent's
+        // build/dist) uses the OUTER version even though main.xml says 2.0.0
+        // — that's the threading invariant.
+        $this->assertFileExists($this->tmpDir . '/build/dist/main-1.0.0.zip');
+        $this->assertFileDoesNotExist($this->tmpDir . '/build/dist/main-2.0.0.zip');
+    }
+
+    #[Test]
+    public function selfIncludeThreadsCliVersionOverrideToInnerBuild(): void
+    {
+        // When `cwm-package --version 9.9.9` is given, the override applies
+        // to the outer wrapper AND threads through to the self include's
+        // inner build, so both name files at 9.9.9 — no manifest reads at all.
+        $this->writeManifest('build/pkg.xml', '1.0.0');
+        $this->writeManifest('main.xml', '2.0.0');
+        $this->writeFile('src/Foo.php', '<?php');
+
+        $parentBuild = BuildConfig::fromArray([
+            'outputDir'  => 'build/dist',
+            'outputName' => 'main-{version}.zip',
+            'manifest'   => 'main.xml',
+            'sources'    => [['from' => 'src', 'to' => 'src']],
+        ]);
+
+        $config = $this->makePackageConfig([
+            'outputName' => 'pkg-{version}.zip',
+            'includes'   => [[
+                'type'       => 'self',
+                'outputName' => 'main.zip',
+            ]],
+        ]);
+
+        $packager = new Packager($config, $parentBuild, $this->tmpDir);
+        $this->expectOutputRegex('/building self \(main\.zip\) at v9\.9\.9/');
+        $outer = $packager->package('9.9.9');
+
+        $this->assertSame($this->tmpDir . '/build/dist/pkg-9.9.9.zip', $outer);
+        $this->assertFileExists($this->tmpDir . '/build/dist/main-9.9.9.zip');
     }
 
     #[Test]
