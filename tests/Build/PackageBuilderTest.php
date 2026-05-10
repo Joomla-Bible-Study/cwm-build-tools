@@ -598,6 +598,68 @@ PHP;
         $this->assertSame(10, $config->versionPrompt['timeout']);
     }
 
+    // --- CLI script integration (catches missing require_once in scripts/build.php) ---
+
+    #[Test]
+    public function buildScriptResolvesAllRequiredClasses(): void
+    {
+        // Regression: Proclaim's migration enabled `versionPrompt` and the
+        // `cwm-build` CLI threw `Class "CWM\BuildTools\Build\Prompt" not
+        // found` because scripts/build.php didn't `require_once Prompt.php`.
+        // The unit tests instantiate PackageBuilder directly with PHPUnit's
+        // autoloader resolving every class — this child-process test exercises
+        // the real CLI entry point.
+        $this->writeManifest('cwmscripture.xml', '1.0.0');
+        $this->writeFile('src/Foo.php', '<?php');
+        $this->writeFile('media/lib_cwmscripture/js/foo.js', 'console.log');
+        $this->writeFile('media/lib_cwmscripture/js/foo.min.js', 'console.log');
+        $this->writeFile('media/lib_cwmscripture/css/foo.css', '.foo{}');
+        $this->writeFile('media/lib_cwmscripture/css/foo.min.css', '.foo{}');
+
+        $config = $this->libConfigArray();
+        // Add versionPrompt — the field that triggers Prompt::isNonInteractive()
+        // at build time.
+        $config['versionPrompt'] = ['enabled' => true, 'timeout' => 1];
+        file_put_contents(
+            $this->tmpDir . '/cwm-build.config.json',
+            json_encode(['build' => $config], JSON_PRETTY_PRINT)
+        );
+
+        $cwm    = realpath(__DIR__ . '/../..');
+        $script = $cwm . '/scripts/build.php';
+
+        $proc = proc_open(
+            ['php', $script],
+            [
+                0 => ['file', '/dev/null', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ],
+            $pipes,
+            $this->tmpDir,
+            ['CWM_NONINTERACTIVE' => '1', 'PATH' => (string) getenv('PATH')]
+        );
+
+        if (!is_resource($proc)) {
+            $this->fail('Could not spawn child PHP for CLI integration test');
+        }
+
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exit = proc_close($proc);
+
+        $this->assertSame(
+            0,
+            $exit,
+            "scripts/build.php exited $exit\nSTDOUT: $stdout\nSTDERR: $stderr"
+        );
+        $this->assertStringNotContainsString('Class', (string) $stderr);
+        $this->assertStringNotContainsString('not found', (string) $stderr);
+        $this->assertFileExists($this->tmpDir . '/build/dist/lib_cwmscripture-1.0.0.zip');
+    }
+
     // --- Helpers ---
 
     /**

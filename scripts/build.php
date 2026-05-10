@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../src/Build/BuildConfig.php';
 require_once __DIR__ . '/../src/Build/ManifestReader.php';
+require_once __DIR__ . '/../src/Build/Prompt.php';
 require_once __DIR__ . '/../src/Build/PackageBuilder.php';
 
 use CWM\BuildTools\Build\BuildConfig;

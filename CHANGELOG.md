@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.3-alpha] - 2026-05-10
+
+Patch release for a CLI-only autoload bug surfaced when Proclaim enabled
+`versionPrompt: { enabled: true }` against v0.5.2-alpha.
+
+### Fixed
+
+- `scripts/build.php` and `scripts/package.php` now `require_once`
+  `src/Build/Prompt.php`. The CLI entry points are PSR-0-style, loading
+  every class manually rather than relying on Composer's autoloader, and
+  the `Prompt` class (added in 0.5.0-alpha for the 3-way version prompt)
+  was missing from both. The PHPUnit suite did not catch this because
+  unit tests instantiate `PackageBuilder` directly and Composer's
+  autoloader resolves `Prompt` transparently — only the standalone CLI
+  invocation hit the gap. Symptom: `Error: build failed — Class
+  "CWM\BuildTools\Build\Prompt" not found` immediately after enabling
+  `versionPrompt`. Regression test added that spawns
+  `php scripts/build.php` as a child process with `versionPrompt`
+  enabled and asserts no class-not-found errors in stderr.
+
 ## [0.5.2-alpha] - 2026-05-10
 
 Patch release for the version-threading gap surfaced during the Proclaim
