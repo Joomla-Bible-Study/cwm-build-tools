@@ -79,7 +79,7 @@ final class Packager
         $stagingDir = $this->createStagingDir();
 
         try {
-            $stagedChildren = $this->resolveIncludes($stagingDir);
+            $stagedChildren = $this->resolveIncludes($stagingDir, $version);
             $this->writeOuterZip($outputPath, $manifestPath, $stagedChildren);
 
             if ($this->config->verify !== null) {
@@ -100,9 +100,16 @@ final class Packager
     /**
      * Resolve every `includes[]` entry into an absolute path to a staged zip.
      *
+     * `$outerVersion` is threaded into `self` includes so the inner build
+     * uses the same version as the outer wrapper — Proclaim's `pkg_proclaim`
+     * shape, where the package and the main extension share one version
+     * cadence. `inline`, `subBuild`, and `prebuilt` includes are version-
+     * independent (they have their own manifest, their own dist glob, or
+     * their own pre-built artifact respectively) and are NOT threaded.
+     *
      * @return list<array{outputName: string, path: string}>
      */
-    private function resolveIncludes(string $stagingDir): array
+    private function resolveIncludes(string $stagingDir, string $outerVersion): array
     {
         $resolved = [];
 
@@ -111,7 +118,7 @@ final class Packager
 
             switch ($include['type']) {
                 case PackageConfig::TYPE_SELF:
-                    $stagedPath = $this->resolveSelf($include, $stagedPath);
+                    $stagedPath = $this->resolveSelf($include, $stagedPath, $outerVersion);
                     break;
 
                 case PackageConfig::TYPE_SUB_BUILD:
@@ -139,9 +146,15 @@ final class Packager
     /**
      * Build the project's own `build:` block via PackageBuilder.
      *
+     * The outer package version is threaded down so the `self` zip matches
+     * the wrapper version — without this, the inner extension reads its
+     * own manifest's `<version>` and could end up at a different version
+     * than the wrapper if the manifests have drifted (e.g. between
+     * `cwm-bump` runs).
+     *
      * @param array<string, mixed> $include
      */
-    private function resolveSelf(array $include, string $stagedPath): string
+    private function resolveSelf(array $include, string $stagedPath, string $outerVersion): string
     {
         if ($this->parentBuild === null) {
             throw new \RuntimeException(
@@ -150,10 +163,10 @@ final class Packager
             );
         }
 
-        echo "  -> building self ({$include['outputName']})\n";
+        echo "  -> building self ({$include['outputName']}) at v$outerVersion\n";
 
         $builder    = new PackageBuilder($this->parentBuild, $this->projectRoot, $this->verbose);
-        $producedAt = $builder->build();
+        $producedAt = $builder->build($outerVersion);
 
         $this->copy($producedAt, $stagedPath);
 
