@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.5.3-alpha] - 2026-05-10
+## [0.5.4-alpha] - 2026-05-11
 
 Patch release for a CLI-only autoload bug surfaced when Proclaim enabled
-`versionPrompt: { enabled: true }` against v0.5.2-alpha.
+`versionPrompt: { enabled: true }` against v0.5.2-alpha. The fix was
+described in the 0.5.3-alpha CHANGELOG but landed in #22 *after* the
+v0.5.3-alpha tag was cut, so v0.5.4-alpha is the first tag that ships
+it.
 
 ### Fixed
 
@@ -26,6 +29,14 @@ Patch release for a CLI-only autoload bug surfaced when Proclaim enabled
   `versionPrompt`. Regression test added that spawns
   `php scripts/build.php` as a child process with `versionPrompt`
   enabled and asserts no class-not-found errors in stderr.
+
+## [0.5.3-alpha] - 2026-05-10
+
+Intended as the patch release for the Prompt.php CLI autoload bug, but
+the tag was cut before #22 landed on `main`. The fix described here
+actually ships in v0.5.4-alpha; this tag is functionally equivalent to
+v0.5.2-alpha. Consumers on `^0.5@alpha` should bump to v0.5.4-alpha to
+pick up the fix.
 
 ## [0.5.2-alpha] - 2026-05-10
 
