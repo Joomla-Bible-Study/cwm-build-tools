@@ -24,18 +24,51 @@ final class ExtensionVerifierTest extends TestCase
     #[Test]
     public function expected_extensions_includes_top_level_component(): void
     {
+        // Use component-listed directory which contains com_example.xml.
+        // We'll mock the config to point to it.
         $config = [
             'extension' => ['type' => 'component', 'name' => 'com_example'],
             'manifests' => ['extensions' => []],
         ];
 
+        $rows = (new ExtensionVerifier(self::FIXTURES . '/component-listed', $config))->expectedExtensions();
+
+        self::assertCount(1, $rows);
+        $row = $rows[0];
+        self::assertSame('component', $row['type']);
+        self::assertSame('com_example', $row['element']);
+        self::assertSame(1, $row['enabled']);
+        self::assertSame(0, $row['locked']);
+
+        self::assertArrayHasKey('menus', $row);
+        self::assertCount(3, $row['menus']);
+        self::assertSame('com_example', $row['menus'][0]['text']);
+        self::assertSame(1, $row['menus'][0]['level']);
+        self::assertSame('COM_EXAMPLE_SUBMENU_ITEMS', $row['menus'][1]['text']);
+        self::assertSame(2, $row['menus'][1]['level']);
+        self::assertSame('com_example', $row['menus'][1]['parent']);
+    }
+
+    #[Test]
+    public function expected_extensions_describes_a_component_manifest(): void
+    {
+        $config = [
+            'manifests' => [
+                'extensions' => [
+                    ['type' => 'component', 'path' => 'component-listed/com_example.xml'],
+                ],
+            ],
+        ];
+
         $rows = (new ExtensionVerifier(self::FIXTURES, $config))->expectedExtensions();
 
         self::assertCount(1, $rows);
-        self::assertSame('component', $rows[0]['type']);
-        self::assertSame('com_example', $rows[0]['element']);
-        self::assertSame(1, $rows[0]['enabled']);
-        self::assertSame(0, $rows[0]['locked']);
+        $row = $rows[0];
+
+        self::assertSame('component', $row['type']);
+        self::assertSame('com_example', $row['element']);
+        self::assertArrayHasKey('menus', $row);
+        self::assertCount(3, $row['menus']);
     }
 
     #[Test]

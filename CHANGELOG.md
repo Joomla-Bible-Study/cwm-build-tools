@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.5-alpha] - 2026-05-12
+
+### Added
+
+- `cwm-verify` now validates and fixes Joomla component admin menus. It parses
+  `<menu>` and `<submenu>` tags from the component manifest and checks the
+  `#__menu` table in the target database. When run with `--fix`, missing menus
+  are automatically created using a safe Nested Set append strategy.
+
 ## [0.5.4-alpha] - 2026-05-11
 
 Patch release for a CLI-only autoload bug surfaced when Proclaim enabled

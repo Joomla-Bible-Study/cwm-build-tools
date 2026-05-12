@@ -8,4 +8,11 @@
     <files>
         <filename>example.xml</filename>
     </files>
+    <administration>
+        <menu link="option=com_example">com_example</menu>
+        <submenu>
+            <menu link="option=com_example&amp;view=items">COM_EXAMPLE_SUBMENU_ITEMS</menu>
+            <menu link="option=com_example&amp;view=categories">COM_EXAMPLE_SUBMENU_CATEGORIES</menu>
+        </submenu>
+    </administration>
 </extension>

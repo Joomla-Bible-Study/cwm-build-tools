@@ -129,6 +129,14 @@ final class ExtensionVerifier
                 echo "  MISS:   {$ext['name']} ({$ext['type']}) — install via Extension Manager\n";
                 $errors++;
             }
+
+            if (($row !== null || $action === 'added') && $ext['type'] === 'component' && !empty($ext['menus'])) {
+                $id           = $row ? (int) $row['extension_id'] : (int) $pdo->lastInsertId();
+                $menuResults  = $this->verifyMenus($pdo, $prefix, $id, $ext, $reconcile);
+                $ok          += $menuResults['ok'];
+                $fixed       += $menuResults['fixed'];
+                $errors      += $menuResults['errors'];
+            }
         }
 
         echo "  Summary: {$ok} OK, {$fixed} fixed, {$errors} errors\n";
@@ -149,7 +157,7 @@ final class ExtensionVerifier
             $name = (string) ($extension['name'] ?? '');
 
             if ($name !== '') {
-                $out[] = [
+                $comp = [
                     'type'      => 'component',
                     'element'   => $name,
                     'folder'    => '',
@@ -158,6 +166,14 @@ final class ExtensionVerifier
                     'locked'    => 0,
                     'namespace' => null,
                 ];
+
+                $manifestPath = $this->findComponentManifest($name);
+
+                if ($manifestPath) {
+                    $comp['menus'] = $this->extractMenus($manifestPath);
+                }
+
+                $out[] = $comp;
             }
         }
 
@@ -201,10 +217,30 @@ final class ExtensionVerifier
         $namespace = trim((string) ($xml->namespace ?? ''));
 
         return match ($type) {
-            'library' => $this->describeLibrary($xml, $manifestPath, $namespace),
-            'plugin'  => $this->describePlugin($xml, $manifestPath, $rawName, $namespace),
-            default   => null,
+            'component' => $this->describeComponent($xml, $manifestPath),
+            'library'   => $this->describeLibrary($xml, $manifestPath, $namespace),
+            'plugin'    => $this->describePlugin($xml, $manifestPath, $rawName, $namespace),
+            default     => null,
         };
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function describeComponent(\SimpleXMLElement $xml, string $manifestPath): array
+    {
+        $name = (string) $xml->name;
+
+        return [
+            'type'      => 'component',
+            'element'   => $name,
+            'folder'    => '',
+            'name'      => $name,
+            'enabled'   => 1,
+            'locked'    => 0,
+            'namespace' => (string) ($xml->namespace ?? null) ?: null,
+            'menus'     => $this->extractMenus($manifestPath),
+        ];
     }
 
     /**
@@ -426,5 +462,199 @@ final class ExtensionVerifier
         }
 
         return stripcslashes($raw);
+    }
+
+    /**
+     * @param array<string, mixed> $ext
+     * @return array{ok: int, fixed: int, errors: int}
+     */
+    private function verifyMenus(\PDO $pdo, string $prefix, int $componentId, array $ext, bool $reconcile): array
+    {
+        $expectedMenus = $ext['menus'] ?? [];
+        $ok            = 0;
+        $fixed         = 0;
+        $errors        = 0;
+
+        // Query existing menus for this component in admin client (client_id = 1).
+        $stmt = $pdo->prepare(
+            "SELECT id, title, parent_id, link FROM {$prefix}menu WHERE component_id = ? AND client_id = 1"
+        );
+        $stmt->execute([$componentId]);
+        $existing = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $parentMenuId = 0;
+
+        foreach ($expectedMenus as $menu) {
+            $foundRow = null;
+
+            foreach ($existing as $ex) {
+                if ($ex['title'] === $menu['text']) {
+                    $foundRow = $ex;
+
+                    break;
+                }
+            }
+
+            if ($foundRow !== null) {
+                if ($menu['level'] === 1) {
+                    $parentMenuId = (int) $foundRow['id'];
+                }
+
+                if ($this->verbose) {
+                    echo "    OK:     Menu: {$menu['text']}\n";
+                }
+                $ok++;
+
+                continue;
+            }
+
+            if (!$reconcile) {
+                echo "    MISS:   Menu: {$menu['text']}\n";
+                $errors++;
+
+                continue;
+            }
+
+            // Fix missing menu.
+            try {
+                $parentId = $menu['level'] === 1 ? 1 : $parentMenuId;
+                $newId    = $this->insertMenu($pdo, $prefix, $componentId, $menu, $parentId);
+
+                if ($menu['level'] === 1) {
+                    $parentMenuId = $newId;
+                }
+
+                echo "    ADDED:  Menu: {$menu['text']}\n";
+                $fixed++;
+            } catch (\Exception $e) {
+                echo "    ERROR:  Menu: {$menu['text']} — " . $e->getMessage() . "\n";
+                $errors++;
+            }
+        }
+
+        return ['ok' => $ok, 'fixed' => $fixed, 'errors' => $errors];
+    }
+
+    /**
+     * @param array<string, mixed> $menu
+     */
+    private function insertMenu(\PDO $pdo, string $prefix, int $componentId, array $menu, int $parentId): int
+    {
+        // Find max rgt to append to the end of the tree.
+        $stmt = $pdo->query("SELECT MAX(rgt) FROM {$prefix}menu");
+        $maxRgt = (int) $stmt->fetchColumn();
+
+        $lft = $maxRgt + 1;
+        $rgt = $maxRgt + 2;
+
+        $alias = preg_replace('/[^a-z0-9-]/', '-', strtolower($menu['text'])) ?? $menu['text'];
+        $link  = $menu['link'] !== '' ? $menu['link'] : 'index.php?option=' . $menu['text'];
+
+        if (!str_contains($link, 'option=')) {
+            $link = 'index.php?option=' . $link;
+        }
+
+        $sql = "INSERT INTO {$prefix}menu "
+            . '(menutype, title, alias, note, path, link, type, published, parent_id, level, component_id, '
+            . 'checked_out, checked_out_time, browserNav, access, img, template_style_id, params, lft, rgt, '
+            . 'home, language, client_id) '
+            . "VALUES ('main', ?, ?, '', ?, ?, 'component', 1, ?, ?, ?, 0, '0000-00-00 00:00:00', 0, 1, ?, 0, '', ?, ?, 0, '*', 1)";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([
+            $menu['text'],
+            $alias,
+            $alias,
+            $link,
+            $parentId,
+            $menu['level'],
+            $componentId,
+            $menu['img'],
+            $lft,
+            $rgt,
+        ]);
+
+        return (int) $pdo->lastInsertId();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function extractMenus(string $manifestPath): array
+    {
+        $previous = libxml_use_internal_errors(true);
+
+        try {
+            $xml = simplexml_load_file($manifestPath);
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
+
+        if (!$xml instanceof \SimpleXMLElement) {
+            return [];
+        }
+
+        $menus = [];
+        $admin = $xml->administration;
+
+        if (!$admin) {
+            return [];
+        }
+
+        if (isset($admin->menu)) {
+            $main    = $admin->menu;
+            $menus[] = [
+                'text'  => trim((string) $main),
+                'link'  => (string) ($main['link'] ?? ''),
+                'view'  => (string) ($main['view'] ?? ''),
+                'img'   => (string) ($main['img'] ?? ''),
+                'alt'   => (string) ($main['alt'] ?? ''),
+                'level' => 1,
+            ];
+
+            if (isset($admin->submenu->menu)) {
+                foreach ($admin->submenu->menu as $sub) {
+                    $menus[] = [
+                        'text'   => trim((string) $sub),
+                        'link'   => (string) ($sub['link'] ?? ''),
+                        'view'   => (string) ($sub['view'] ?? ''),
+                        'img'    => (string) ($sub['img'] ?? ''),
+                        'alt'    => (string) ($sub['alt'] ?? ''),
+                        'parent' => trim((string) $main),
+                        'level'  => 2,
+                    ];
+                }
+            }
+        }
+
+        return $menus;
+    }
+
+    private function findComponentManifest(string $componentName): ?string
+    {
+        // 1. Check build.manifest
+        $buildManifest = $this->config['build']['manifest'] ?? null;
+
+        if ($buildManifest && is_file($this->projectRoot . '/' . $buildManifest)) {
+            return $this->projectRoot . '/' . $buildManifest;
+        }
+
+        // 2. Check <componentName>.xml in root
+        $nameXml = $this->projectRoot . '/' . $componentName . '.xml';
+
+        if (is_file($nameXml)) {
+            return $nameXml;
+        }
+
+        // 3. Check stripped name.xml (e.g. proclaim.xml for com_proclaim)
+        $stripped    = preg_replace('/^com_/', '', $componentName) ?? $componentName;
+        $strippedXml = $this->projectRoot . '/' . $stripped . '.xml';
+
+        if (is_file($strippedXml)) {
+            return $strippedXml;
+        }
+
+        return null;
     }
 }
