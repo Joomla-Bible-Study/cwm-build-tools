@@ -249,7 +249,7 @@ When the block is present:
 - **`cwm-bump X.Y.Z`** writes `active_development.version = X.Y.Z` and
   `package.json:version = X.Y.Z`. Skipped when `--component` narrows the
   bump to a single extension type.
-- **`cwm-release X.Y.Z`** (step 7) writes `current.version = X.Y.Z`,
+- **`cwm-release X.Y.Z`** (step 8) writes `current.version = X.Y.Z`,
   recomputes `next.{patch,minor,major}`, and refreshes `_updated`.
   `active_development` is intentionally left alone — it stays pointing at
   whatever the last `cwm-bump` set, so devs explicitly advance it when
@@ -257,6 +257,34 @@ When the block is present:
 
 Either field is optional. Omit the whole block to keep the prior
 behaviour (only XML manifests get bumped).
+
+#### `@since __DEPLOY_VERSION__` placeholder substitution
+
+Add a `substituteTokens` subkey to opt into release-time `@since` tag
+substitution. Devs write `@since __DEPLOY_VERSION__` in source on
+in-flight code; `cwm-release` replaces the token with the real version
+between bump and build, so the released zip carries correct tags.
+
+```json
+{
+  "versionTracking": {
+    "substituteTokens": {
+      "token":      "__DEPLOY_VERSION__",
+      "paths":      ["admin/", "site/", "libraries/", "modules/", "plugins/"],
+      "extensions": ["php"]
+    }
+  }
+}
+```
+
+- Substitution runs only during `cwm-release` (step 2). `cwm-bump`
+  standalone leaves placeholders alone so dev branches between releases
+  stay free to accumulate `__DEPLOY_VERSION__` markers.
+- `vendor/`, `node_modules/`, and `.git/` directories are always skipped
+  regardless of configured paths.
+- Files without the token aren't touched — no spurious mtime bumps.
+- Matches the convention used throughout `joomla-cms` for `@since` tags
+  on in-flight code.
 
 ## Roadmap
 

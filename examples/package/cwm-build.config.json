@@ -40,7 +40,13 @@
     "_versionTracking_comment": "Opt-in. When present, cwm-bump syncs active_development.version + package.json:version; cwm-release syncs current.version, next.{patch,minor,major}, and _updated. Omit the block to skip.",
     "versionTracking": {
         "versionsJson": "build/versions.json",
-        "packageJson":  "package.json"
+        "packageJson":  "package.json",
+        "_substituteTokens_comment": "Opt-in @since __DEPLOY_VERSION__ substitution at release time. Drop the block to skip.",
+        "substituteTokens": {
+            "token":      "__DEPLOY_VERSION__",
+            "paths":      ["admin/", "site/", "libraries/", "modules/", "plugins/", "components/"],
+            "extensions": ["php"]
+        }
     },
     "_assets_comment": "Paths in the assets block are SOURCE-TREE paths, not install-time paths. They should match what the project's existing build/build-assets.js wrote to before adopting this template — typically media/images and media/vendor/<pkg> at the project root. The manifest's <media folder=...> element controls where these end up at install time.",
     "assets": {

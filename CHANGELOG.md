@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-05-14
+
+### Added
+
+- `cwm-release` now substitutes a placeholder token (default
+  `__DEPLOY_VERSION__`) with the release version across configured source
+  paths, between the manifest bump and the package build. Closes #24.
+  - Opt-in via a new `substituteTokens` subkey under `versionTracking` in
+    `cwm-build.config.json`:
+    ```json
+    {
+      "versionTracking": {
+        "substituteTokens": {
+          "token":      "__DEPLOY_VERSION__",
+          "paths":      ["admin/", "site/", "libraries/", "modules/", "plugins/"],
+          "extensions": ["php"]
+        }
+      }
+    }
+    ```
+  - Solves the "I don't know which version my code will ship in" problem
+    for `@since` PHPDoc tags. Devs write `@since __DEPLOY_VERSION__` on
+    in-flight code; the release pipeline substitutes the real version
+    at cut time. Matches the convention used throughout `joomla-cms`.
+  - Substitution runs only during `cwm-release` — `cwm-bump` standalone
+    leaves placeholders intact so dev branches between releases stay
+    free to accumulate `__DEPLOY_VERSION__` markers.
+  - Always skips `vendor/`, `node_modules/`, and `.git/` directories
+    regardless of configured paths (defensive — those should never be
+    rewritten).
+  - Files without the token are not rewritten (no spurious mtime bumps).
+- New `CWM\BuildTools\Release\TokenSubstituter` class plus
+  `scripts/substitute-tokens.php` CLI entry.
+
+### Changed
+
+- `cwm-release` pipeline is now 9 steps (was 8). The new step 2
+  ("Substitute `__DEPLOY_VERSION__` placeholder") sits between bump and
+  build. Steps 3-9 are the prior 2-8 renumbered. No behavior change for
+  projects that don't configure `substituteTokens`.
+
 ## [1.0.0] - 2026-05-14
 
 First stable release. The 0.x-alpha line is closed; the release pipeline,
