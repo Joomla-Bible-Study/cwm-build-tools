@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Generic 8-step release pipeline for a CWM Joomla extension.
+# Generic 9-step release pipeline for a CWM Joomla extension.
 #
 # Reads cwm-build.config.json from the current working directory. All
 # project-specific values (manifest paths, ARS endpoint, GitHub repo)
@@ -8,13 +8,14 @@
 #
 # Steps:
 #   1. Version bump across all manifests in cwm-build.config.json
-#   2. Run the project's build command
-#   3. Commit version bump and push
-#   4. Create GitHub release with built zip(s) attached
-#   5. Generate changelog entry (if generator is configured)
-#   6. Publish to ARS
-#   7. Update versions.json on development branch (if configured)
-#   8. Post CWM release announcement article (optional, skipped if no bullets file)
+#   2. Substitute __DEPLOY_VERSION__ placeholder in source (if configured)
+#   3. Run the project's build command
+#   4. Commit version bump and push
+#   5. Create GitHub release with built zip(s) attached
+#   6. Generate changelog entry (if generator is configured)
+#   7. Publish to ARS
+#   8. Update versions.json (if configured)
+#   9. Post CWM release announcement article (optional, skipped if no bullets file)
 #
 # Usage:
 #   release.sh 1.2.3                # release specific version
@@ -138,12 +139,22 @@ echo "=== ${PKG_NAME} Release ${VERSION} ==="
 echo ""
 
 # --- Step 1: Version bump ---
-echo "[1/8] Bumping version to ${VERSION}..."
+echo "[1/9] Bumping version to ${VERSION}..."
 php "${TOOLS_DIR}/scripts/bump.php" -v "$VERSION"
 echo ""
 
-# --- Step 2: Build ---
-echo "[2/8] Building package..."
+# --- Step 2: Substitute __DEPLOY_VERSION__ placeholder ---
+# Replaces the configured placeholder token (default __DEPLOY_VERSION__) with
+# the release version across configured source paths. Joomla core uses this
+# convention for @since PHPDoc tags on in-flight code where the author can't
+# predict the release number. Substitution runs BEFORE the build so the
+# packaged zip carries the real version, not the placeholder.
+echo "[2/9] Substituting __DEPLOY_VERSION__ placeholder..."
+php "${TOOLS_DIR}/scripts/substitute-tokens.php" -v "$VERSION"
+echo ""
+
+# --- Step 3: Build ---
+echo "[3/9] Building package..."
 BUILD_CMD=$(read_config "build.command")
 if [ -z "$BUILD_CMD" ]; then
     echo "Error: build.command not set in cwm-build.config.json"
@@ -169,8 +180,8 @@ fi
 echo "  Built: ${ARTIFACTS[*]}"
 echo ""
 
-# --- Step 3: Commit and push ---
-echo "[3/8] Committing version bump..."
+# --- Step 4: Commit and push ---
+echo "[4/9] Committing version bump..."
 # Add only files modified by step 1 + 2, not unrelated untracked files. The
 # bump and build steps may dirty several manifests and rebuild the zip; the
 # release branch was clean before step 1 (pre-check), so anything modified or
@@ -183,8 +194,8 @@ git commit -m "chore: bump version to ${VERSION}"
 git push
 echo ""
 
-# --- Step 4: GitHub release ---
-echo "[4/8] Creating GitHub release ${TAG}..."
+# --- Step 5: GitHub release ---
+echo "[5/9] Creating GitHub release ${TAG}..."
 
 # `HEAD` is the bump commit we just pushed; `git describe` from there finds the
 # previous reachable tag, which is what we want for the changelog "since" base.
@@ -212,8 +223,8 @@ gh release create "$TAG" "${ARTIFACTS[@]}" \
 
 echo ""
 
-# --- Step 5: Changelog ---
-echo "[5/8] Updating changelog..."
+# --- Step 6: Changelog ---
+echo "[6/9] Updating changelog..."
 CHANGELOG_FILE=$(read_config "changelog.file")
 if [ -n "$CHANGELOG_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
     bash "${TOOLS_DIR}/scripts/generate-changelog-entry.sh" "$VERSION"
@@ -230,8 +241,8 @@ else
 fi
 echo ""
 
-# --- Step 6: ARS publish ---
-echo "[6/8] Publishing to ARS..."
+# --- Step 7: ARS publish ---
+echo "[7/9] Publishing to ARS..."
 ARS_ENDPOINT=$(read_config "ars.endpoint")
 if [ -n "$ARS_ENDPOINT" ]; then
     bash "${TOOLS_DIR}/scripts/ars-publish.sh" -v "$VERSION" -f "${ARTIFACTS[0]}"
@@ -240,8 +251,8 @@ else
 fi
 echo ""
 
-# --- Step 7: versions.json update (current + next.* + _updated) ---
-echo "[7/8] Updating versions.json..."
+# --- Step 8: versions.json update (current + next.* + _updated) ---
+echo "[8/9] Updating versions.json..."
 DEV_BRANCH=$(read_config "github.developmentBranch")
 HAS_VERSION_TRACKING=$(read_config "versionTracking.versionsJson")
 
@@ -275,8 +286,8 @@ else
 fi
 echo ""
 
-# --- Step 8: CWM article (optional, only if bullets file exists) ---
-echo "[8/8] Posting CWM release announcement..."
+# --- Step 9: CWM article (optional, only if bullets file exists) ---
+echo "[9/9] Posting CWM release announcement..."
 BULLETS_DIR=$(read_config "announcement.bulletsDir")
 BULLETS_DIR="${BULLETS_DIR:-build}"
 BULLETS_FILE="${BULLETS_DIR}/release-bullets-${VERSION}.txt"
