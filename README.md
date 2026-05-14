@@ -230,6 +230,34 @@ runtime with each install's path from `build.properties`.
 
 See `examples/` for full per-extension-type setups (library, content-plugin, package).
 
+### Version tracking (opt-in)
+
+Projects that maintain a `build/versions.json` and/or a `package.json` can
+opt into automatic sync alongside manifest bumps:
+
+```json
+{
+  "versionTracking": {
+    "versionsJson": "build/versions.json",
+    "packageJson":  "package.json"
+  }
+}
+```
+
+When the block is present:
+
+- **`cwm-bump X.Y.Z`** writes `active_development.version = X.Y.Z` and
+  `package.json:version = X.Y.Z`. Skipped when `--component` narrows the
+  bump to a single extension type.
+- **`cwm-release X.Y.Z`** (step 7) writes `current.version = X.Y.Z`,
+  recomputes `next.{patch,minor,major}`, and refreshes `_updated`.
+  `active_development` is intentionally left alone — it stays pointing at
+  whatever the last `cwm-bump` set, so devs explicitly advance it when
+  they start minor or major work.
+
+Either field is optional. Omit the whole block to keep the prior
+behaviour (only XML manifests get bumped).
+
 ## Roadmap
 
 ### Phase 1 — Release pipeline (mostly done)

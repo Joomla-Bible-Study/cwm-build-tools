@@ -240,39 +240,38 @@ else
 fi
 echo ""
 
-# --- Step 7: versions.json on development branch ---
-echo "[7/8] Updating development branch..."
+# --- Step 7: versions.json update (current + next.* + _updated) ---
+echo "[7/8] Updating versions.json..."
 DEV_BRANCH=$(read_config "github.developmentBranch")
-VERSIONS_JSON=$(read_config "versionsFile")
-VERSIONS_JSON="${VERSIONS_JSON:-build/versions.json}"
+HAS_VERSION_TRACKING=$(read_config "versionTracking.versionsJson")
 
-if [ -n "$DEV_BRANCH" ] && [ -f "$VERSIONS_JSON" ]; then
-    IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION%%-*}"
-    NEXT_PATCH="${MAJOR}.${MINOR}.$((PATCH + 1))"
-
+if [ -z "$HAS_VERSION_TRACKING" ]; then
+    echo "  Skipped: no versionTracking.versionsJson configured."
+elif [ -n "$DEV_BRANCH" ]; then
+    # Project uses separate dev branch (versions.json lives there, not on release branch)
     git stash 2>/dev/null || true
     git checkout "$DEV_BRANCH"
     git pull
 
-    python3 -c "
-import json
-with open('${VERSIONS_JSON}', 'r') as f:
-    v = json.load(f)
-v['_updated'] = '$(date +%Y-%m-%d)'
-v['current']['version'] = '${VERSION}'
-v['next']['patch'] = '${NEXT_PATCH}'
-with open('${VERSIONS_JSON}', 'w') as f:
-    json.dump(v, f, indent=4)
-    f.write('\n')
-"
-    git add "$VERSIONS_JSON"
-    git commit -m "chore: update versions.json for ${TAG} release"
-    git push
+    php "${TOOLS_DIR}/scripts/version-tracker.php" --mode=release -v "$VERSION"
+
+    if ! git diff --quiet 2>/dev/null; then
+        git add -A
+        git commit -m "chore: update versions.json for ${TAG} release"
+        git push
+    fi
 
     git checkout "$RELEASE_BRANCH"
     git stash pop 2>/dev/null || true
 else
-    echo "  Skipped: no developmentBranch configured or ${VERSIONS_JSON} missing."
+    # Single-branch project: update inline on the release branch
+    php "${TOOLS_DIR}/scripts/version-tracker.php" --mode=release -v "$VERSION"
+
+    if ! git diff --quiet 2>/dev/null; then
+        git add -A
+        git commit -m "chore: update versions.json for ${TAG} release"
+        git push
+    fi
 fi
 echo ""
 

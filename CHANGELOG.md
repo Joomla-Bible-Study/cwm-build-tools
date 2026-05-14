@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- New opt-in `versionTracking` block in `cwm-build.config.json` keeps
+  `build/versions.json` and `package.json` in lockstep with manifest bumps.
+  Closes #23.
+  - `cwm-bump <version>` now writes `active_development.version` and
+    `package.json:version` (when configured). Skipped when `--component`
+    narrows the bump to a single extension type.
+  - `cwm-release <version>` (step 7) writes `current.version`, recomputes
+    `next.patch` / `next.minor` / `next.major`, and refreshes `_updated`.
+    `active_development` is left alone — it stays pointing at whatever the
+    last `cwm-bump` set, so developers explicitly advance it when starting
+    minor or major work.
+  - Schema:
+    ```json
+    {
+      "versionTracking": {
+        "versionsJson": "build/versions.json",
+        "packageJson":  "package.json"
+      }
+    }
+    ```
+  - Either field is optional; an absent block is a no-op (no behaviour
+    change for projects that don't opt in).
+- New `CWM\BuildTools\Release\VersionTracker` class plus
+  `scripts/version-tracker.php` CLI entry. The CLI is what `release.sh`
+  step 7 shells out to (replacing the prior inline `python3 -c` heredoc).
+
+### Changed
+
+- `release.sh` step 7 no longer requires `github.developmentBranch`. When
+  no dev branch is configured, the versions.json update happens inline on
+  the release branch. The dev-branch checkout/commit/push dance still
+  runs when configured, for projects with that workflow.
+
+### Deprecated
+
+- Top-level `versionsFile` key in `cwm-build.config.json`. Use
+  `versionTracking.versionsJson` instead. The old key still works for
+  this minor; will be removed in the next minor bump.
+
 ## [0.5.5-alpha] - 2026-05-12
 
 ### Added

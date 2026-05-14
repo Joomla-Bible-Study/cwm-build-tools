@@ -45,5 +45,10 @@
     "changelog": {
         "file": "build/lib_cwmscripture-changelog.xml",
         "url":  "https://raw.githubusercontent.com/Joomla-Bible-Study/lib_cwmscripture/main/build/lib_cwmscripture-changelog.xml"
+    },
+    "_versionTracking_comment": "Opt-in. When present, cwm-bump syncs active_development.version + package.json:version; cwm-release syncs current.version, next.{patch,minor,major}, and _updated. Omit the block to skip.",
+    "versionTracking": {
+        "versionsJson": "build/versions.json",
+        "packageJson":  "package.json"
     }
 }
