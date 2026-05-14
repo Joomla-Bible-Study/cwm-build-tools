@@ -28,6 +28,8 @@
  * @license GPL-2.0-or-later
  */
 
+require_once __DIR__ . '/../src/Release/VersionTracker.php';
+
 $projectRoot = getcwd();
 $configFile  = $projectRoot . '/cwm-build.config.json';
 
@@ -93,6 +95,18 @@ foreach ($config['manifests']['extensions'] ?? [] as $ext) {
 }
 
 echo "Bumped $bumped manifest(s) to $version (date: $date)\n";
+
+// Sync version-tracking files (versions.json, package.json) when configured.
+// Skipped for --component subset bumps, which advance a single extension type
+// without touching the project-wide development pointer.
+if ($only === null && !empty($config['versionTracking']) && is_array($config['versionTracking'])) {
+    $tracker = new CWM\BuildTools\Release\VersionTracker($projectRoot, $config['versionTracking']);
+    $touched = $tracker->updateForBump($version);
+
+    if ($touched !== []) {
+        echo "Updated " . count($touched) . " version-tracking file(s)\n";
+    }
+}
 
 /**
  * Rewrite <version> and (if present) <creationDate> in a Joomla extension manifest.
