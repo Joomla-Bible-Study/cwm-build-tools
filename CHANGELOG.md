@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-14
+
+First stable release. The 0.x-alpha line is closed; the release pipeline,
+generic builder, local-dev linker, ARS publisher, and CI workflow are all
+production-ready and have shipped real releases through Proclaim,
+CWMScriptureLinks, and lib_cwmscripture.
+
+**Consumer migration:** update your `composer.json` constraint from
+`"^0.5@alpha"` (or any `^0.x@alpha`) to `"^1.0"`. The CLI surface and
+`cwm-build.config.json` schema are unchanged from `0.5.5-alpha` — the
+1.0 cut is a stability marker, not a breaking change.
+
 ### Added
 
 - New opt-in `versionTracking` block in `cwm-build.config.json` keeps
