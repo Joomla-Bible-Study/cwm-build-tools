@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **versionTracking profiles** — consumers can now declare
+  `"profile": "component" | "library" | "package-wrapper"` in
+  `cwm-build.config.json` instead of hand-authoring the entire
+  `versionTracking` block. Profile defaults live in
+  `templates/profiles/<name>.json` here and resolve through
+  `CWM\BuildTools\Config\ProfileResolver` at every read site
+  (`cwm-bump`, `cwm-release`, `substitute-tokens`).
+  - The consumer's `versionTracking` key is still honored as an
+    override layer: maps deep-merge, lists replace wholesale.
+  - `cwm-init` detects the right profile from `extension.type` and
+    pre-fills the prompt; consumers usually just hit Enter.
+  - `cwm-sync-configs` prints a migration hint when a consumer has an
+    inline `versionTracking` block but no `profile` declared, and a
+    "safe to delete" hint when an inline block exactly matches the
+    profile defaults. Never auto-rewrites `cwm-build.config.json`.
+
 ## [1.0.1] - 2026-05-14
 
 ### Added

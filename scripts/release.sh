@@ -254,7 +254,7 @@ echo ""
 # --- Step 8: versions.json update (current + next.* + _updated) ---
 echo "[8/9] Updating versions.json..."
 DEV_BRANCH=$(read_config "github.developmentBranch")
-HAS_VERSION_TRACKING=$(read_config "versionTracking.versionsJson")
+HAS_VERSION_TRACKING=$(php "${TOOLS_DIR}/scripts/resolve-tracking.php" versionsJson)
 
 if [ -z "$HAS_VERSION_TRACKING" ]; then
     echo "  Skipped: no versionTracking.versionsJson configured."

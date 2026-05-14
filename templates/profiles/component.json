@@ -1,0 +1,12 @@
+{
+    "_comment": "Joomla component archetype (e.g. com_proclaim). Tracks both versions.json (current/next/active_development) and package.json:version, plus __DEPLOY_VERSION__ substitution across the conventional admin/site/modules/plugins/language trees. Consumers override `versionTracking.substituteTokens.paths` when their layout deviates (e.g. Proclaim excludes libraries/ to avoid double-substitution with lib_cwmscripture).",
+    "versionTracking": {
+        "versionsJson": "build/versions.json",
+        "packageJson":  "package.json",
+        "substituteTokens": {
+            "token":      "__DEPLOY_VERSION__",
+            "paths":      ["admin/", "site/", "modules/", "plugins/", "language/"],
+            "extensions": ["php"]
+        }
+    }
+}

@@ -1,0 +1,11 @@
+{
+    "_comment": "Standalone library archetype (e.g. lib_cwmscripture). Tracks package.json:version and substitutes __DEPLOY_VERSION__ across the library's source tree. No versions.json — libraries cut their own releases on their own cadence rather than carrying a project-wide current/next pointer.",
+    "versionTracking": {
+        "packageJson": "package.json",
+        "substituteTokens": {
+            "token":      "__DEPLOY_VERSION__",
+            "paths":      ["src/", "language/"],
+            "extensions": ["php"]
+        }
+    }
+}

@@ -29,6 +29,7 @@
  */
 
 require_once __DIR__ . '/../src/Release/VersionTracker.php';
+require_once __DIR__ . '/../src/Config/ProfileResolver.php';
 
 $projectRoot = getcwd();
 $configFile  = $projectRoot . '/cwm-build.config.json';
@@ -99,8 +100,10 @@ echo "Bumped $bumped manifest(s) to $version (date: $date)\n";
 // Sync version-tracking files (versions.json, package.json) when configured.
 // Skipped for --component subset bumps, which advance a single extension type
 // without touching the project-wide development pointer.
-if ($only === null && !empty($config['versionTracking']) && is_array($config['versionTracking'])) {
-    $tracker = new CWM\BuildTools\Release\VersionTracker($projectRoot, $config['versionTracking']);
+$tracking = CWM\BuildTools\Config\ProfileResolver::resolve($config);
+
+if ($only === null && $tracking !== null) {
+    $tracker = new CWM\BuildTools\Release\VersionTracker($projectRoot, $tracking);
     $touched = $tracker->updateForBump($version);
 
     if ($touched !== []) {

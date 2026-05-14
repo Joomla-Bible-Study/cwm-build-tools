@@ -19,6 +19,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/Release/TokenSubstituter.php';
+require_once __DIR__ . '/../src/Config/ProfileResolver.php';
 
 $projectRoot = getcwd();
 $configFile  = $projectRoot . '/cwm-build.config.json';
@@ -43,7 +44,8 @@ if (!is_array($config)) {
     exit(1);
 }
 
-$substituteConfig = $config['versionTracking']['substituteTokens'] ?? null;
+$tracking         = CWM\BuildTools\Config\ProfileResolver::resolve($config);
+$substituteConfig = $tracking['substituteTokens'] ?? null;
 
 if (!is_array($substituteConfig)) {
     // Not opted in — silent no-op.

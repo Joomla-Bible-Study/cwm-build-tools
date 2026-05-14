@@ -1,0 +1,10 @@
+{
+    "_comment": "Package wrapper archetype (e.g. pkg_cwmscripturelinks). Bundles sub-extensions whose own releases drive versions.json + package.json elsewhere, so the wrapper itself only substitutes __DEPLOY_VERSION__ at release time. Consumers typically extend `versionTracking.substituteTokens.paths` to cover bundled libraries/ and any wrapper-owned plugins (e.g. plg_task_*).",
+    "versionTracking": {
+        "substituteTokens": {
+            "token":      "__DEPLOY_VERSION__",
+            "paths":      ["src/", "language/"],
+            "extensions": ["php"]
+        }
+    }
+}

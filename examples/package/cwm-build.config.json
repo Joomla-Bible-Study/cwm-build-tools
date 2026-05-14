@@ -4,6 +4,8 @@
         "name": "pkg_cwmscripture",
         "displayName": "CWM Scripture"
     },
+    "_profile_comment": "Profile drives the versionTracking shape — see templates/profiles/package-wrapper.json in cwm-build-tools for the defaults. The versionTracking block below shows the override pattern (lists replace wholesale, so substituteTokens.paths fully redefines the scan roots).",
+    "profile": "package-wrapper",
     "manifests": {
         "package": "build/pkg_cwmscripture.xml",
         "extensions": [
@@ -37,15 +39,12 @@
         "command": "cwm-article",
         "bulletsDir": "build"
     },
-    "_versionTracking_comment": "Opt-in. When present, cwm-bump syncs active_development.version + package.json:version; cwm-release syncs current.version, next.{patch,minor,major}, and _updated. Omit the block to skip.",
+    "_versionTracking_comment": "Override layer — deep-merged on top of the 'package-wrapper' profile. Here we opt the wrapper into versions.json + package.json sync (the profile defaults to substituteTokens only) and broaden the substitution scan to cover bundled sub-extensions. Drop this whole block to use the profile defaults verbatim.",
     "versionTracking": {
         "versionsJson": "build/versions.json",
         "packageJson":  "package.json",
-        "_substituteTokens_comment": "Opt-in @since __DEPLOY_VERSION__ substitution at release time. Drop the block to skip.",
         "substituteTokens": {
-            "token":      "__DEPLOY_VERSION__",
-            "paths":      ["admin/", "site/", "libraries/", "modules/", "plugins/", "components/"],
-            "extensions": ["php"]
+            "paths": ["admin/", "site/", "libraries/", "modules/", "plugins/", "components/"]
         }
     },
     "_assets_comment": "Paths in the assets block are SOURCE-TREE paths, not install-time paths. They should match what the project's existing build/build-assets.js wrote to before adopting this template — typically media/images and media/vendor/<pkg> at the project root. The manifest's <media folder=...> element controls where these end up at install time.",

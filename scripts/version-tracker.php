@@ -20,6 +20,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/Release/VersionTracker.php';
+require_once __DIR__ . '/../src/Config/ProfileResolver.php';
 
 $projectRoot = getcwd();
 $configFile  = $projectRoot . '/cwm-build.config.json';
@@ -51,9 +52,9 @@ if (!is_array($config)) {
     exit(1);
 }
 
-$tracking = $config['versionTracking'] ?? null;
+$tracking = CWM\BuildTools\Config\ProfileResolver::resolve($config);
 
-if (!is_array($tracking)) {
+if ($tracking === null) {
     // Not opted in — silent no-op. Callers (bump.php, release.sh) expect this.
     exit(0);
 }

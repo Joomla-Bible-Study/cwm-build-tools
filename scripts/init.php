@@ -102,6 +102,8 @@ HELP;
     exit(0);
 }
 
+require_once __DIR__ . '/../src/Config/ProfileResolver.php';
+
 $projectRoot = getcwd();
 
 if ($projectRoot === false) {
@@ -280,6 +282,21 @@ if (!$nonInteractive) {
     $extName = ask("Extension name (e.g. pkg_X / com_X / lib_X / plg_<group>_<element> / mod_X)", $extName);
 }
 
+// Profile drives the versionTracking shape. We detect from extension type
+// so 90% of consumers just hit Enter; plugins/modules fall through to '' and
+// the consumer can pick explicitly (or leave empty to opt out of tracking).
+$profile = CWM\BuildTools\Config\ProfileResolver::detect(['extension' => ['type' => $extType]]) ?? '';
+
+if (!$nonInteractive) {
+    $known   = implode(', ', CWM\BuildTools\Config\ProfileResolver::known());
+    $profile = trim(ask("versionTracking profile ({$known}, blank to skip)", $profile));
+
+    if ($profile !== '' && !in_array($profile, CWM\BuildTools\Config\ProfileResolver::known(), true)) {
+        echo "  Unknown profile '{$profile}' — leaving blank. Edit cwm-build.config.json to set later.\n";
+        $profile = '';
+    }
+}
+
 $packageManifest = $detected['package'] ?? '';
 
 if ($extType === 'package' && !$nonInteractive) {
@@ -428,6 +445,10 @@ if ($detected['announcementCommand'] !== null) {
         'bulletsDir' => 'build',
         'command'    => $detected['announcementCommand'],
     ];
+}
+
+if ($profile !== '') {
+    $config['profile'] = $profile;
 }
 
 if ($detected['vendors'] !== []) {

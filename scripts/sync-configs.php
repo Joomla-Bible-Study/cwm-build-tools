@@ -24,6 +24,8 @@
  * @license GPL-2.0-or-later
  */
 
+require_once __DIR__ . '/../src/Config/ProfileResolver.php';
+
 $projectRoot = getcwd();
 $toolsRoot   = realpath(__DIR__ . '/..');
 $templates   = $toolsRoot . '/templates';
@@ -34,8 +36,13 @@ $dryRun = isset($opts['dry-run']);
 $configFile    = $projectRoot . '/cwm-build.config.json';
 $projectConfig = is_file($configFile) ? json_decode(file_get_contents($configFile), true) : [];
 
+if (!is_array($projectConfig)) {
+    $projectConfig = [];
+}
+
 syncGitignore($projectRoot, $templates, $projectConfig, $dryRun);
 syncEslint($projectRoot, $templates, $projectConfig, $dryRun);
+checkProfileHints($projectConfig, $toolsRoot);
 
 echo $dryRun ? "(dry-run; no files written)\n" : "Done.\n";
 
@@ -300,4 +307,56 @@ function upsertBlock(string $content, string $blockId, string $blockBody): strin
 
     // Append, preserving trailing newline behavior
     return rtrim($content, "\n") . "\n\n" . $newBlock;
+}
+
+/**
+ * Surface profile-related migration hints without rewriting cwm-build.config.json.
+ *
+ * Two states worth nudging on:
+ *
+ *   - **No `profile` key + inline `versionTracking`.** The consumer pre-dates
+ *     the profile mechanism. Suggest the detected profile so future shape
+ *     changes flow in via `composer update` instead of per-repo edits.
+ *
+ *   - **`profile` set + redundant inline `versionTracking`.** The consumer
+ *     migrated but left the hand-written block as a safety net. If it adds
+ *     nothing on top of the profile defaults, point out that it's safe to
+ *     delete so drift can't accumulate later.
+ *
+ * Never rewrites the file — cwm-build.config.json is hand-authored config
+ * that may carry comments-as-keys or layout choices we shouldn't disturb.
+ *
+ * @param array<string, mixed> $config
+ */
+function checkProfileHints(array $config, string $toolsRoot): void
+{
+    $profile  = $config['profile'] ?? null;
+    $inline   = $config['versionTracking'] ?? null;
+    $detected = \CWM\BuildTools\Config\ProfileResolver::detect($config);
+
+    if ($profile === null && is_array($inline) && $inline !== []) {
+        $suggestion = $detected !== null
+            ? "consider adding \"profile\": \"{$detected}\""
+            : 'consider declaring a "profile" key (component, library, package-wrapper)';
+
+        echo "cwm-build.config.json: {$suggestion} so versionTracking stays in sync with cwm-build-tools updates.\n";
+
+        return;
+    }
+
+    if (is_string($profile) && is_array($inline) && $inline !== []) {
+        try {
+            $profileOnly = \CWM\BuildTools\Config\ProfileResolver::resolve(
+                ['profile' => $profile],
+                $toolsRoot
+            );
+        } catch (\Throwable $e) {
+            // Unknown profile — let the regular resolver flag it at run time.
+            return;
+        }
+
+        if ($profileOnly === $inline) {
+            echo "cwm-build.config.json: versionTracking block matches profile '{$profile}' defaults — safe to delete.\n";
+        }
+    }
 }
