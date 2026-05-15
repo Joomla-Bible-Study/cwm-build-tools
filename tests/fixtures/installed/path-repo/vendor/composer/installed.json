@@ -1,0 +1,26 @@
+{
+    "packages": [
+        {
+            "name": "cwm/scripturelinks",
+            "version": "2.1.x-dev",
+            "version_normalized": "2.1.9999999.9999999-dev",
+            "dist": {
+                "type": "path",
+                "url": "sibling/CWMScriptureLinks",
+                "reference": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "type": "library",
+            "install-path": "../cwm/scripturelinks",
+            "transport-options": { "relative": true },
+            "extra": {
+                "cwm-build-tools": {
+                    "joomlaLinks": [
+                        { "type": "library", "name": "cwmscripturelinks" }
+                    ]
+                }
+            }
+        }
+    ],
+    "dev": true,
+    "dev-package-names": []
+}

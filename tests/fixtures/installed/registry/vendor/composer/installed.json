@@ -1,0 +1,39 @@
+{
+    "packages": [
+        {
+            "name": "cwm/scripturelinks",
+            "version": "2.1.4",
+            "version_normalized": "2.1.4.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/cwm/scripturelinks.git",
+                "reference": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/cwm/scripturelinks/zipball/aaaaaaaa",
+                "reference": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "shasum": ""
+            },
+            "type": "library",
+            "install-path": "../cwm/scripturelinks",
+            "extra": {
+                "cwm-build-tools": {
+                    "joomlaLinks": [
+                        { "type": "library", "name": "cwmscripturelinks" },
+                        { "type": "plugin",  "group": "content", "element": "cwmsl_autolink" }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "psr/log",
+            "version": "3.0.2",
+            "version_normalized": "3.0.2.0",
+            "type": "library",
+            "install-path": "../psr/log"
+        }
+    ],
+    "dev": true,
+    "dev-package-names": []
+}

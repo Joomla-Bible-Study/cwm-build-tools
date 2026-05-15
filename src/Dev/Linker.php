@@ -15,7 +15,7 @@ namespace CWM\BuildTools\Dev;
  * cwmconnect's PR #88 / #89 had to undo absolute-path symlinks Proclaim's
  * scripts shipped with for the same reason.
  *
- * @phpstan-type LinkResult array{link: string, target: string, status: string, message?: string}
+ * @phpstan-type LinkResult array{link: string, target: string, status: string, message?: string, existingRealpath?: string}
  */
 final class Linker
 {
@@ -83,7 +83,13 @@ final class Linker
      *   wrong   — link points somewhere unexpected
      *   broken  — link points at a non-existent target
      *
-     * @return array{link: string, target: string, status: string, message?: string}
+     * When the link exists (ok/wrong/broken), the return array also carries
+     * `existingRealpath` — the absolute realpath of whatever the symlink
+     * currently resolves to. Callers use this to distinguish "same target,
+     * skip silently" from "different target, conflict" without re-reading
+     * the link themselves.
+     *
+     * @return array{link: string, target: string, status: string, message?: string, existingRealpath?: string}
      */
     public function check(string $source, string $link): array
     {
@@ -99,24 +105,40 @@ final class Linker
 
         $actual         = readlink($link);
         $resolvedActual = $actual === false
-            ? false
+            ? null
             : (realpath($this->resolveAgainst($actual, \dirname($link))) ?: $actual);
         $resolvedTarget = realpath($source) ?: $source;
 
         if ($resolvedActual !== $resolvedTarget) {
-            return [
+            $result = [
                 'link'    => $link,
                 'target'  => $source,
                 'status'  => 'wrong',
-                'message' => "points to {$actual}",
+                'message' => "points to " . ($actual === false ? '(unreadable)' : $actual),
             ];
+
+            if (is_string($resolvedActual)) {
+                $result['existingRealpath'] = $resolvedActual;
+            }
+
+            return $result;
         }
 
         if (!file_exists($link)) {
-            return ['link' => $link, 'target' => $source, 'status' => 'broken'];
+            return [
+                'link'             => $link,
+                'target'           => $source,
+                'status'           => 'broken',
+                'existingRealpath' => is_string($resolvedActual) ? $resolvedActual : $source,
+            ];
         }
 
-        return ['link' => $link, 'target' => $source, 'status' => 'ok'];
+        return [
+            'link'             => $link,
+            'target'           => $source,
+            'status'           => 'ok',
+            'existingRealpath' => is_string($resolvedActual) ? $resolvedActual : $resolvedTarget,
+        ];
     }
 
     public function unlink(string $link): bool

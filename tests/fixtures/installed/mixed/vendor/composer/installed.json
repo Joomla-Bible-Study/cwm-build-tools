@@ -1,0 +1,53 @@
+{
+    "packages": [
+        {
+            "name": "cwm/scripturelinks",
+            "version": "2.1.4",
+            "version_normalized": "2.1.4.0",
+            "dist": { "type": "zip", "url": "...", "reference": "cccc", "shasum": "" },
+            "type": "library",
+            "install-path": "../cwm/scripturelinks",
+            "extra": {
+                "cwm-build-tools": {
+                    "joomlaLinks": [
+                        { "type": "library", "name": "cwmscripturelinks" }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "cwm/livingword",
+            "version": "1.0.3",
+            "version_normalized": "1.0.3.0",
+            "dist": { "type": "zip", "url": "...", "reference": "dddd", "shasum": "" },
+            "type": "library",
+            "install-path": "../cwm/livingword",
+            "extra": {
+                "cwm-build-tools": {
+                    "joomlaLinks": [
+                        { "type": "module", "name": "mod_livingword_widget", "client": "site" },
+                        { "type": "component", "name": "com_livingword" }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "cwm/build-tools",
+            "version": "1.1.0",
+            "version_normalized": "1.1.0.0",
+            "dist": { "type": "zip", "url": "...", "reference": "eeee", "shasum": "" },
+            "type": "library",
+            "install-path": "../cwm/build-tools"
+        },
+        {
+            "name": "phpunit/phpunit",
+            "version": "11.5.0",
+            "version_normalized": "11.5.0.0",
+            "dist": { "type": "zip", "url": "...", "reference": "ffff", "shasum": "" },
+            "type": "library",
+            "install-path": "../phpunit/phpunit"
+        }
+    ],
+    "dev": true,
+    "dev-package-names": ["phpunit/phpunit"]
+}

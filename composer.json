@@ -48,6 +48,7 @@
         "bin/cwm-link-check",
         "bin/cwm-clean",
         "bin/cwm-verify",
+        "bin/cwm-install-zip",
         "bin/cwm-joomla-install",
         "bin/cwm-joomla-latest",
         "bin/cwm-joomla-cms-deps"

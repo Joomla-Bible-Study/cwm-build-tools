@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#
+# cwm-install-zip — install the built dist zip into every Joomla install
+# marked role=test in build.properties. Companion to cwm-link: where
+# cwm-link symlinks source for fast iteration, install-zip deploys the
+# shipped artifact for end-to-end verification (install scriptfile,
+# dist exclusions, manifest declarations, schema migrations).
+#
+# Usage from a consuming project:
+#   composer cwm-build && composer cwm-install-zip
+#   composer cwm-install-zip -- --zip path/to/explicit.zip
+#
+set -euo pipefail
+
+PROJECT_ROOT="$(pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ ! -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
+    echo "Error: cwm-build.config.json not found in $PROJECT_ROOT"
+    exit 1
+fi
+
+exec php "${TOOLS_DIR}/scripts/install-zip.php" "$@"

@@ -256,6 +256,154 @@ final class PropertiesReaderTest extends TestCase
         self::assertSame('admin@example.com', $roundTripped[0]->adminEmail());
     }
 
+    #[Test]
+    public function installs_default_to_role_dev_when_role_key_is_absent(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            installs = j5
+
+            [j5]
+            path = /opt/joomla5
+            INI);
+
+        $installs = (new PropertiesReader($path))->installs();
+
+        self::assertCount(1, $installs);
+        self::assertSame(InstallConfig::ROLE_DEV, $installs[0]->role);
+    }
+
+    #[Test]
+    public function installs_read_explicit_role_field(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            installs = j5, j5-test
+
+            [j5]
+            role = dev
+            path = /opt/joomla5
+
+            [j5-test]
+            role = test
+            path = /opt/joomla5-test
+            INI);
+
+        $installs = (new PropertiesReader($path))->installs();
+
+        self::assertCount(2, $installs);
+        self::assertSame(InstallConfig::ROLE_DEV,  $installs[0]->role);
+        self::assertSame(InstallConfig::ROLE_TEST, $installs[1]->role);
+    }
+
+    #[Test]
+    public function role_field_is_case_insensitive_and_trimmed(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            installs = j5
+
+            [j5]
+            role =   TEST
+            path = /opt/joomla5
+            INI);
+
+        $installs = (new PropertiesReader($path))->installs();
+
+        self::assertSame(InstallConfig::ROLE_TEST, $installs[0]->role);
+    }
+
+    #[Test]
+    public function unknown_role_throws_with_clear_message(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            installs = j5
+
+            [j5]
+            role = staging
+            path = /opt/joomla5
+            INI);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage("Unknown install role 'staging' in build.properties");
+
+        (new PropertiesReader($path))->installs();
+    }
+
+    #[Test]
+    public function installs_for_filters_by_role(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            installs = j5, j6, j5-test
+
+            [j5]
+            path = /opt/joomla5
+
+            [j6]
+            path = /opt/joomla6
+
+            [j5-test]
+            role = test
+            path = /opt/joomla5-test
+            INI);
+
+        $reader = new PropertiesReader($path);
+
+        $devs  = $reader->installsFor(InstallConfig::ROLE_DEV);
+        $tests = $reader->installsFor(InstallConfig::ROLE_TEST);
+
+        self::assertSame(
+            ['j5', 'j6'],
+            array_map(static fn (InstallConfig $i): string => $i->id, $devs),
+        );
+        self::assertSame(
+            ['j5-test'],
+            array_map(static fn (InstallConfig $i): string => $i->id, $tests),
+        );
+    }
+
+    #[Test]
+    public function installs_for_returns_empty_list_when_no_match(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            installs = j5
+
+            [j5]
+            path = /opt/joomla5
+            INI);
+
+        self::assertSame([], (new PropertiesReader($path))->installsFor(InstallConfig::ROLE_TEST));
+    }
+
+    #[Test]
+    public function legacy_flat_proclaim_format_defaults_every_install_to_dev_role(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            builder.joomla_paths=/opt/j5,/opt/j6
+            builder.j5dev.url=https://j5.local
+            builder.j6dev.url=https://j6.local
+            INI);
+
+        $installs = (new PropertiesReader($path))->installs();
+
+        self::assertCount(2, $installs);
+        foreach ($installs as $install) {
+            self::assertSame(InstallConfig::ROLE_DEV, $install->role);
+        }
+    }
+
+    #[Test]
+    public function write_round_trips_role_field(): void
+    {
+        $devInstall  = new InstallConfig(id: 'j5', path: '/opt/j5');
+        $testInstall = new InstallConfig(id: 'j5-test', path: '/opt/j5-test', role: InstallConfig::ROLE_TEST);
+
+        $path = $this->tmpDir . '/written.properties';
+        (new PropertiesReader($path))->write([$devInstall, $testInstall]);
+
+        $roundTripped = (new PropertiesReader($path))->installs();
+
+        self::assertSame(InstallConfig::ROLE_DEV,  $roundTripped[0]->role);
+        self::assertSame(InstallConfig::ROLE_TEST, $roundTripped[1]->role);
+    }
+
     private function writeProperties(string $contents): string
     {
         $path = $this->tmpDir . '/build.properties';

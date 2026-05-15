@@ -7,12 +7,17 @@ namespace CWM\BuildTools\Dev;
 /**
  * Reads and writes the per-developer build.properties file.
  *
- * The canonical format is INI with one section per Joomla install:
+ * The canonical format is INI with one section per Joomla install. Each
+ * install carries a `role` of either `dev` (the symlink-style working
+ * install where `cwm-link` deploys; this is the default) or `test` (the
+ * artifact-style install where `cwm-install-zip` deploys a built zip and
+ * `cwm-verify --target test` queries `#__extensions`).
  *
  *   ; Comma-separated list of install ids
- *   installs = j5, j6
+ *   installs = j5, j5-test, j6
  *
  *   [j5]
+ *   role = dev
  *   path = /path/to/joomla5
  *   url = https://j5-dev.local:8890
  *   version = 5.4.2
@@ -24,7 +29,13 @@ namespace CWM\BuildTools\Dev;
  *   admin_pass = admin
  *   admin_email = admin@example.com
  *
- * Legacy fall-back (Proclaim's flat key=value layout) is also recognised:
+ *   [j5-test]
+ *   role = test
+ *   path = /path/to/joomla5-test
+ *   ; ... same fields as above, pointing at a separate Joomla install
+ *
+ * Legacy fall-back (Proclaim's flat key=value layout) is also recognised
+ * and treated as all-dev:
  *   builder.joomla_paths=/path/to/j5,/path/to/j6
  *   builder.j5dev.url=...
  *   builder.j5dev.db_host=...
@@ -81,6 +92,29 @@ final class PropertiesReader
     }
 
     /**
+     * Filter installs() down to those declaring the given role. Useful for
+     * driving commands at a specific target: `cwm-link` walks installsFor('dev'),
+     * `cwm-install-zip` and `cwm-verify --target test` walk installsFor('test').
+     *
+     * Returns an empty list when no install matches — callers should report
+     * a clear message rather than silently no-op.
+     *
+     * @return list<InstallConfig>
+     */
+    public function installsFor(string $role): array
+    {
+        $out = [];
+
+        foreach ($this->installs() as $install) {
+            if ($install->role === $role) {
+                $out[] = $install;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * @param  array<string, mixed>  $raw
      * @return list<InstallConfig>
      */
@@ -119,10 +153,33 @@ final class PropertiesReader
                     'pass'  => (string) ($section['admin_pass'] ?? 'admin'),
                     'email' => (string) ($section['admin_email'] ?? 'admin@example.com'),
                 ],
+                role:    $this->normaliseRole((string) ($section['role'] ?? InstallConfig::ROLE_DEV)),
             );
         }
 
         return $installs;
+    }
+
+    /**
+     * Validate the role value. Unknown roles are flagged loudly so a typo
+     * (e.g. `role = teest`) doesn't silently exclude an install from every
+     * target lookup.
+     */
+    private function normaliseRole(string $role): string
+    {
+        $trimmed = strtolower(trim($role));
+
+        if ($trimmed === '') {
+            return InstallConfig::ROLE_DEV;
+        }
+
+        if (!in_array($trimmed, [InstallConfig::ROLE_DEV, InstallConfig::ROLE_TEST], true)) {
+            throw new \RuntimeException(
+                "Unknown install role '{$role}' in build.properties — must be 'dev' or 'test'."
+            );
+        }
+
+        return $trimmed;
     }
 
     /**
@@ -294,6 +351,7 @@ final class PropertiesReader
 
         foreach ($installs as $install) {
             $lines[] = "[{$install->id}]";
+            $lines[] = 'role = ' . $install->role;
             $lines[] = 'path = ' . $install->path;
             $lines[] = 'url = ' . ($install->url ?? '');
             $lines[] = 'version = ' . ($install->version ?? '');

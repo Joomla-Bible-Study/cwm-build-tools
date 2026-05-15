@@ -7,6 +7,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-15
+
+### Added
+
+- **Cross-component link awareness via `extra.cwm-build-tools.joomlaLinks`.**
+  Each CWM Composer package can now declare its Joomla install footprint
+  in its own `composer.json`:
+  ```json
+  {
+    "extra": {
+      "cwm-build-tools": {
+        "joomlaLinks": [
+          { "type": "library",  "name": "cwmscripturelinks" },
+          { "type": "plugin",   "group": "content", "element": "cwmsl_autolink" },
+          { "type": "module",   "name": "mod_cwm_widget", "client": "site" },
+          { "type": "component","name": "com_cwmthing" }
+        ]
+      }
+    }
+  }
+  ```
+  Consumers' `cwm-link` and `cwm-verify` discover these declarations via
+  `vendor/composer/installed.json` and operate on them automatically —
+  no per-consumer wiring required.
+  - New `CWM\BuildTools\Config\InstalledPackageReader` parses
+    `installed.json` directly (Laravel-style — `\Composer\InstalledVersions`
+    strips `extra` from its accessors), surfacing each CWM dep's version,
+    install path, path-repo source path (if installed via a path
+    repository), and validated joomlaLinks tuples.
+  - New value object `CWM\BuildTools\Config\CwmPackage`.
+- **`cwm-link` walks CWM Composer deps** in addition to the consumer's own
+  extensions. Per-dep links land at the same canonical Joomla paths
+  (`libraries/<name>`, `plugins/<group>/<element>`, etc.) — re-running
+  `cwm-link` from a different consuming repo is idempotent on shared
+  targets.
+  - Conflict detection: when a symlink already exists at the expected
+    target but points somewhere other than this run's source, the
+    conflict is reported and skipped (exit 1) rather than silently
+    overwritten. New `--force` flag reinstates overwrite for the rare
+    case where a developer actually wants to replace someone else's
+    link.
+  - `Linker::check()` return shape gains `existingRealpath` for ok/wrong/
+    broken statuses so callers can compare without re-reading the link.
+- **`build.properties` install role.** Each install can now declare
+  `role = dev` (the default — symlink-style working install where
+  `cwm-link` deploys) or `role = test` (artifact-style install for the
+  new `cwm-install-zip` command). Multiple installs may share a role
+  (e.g. `j5` and `j6` both as dev). Legacy flat Proclaim-style
+  `build.properties` files default every install to `role = dev`.
+  - New `PropertiesReader::installsFor(string $role)` filters by role.
+  - `InstallConfig` gains a `role` constructor argument and
+    `ROLE_DEV` / `ROLE_TEST` constants.
+- **`cwm-install-zip` command.** New companion to `cwm-link`: builds nothing
+  itself, but takes the most recent dist zip produced by `cwm-build`
+  (matched via `build.outputGlob`) and installs it into every Joomla
+  install with `role = test` by invoking the bundled Joomla CLI:
+  ```
+  php <joomlaRoot>/cli/joomla.php extension:install --path=<zip>
+  ```
+  Re-running on an existing extension triggers Joomla's upgrade path —
+  install scriptfile `update()` runs, manifest `update.sql` migrations
+  apply. Use this to exercise the SHIPPED artifact end-to-end (install
+  scriptfile, dist exclusions, schema migrations) before a release,
+  separately from the symlink-style dev workflow.
+  - Implementation: new `src/Dev/ExtensionInstaller.php` and
+    `src/Dev/InstallResult.php`; thin bin wrapper at
+    `bin/cwm-install-zip`.
+  - `--zip <path>` flag to override the `outputGlob` resolution.
+  - `proc_open` is invoked array-form (no shell) per CLAUDE.md guardrails.
+- **`cwm-verify --target <role>` flag.** Filters which installs are
+  verified. Without `--target`, every install is verified per its
+  declared role.
+  - For `role = dev` installs, the new
+    `CWM\BuildTools\Dev\DevTargetVerifier` checks: every expected
+    symlink is in place (self + every CWM dep); each installed dep
+    version satisfies the constraint in the consuming project's
+    `composer.json`; each path-repo dep has a clean working tree
+    (`git -C <source> status --porcelain`).
+  - For `role = test` installs, the existing `ExtensionVerifier` now
+    also walks each CWM dep's declared joomlaLinks and confirms each
+    one is registered in `#__extensions` at the right `(type,
+    element, folder, client_id)` tuple.
+  - New public method `ExtensionVerifier::expectedFromPackages(list<CwmPackage>): list<array>`
+    folds dep declarations into the existing expected-extension shape.
+  - `lookup()` now filters by `client_id` when supplied, so two modules
+    with the same element in different clients (site vs administrator)
+    resolve unambiguously.
+
+### Changed (non-breaking)
+
+- `Linker::check()` return shape now includes an `existingRealpath` key
+  for `ok`, `wrong`, and `broken` statuses. Existing callers reading
+  only `status` and `message` are unaffected.
+- `ExtensionVerifier::verify()` signature gains an optional
+  `array $packages = []` parameter. Existing callers passing
+  `(InstallConfig, bool)` continue to work unchanged.
+- `templates/build.properties.tmpl` documents the `role` field and ships
+  with a commented-out `[j5-test]` block for the new artifact-target
+  install.
+
+### Migration
+
+Consumers pin to `^1.1`. Per-repo migration:
+
+1. `composer require --dev cwm/build-tools:^1.1`
+2. Add `extra.cwm-build-tools.joomlaLinks` to your `composer.json`,
+   derived from your `manifests.extensions[]` in
+   `cwm-build.config.json` (one tuple per declared extension).
+3. (Optional) Add a `[j5-test]` block with `role = test` to your
+   `build.properties` to enable `cwm-install-zip` and
+   `cwm-verify --target test`.
+4. Re-run `composer cwm-link` — output now shows the deps section;
+   existing links are reported as idempotent.
+5. Re-run `composer cwm-verify` — output now shows per-dep version,
+   link state, and (for path-repo deps) working-tree cleanliness.
+
 ## [1.0.2] - 2026-05-14
 
 ### Added

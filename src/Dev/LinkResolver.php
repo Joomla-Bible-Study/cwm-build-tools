@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CWM\BuildTools\Dev;
 
+use CWM\BuildTools\Config\CwmPackage;
+
 /**
  * Resolves the symlink list for a project against a given Joomla install.
  *
@@ -23,6 +25,7 @@ namespace CWM\BuildTools\Dev;
  * Targets in `dev.links[]` may use the `{joomlaPath}` placeholder.
  *
  * @phpstan-type LinkPair array{source: string, target: string}
+ * @phpstan-type PackageLinkPair array{source: string, target: string, package: string}
  */
 final class LinkResolver
 {
@@ -85,6 +88,154 @@ final class LinkResolver
         }
 
         return $this->dedupe($out);
+    }
+
+    /**
+     * Derive external symlinks for each installed CWM package that declared
+     * a joomlaLinks tuple list in its own composer.json. Mirrors the
+     * convention used for the consumer's own extensions but sourced from
+     * the package's install or path-repo root.
+     *
+     * Convention per type (the source side):
+     *   library    → <pkgRoot> IS the library directory; manifest at
+     *                <pkgRoot>/<manifest|<name>.xml>; media at
+     *                <pkgRoot>/media/lib_<name> when present.
+     *   plugin     → <pkgRoot>/plugins/<group>/<element> if present, else <pkgRoot>.
+     *   module     → <pkgRoot>/modules/<name> if present, else <pkgRoot>.
+     *   component  → <pkgRoot>/admin, /site, /media subdirs (mirrors LinkResolver's
+     *                deriveFromTopLevel pattern).
+     *
+     * The target side is fully deterministic from the declared tuple — same
+     * mapping rules as for the consumer's own extensions, so a vendor
+     * library named "cwmscripturelinks" always lands at
+     * joomla/libraries/cwmscripturelinks.
+     *
+     * @param  list<CwmPackage> $packages
+     * @return list<PackageLinkPair>
+     */
+    public function externalLinksForPackages(string $joomlaPath, array $packages): array
+    {
+        $joomlaPath = rtrim($joomlaPath, '/');
+        $out        = [];
+
+        foreach ($packages as $pkg) {
+            $pkgRoot = $pkg->sourceRoot();
+
+            foreach ($pkg->joomlaLinks as $link) {
+                foreach ($this->derivePackageLink($pkgRoot, $joomlaPath, $link) as $pair) {
+                    $out[] = [
+                        'source'  => $pair['source'],
+                        'target'  => $pair['target'],
+                        'package' => $pkg->name,
+                    ];
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<string, string> $link
+     * @return iterable<LinkPair>
+     */
+    private function derivePackageLink(string $pkgRoot, string $joomlaPath, array $link): iterable
+    {
+        $type = $link['type'];
+
+        return match ($type) {
+            'library'   => $this->derivePackageLibrary($pkgRoot, $joomlaPath, $link),
+            'plugin'    => $this->derivePackagePlugin($pkgRoot, $joomlaPath, $link),
+            'module'    => $this->derivePackageModule($pkgRoot, $joomlaPath, $link),
+            'component' => $this->derivePackageComponent($pkgRoot, $joomlaPath, $link),
+            default     => [],
+        };
+    }
+
+    /**
+     * @param  array<string, string> $link
+     * @return iterable<LinkPair>
+     */
+    private function derivePackageLibrary(string $pkgRoot, string $joomlaPath, array $link): iterable
+    {
+        $name         = $link['name'];
+        $manifestFile = $link['manifest'] ?? ($name . '.xml');
+        $manifestPath = $pkgRoot . '/' . ltrim($manifestFile, '/');
+
+        yield [
+            'source' => $pkgRoot,
+            'target' => "{$joomlaPath}/libraries/{$name}",
+        ];
+
+        yield [
+            'source' => $manifestPath,
+            'target' => "{$joomlaPath}/administrator/manifests/libraries/{$name}.xml",
+        ];
+
+        $mediaSrc = $pkgRoot . '/media/lib_' . $name;
+
+        if (is_dir($mediaSrc)) {
+            yield [
+                'source' => $mediaSrc,
+                'target' => "{$joomlaPath}/media/lib_{$name}",
+            ];
+        }
+    }
+
+    /**
+     * @param  array<string, string> $link
+     * @return iterable<LinkPair>
+     */
+    private function derivePackagePlugin(string $pkgRoot, string $joomlaPath, array $link): iterable
+    {
+        $group   = $link['group'];
+        $element = $link['element'];
+
+        $convention = $pkgRoot . '/plugins/' . $group . '/' . $element;
+        $source     = is_dir($convention) ? $convention : $pkgRoot;
+
+        yield [
+            'source' => $source,
+            'target' => "{$joomlaPath}/plugins/{$group}/{$element}",
+        ];
+    }
+
+    /**
+     * @param  array<string, string> $link
+     * @return iterable<LinkPair>
+     */
+    private function derivePackageModule(string $pkgRoot, string $joomlaPath, array $link): iterable
+    {
+        $name   = $link['name'];
+        $client = $link['client'] ?? 'site';
+
+        $convention = $pkgRoot . '/modules/' . $name;
+        $source     = is_dir($convention) ? $convention : $pkgRoot;
+
+        $tail = $client === 'administrator'
+            ? "/administrator/modules/{$name}"
+            : "/modules/{$name}";
+
+        yield ['source' => $source, 'target' => $joomlaPath . $tail];
+    }
+
+    /**
+     * @param  array<string, string> $link
+     * @return iterable<LinkPair>
+     */
+    private function derivePackageComponent(string $pkgRoot, string $joomlaPath, array $link): iterable
+    {
+        $name = $link['name'];
+
+        foreach (['admin' => "/administrator/components/{$name}",
+                  'site'  => "/components/{$name}",
+                  'media' => "/media/{$name}"] as $sub => $tail) {
+            $src = $pkgRoot . '/' . $sub;
+
+            if (is_dir($src)) {
+                yield ['source' => $src, 'target' => $joomlaPath . $tail];
+            }
+        }
     }
 
     /**

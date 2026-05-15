@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CWM\BuildTools\Dev;
 
+use CWM\BuildTools\Config\CwmPackage;
+
 /**
  * Verifies that every extension declared in a project's
  * cwm-build.config.json (manifests.extensions[] + the top-level extension)
@@ -35,11 +37,17 @@ final class ExtensionVerifier
     /**
      * Verify against one Joomla install. Reads configuration.php from
      * $install->path to discover the DB, connects, then walks expected
-     * extensions.
+     * extensions: the project's own (`expectedExtensions()`) plus every
+     * declared joomlaLinks entry from each CWM Composer dep supplied.
      *
+     * @param  list<CwmPackage> $packages CWM deps discovered via InstalledPackageReader.
+     *                                    Each one's joomlaLinks tuples are folded
+     *                                    into the expected-extensions list and
+     *                                    checked against #__extensions the same
+     *                                    way as the project's own extensions.
      * @return array{ok: int, fixed: int, errors: int}
      */
-    public function verify(InstallConfig $install, bool $reconcile = false): array
+    public function verify(InstallConfig $install, bool $reconcile = false, array $packages = []): array
     {
         echo "\n=== Verifying: {$install->path} ===\n";
 
@@ -72,7 +80,7 @@ final class ExtensionVerifier
 
         $prefix       = $db['dbprefix'];
         $hasNamespace = $this->hasNamespaceColumn($pdo, $prefix);
-        $expected     = $this->expectedExtensions();
+        $expected     = array_merge($this->expectedExtensions(), $this->expectedFromPackages($packages));
 
         $ok     = 0;
         $fixed  = 0;
@@ -142,6 +150,128 @@ final class ExtensionVerifier
         echo "  Summary: {$ok} OK, {$fixed} fixed, {$errors} errors\n";
 
         return ['ok' => $ok, 'fixed' => $fixed, 'errors' => $errors];
+    }
+
+    /**
+     * Build expected-extension rows from each CWM Composer dep's declared
+     * joomlaLinks tuples. Same row shape as `expectedExtensions()` so the
+     * downstream lookup / drift / reconcile machinery handles both
+     * uniformly.
+     *
+     * Per-type mapping (matches Joomla's #__extensions storage conventions):
+     *   library    name=X         → element=X,        folder='',  display='lib_X', locked=1
+     *   plugin     group=G,elem=E → element=E,        folder=G,   display='plg_G_E'
+     *   module     name=M,client=C → element=M,       folder='',  display=M, client_id={0|1}
+     *   component  name=C         → element=C,        folder='',  display=C
+     *
+     * Source package is recorded in `_package` so verify() can group output.
+     *
+     * @param  list<CwmPackage> $packages
+     * @return list<array<string, mixed>>
+     */
+    public function expectedFromPackages(array $packages): array
+    {
+        $out = [];
+
+        foreach ($packages as $pkg) {
+            foreach ($pkg->joomlaLinks as $link) {
+                $row = match ($link['type']) {
+                    'library'   => $this->expectedLibraryRow($link),
+                    'plugin'    => $this->expectedPluginRow($link),
+                    'module'    => $this->expectedModuleRow($link),
+                    'component' => $this->expectedComponentRow($link),
+                    default     => null,
+                };
+
+                if ($row !== null) {
+                    $row['_package'] = $pkg->name;
+                    $row['_version'] = $pkg->version;
+                    $out[] = $row;
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<string, string> $link
+     * @return array<string, mixed>
+     */
+    private function expectedLibraryRow(array $link): array
+    {
+        $name = $link['name'];
+
+        return [
+            'type'      => 'library',
+            'element'   => $name,
+            'folder'    => '',
+            'name'      => 'lib_' . $name,
+            'enabled'   => 1,
+            'locked'    => 1,
+            'namespace' => null,
+        ];
+    }
+
+    /**
+     * @param  array<string, string> $link
+     * @return array<string, mixed>
+     */
+    private function expectedPluginRow(array $link): array
+    {
+        $group   = $link['group'];
+        $element = $link['element'];
+
+        return [
+            'type'      => 'plugin',
+            'element'   => $element,
+            'folder'    => $group,
+            'name'      => "plg_{$group}_{$element}",
+            'enabled'   => 1,
+            'locked'    => 0,
+            'namespace' => null,
+        ];
+    }
+
+    /**
+     * @param  array<string, string> $link
+     * @return array<string, mixed>
+     */
+    private function expectedModuleRow(array $link): array
+    {
+        $name      = $link['name'];
+        $client    = $link['client'] ?? 'site';
+        $clientId  = $client === 'administrator' ? 1 : 0;
+
+        return [
+            'type'      => 'module',
+            'element'   => $name,
+            'folder'    => '',
+            'name'      => $name,
+            'enabled'   => 1,
+            'locked'    => 0,
+            'namespace' => null,
+            'client_id' => $clientId,
+        ];
+    }
+
+    /**
+     * @param  array<string, string> $link
+     * @return array<string, mixed>
+     */
+    private function expectedComponentRow(array $link): array
+    {
+        $name = $link['name'];
+
+        return [
+            'type'      => 'component',
+            'element'   => $name,
+            'folder'    => '',
+            'name'      => $name,
+            'enabled'   => 1,
+            'locked'    => 0,
+            'namespace' => null,
+        ];
     }
 
     /**
@@ -304,6 +434,13 @@ final class ExtensionVerifier
         if ($ext['type'] === 'plugin' && ($ext['folder'] ?? '') !== '') {
             $sql .= ' AND folder = ?';
             $params[] = $ext['folder'];
+        }
+
+        // Modules with the same element can exist in both site (0) and admin (1)
+        // client contexts; filter by client_id when supplied so we hit the right row.
+        if (isset($ext['client_id'])) {
+            $sql .= ' AND client_id = ?';
+            $params[] = (int) $ext['client_id'];
         }
 
         $stmt = $pdo->prepare($sql);

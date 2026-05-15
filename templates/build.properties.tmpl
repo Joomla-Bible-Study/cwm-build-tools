@@ -13,11 +13,18 @@
 ;
 ; ALWAYS keep this gitignored. It contains DB and admin passwords.
 
+; Each install has a role:
+;   role = dev  — symlink-style working install. `cwm-link` deploys here.
+;   role = test — artifact-style install. `cwm-install-zip` deploys a built
+;                 zip here and `cwm-verify --target test` queries it.
+; Default role is `dev` if omitted. Multiple installs may share a role
+; (e.g. j5 and j6 both as dev) — commands apply to each in turn.
+
 ; Comma-separated list of install ids — must match the section names below.
-; Add or remove as needed (j5, j6, j7, ...).
-installs = j5, j6
+installs = j5, j6, j5-test
 
 [j5]
+role = dev
 path = /path/to/joomla5
 url = https://j5-dev.local
 version = 5.4.2
@@ -30,9 +37,28 @@ admin_pass = admin
 admin_email = admin@example.com
 
 [j6]
+role = dev
 path = /path/to/joomla6
 url = https://j6-dev.local
 version = 6.0.0
+db_host = localhost
+db_user =
+db_pass =
+db_name =
+admin_user = admin
+admin_pass = admin
+admin_email = admin@example.com
+
+; Optional: a separate Joomla install for verifying the SHIPPED artifact.
+; `cwm-install-zip` deploys the built dist zip into this install (rather
+; than symlinking source) so you can exercise the install scriptfile,
+; manifest declarations, and schema migrations end-to-end before release.
+; Remove this section if you don't run a separate test install.
+[j5-test]
+role = test
+path = /path/to/joomla5-test
+url = https://j5-test.local
+version = 5.4.2
 db_host = localhost
 db_user =
 db_pass =

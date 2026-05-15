@@ -11,9 +11,18 @@ namespace CWM\BuildTools\Dev;
  * optional URL, a target Joomla version (used by cwm-joomla-install), and
  * DB + admin credential blocks used by cwm-verify and the optional install
  * step inside cwm-setup.
+ *
+ * Each install also has a `role` — `dev` (the default; the symlink-style
+ * working install where `cwm-link` deploys) or `test` (the artifact-style
+ * install where `cwm-install-zip` deploys a built zip). Multiple installs
+ * may share a role (e.g. j5 and j6 both as dev), in which case commands
+ * apply to each in turn.
  */
 final class InstallConfig
 {
+    public const ROLE_DEV  = 'dev';
+    public const ROLE_TEST = 'test';
+
     /**
      * @param  string  $id           Short identifier ("j5", "j6", ...).
      * @param  string  $path         Absolute path to the Joomla document root.
@@ -21,6 +30,8 @@ final class InstallConfig
      * @param  string|null  $version Default Joomla release tag for installer.
      * @param  array<string, string>  $db    DB credentials (host, user, pass, name).
      * @param  array<string, string>  $admin Admin credentials (user, pass, email).
+     * @param  string $role          Either 'dev' (default — symlink target) or
+     *                               'test' (artifact-install target).
      */
     public function __construct(
         public readonly string $id,
@@ -29,6 +40,7 @@ final class InstallConfig
         public readonly ?string $version = null,
         public readonly array $db = [],
         public readonly array $admin = [],
+        public readonly string $role = self::ROLE_DEV,
     ) {
     }
 
