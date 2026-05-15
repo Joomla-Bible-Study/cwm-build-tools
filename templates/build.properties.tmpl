@@ -66,3 +66,13 @@ db_name =
 admin_user = admin
 admin_pass = admin
 admin_email = admin@example.com
+
+; Per-developer absolute paths to CWM siblings declared in
+; cwm-build.config.json under dev.cwmSiblings. Written by `composer setup`
+; — leave empty here and let the wizard manage entries, or hand-edit
+; when you move sibling checkouts. Each entry's key is the Composer
+; package name; the value is the local checkout path.
+;
+; [paths]
+; joomla-bible-study/lib-cwmscripture = /Users/you/GitHub/lib_cwmscripture
+; cwm/scripture-links                 = /Users/you/GitHub/CWMScriptureLinks

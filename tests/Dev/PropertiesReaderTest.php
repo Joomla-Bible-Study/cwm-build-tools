@@ -404,6 +404,115 @@ final class PropertiesReaderTest extends TestCase
         self::assertSame(InstallConfig::ROLE_TEST, $roundTripped[1]->role);
     }
 
+    #[Test]
+    public function paths_returns_empty_when_file_missing(): void
+    {
+        $reader = new PropertiesReader($this->tmpDir . '/nope.properties');
+
+        self::assertSame([], $reader->paths());
+    }
+
+    #[Test]
+    public function paths_returns_empty_when_no_paths_section(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            installs = j5
+
+            [j5]
+            path = /opt/joomla5
+            INI);
+
+        self::assertSame([], (new PropertiesReader($path))->paths());
+    }
+
+    #[Test]
+    public function paths_reads_per_developer_sibling_paths(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            installs = j5
+
+            [j5]
+            path = /opt/joomla5
+
+            [paths]
+            joomla-bible-study/lib-cwmscripture = /Users/brent/GitHub/lib_cwmscripture
+            cwm/scripture-links = /Users/brent/GitHub/CWMScriptureLinks
+            INI);
+
+        $paths = (new PropertiesReader($path))->paths();
+
+        self::assertSame(
+            [
+                'joomla-bible-study/lib-cwmscripture' => '/Users/brent/GitHub/lib_cwmscripture',
+                'cwm/scripture-links'                 => '/Users/brent/GitHub/CWMScriptureLinks',
+            ],
+            $paths,
+        );
+    }
+
+    #[Test]
+    public function paths_section_is_not_mistaken_for_install_when_installs_key_omitted(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            [j5]
+            path = /opt/joomla5
+
+            [paths]
+            cwm/lib = /tmp/cwm-lib
+            INI);
+
+        $installs = (new PropertiesReader($path))->installs();
+
+        self::assertCount(1, $installs);
+        self::assertSame('j5', $installs[0]->id);
+    }
+
+    #[Test]
+    public function write_paths_creates_file_with_paths_block(): void
+    {
+        $reader = new PropertiesReader($this->tmpDir . '/fresh.properties');
+
+        $reader->writePaths([
+            'joomla-bible-study/lib-cwmscripture' => '/Users/brent/GitHub/lib_cwmscripture',
+        ]);
+
+        $content = (string) file_get_contents($this->tmpDir . '/fresh.properties');
+
+        self::assertStringContainsString('[paths]', $content);
+        self::assertStringContainsString('joomla-bible-study/lib-cwmscripture = /Users/brent/GitHub/lib_cwmscripture', $content);
+    }
+
+    #[Test]
+    public function write_paths_preserves_existing_installs(): void
+    {
+        $reader   = new PropertiesReader($this->tmpDir . '/preserve.properties');
+        $original = new InstallConfig(id: 'j5', path: '/opt/joomla5');
+
+        $reader->write([$original]);
+        $reader->writePaths(['cwm/x' => '/tmp/cwm-x']);
+
+        // After writing paths, the install must still parse.
+        $installs = $reader->installs();
+        self::assertCount(1, $installs);
+        self::assertSame('j5', $installs[0]->id);
+        self::assertSame('/opt/joomla5', $installs[0]->path);
+
+        // And the paths block is there too.
+        self::assertSame(['cwm/x' => '/tmp/cwm-x'], $reader->paths());
+    }
+
+    #[Test]
+    public function write_preserves_existing_paths_block(): void
+    {
+        $reader = new PropertiesReader($this->tmpDir . '/symmetric.properties');
+
+        $reader->writePaths(['cwm/x' => '/tmp/cwm-x']);
+        $reader->write([new InstallConfig(id: 'j6', path: '/opt/joomla6')]);
+
+        self::assertSame(['cwm/x' => '/tmp/cwm-x'], $reader->paths());
+        self::assertCount(1, $reader->installs());
+    }
+
     private function writeProperties(string $contents): string
     {
         $path = $this->tmpDir . '/build.properties';

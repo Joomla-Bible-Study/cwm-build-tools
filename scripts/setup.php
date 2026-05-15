@@ -186,10 +186,262 @@ echo "Wrote " . count($installs) . " install(s) to {$reader->path()}.\n";
 echo "  Ids: " . implode(', ', array_map(static fn (InstallConfig $c): string => $c->id, $installs)) . "\n\n";
 
 echo "Make sure 'build.properties' is gitignored — never commit it.\n";
+
+configureCwmSiblings($projectRoot, $reader);
+
 echo "\nNext steps:\n";
 echo "  composer joomla-install   # download Joomla into each path (skip if already populated)\n";
 echo "  composer link             # symlink the project into each install\n";
 echo "  composer verify           # confirm extensions are registered\n";
+
+/**
+ * Two-level CWM sibling configuration:
+ *
+ *   1. `dev.cwmSiblings` in cwm-build.config.json declares WHICH CWM
+ *      packages this project consumes via local path repositories
+ *      (committed, shared across developers — defines the relationship).
+ *
+ *   2. `[paths]` block in build.properties spells out WHERE each
+ *      sibling lives on this developer's machine (gitignored, per-dev).
+ *
+ *   3. cwm-setup reads (1) + (2), prompts for any missing paths,
+ *      then writes a `[paths]` block to build.properties AND
+ *      synchronises composer.json's `repositories[]` so Composer
+ *      picks up the right path-repo URLs on the next install.
+ *
+ * Bootstrap on a fresh clone: composer.json ships with the maintainer's
+ * working defaults (relative URLs like `../lib_cwmscripture`). If a
+ * contributor's layout differs, `composer install` may fail; running
+ * `composer setup` re-runs this path-config flow and rewrites the
+ * URLs before they re-run `composer install`.
+ */
+function configureCwmSiblings(string $projectRoot, PropertiesReader $reader): void
+{
+    $configPath = $projectRoot . '/cwm-build.config.json';
+
+    if (!is_file($configPath)) {
+        return;
+    }
+
+    $configData = json_decode((string) file_get_contents($configPath), true);
+
+    if (!is_array($configData)) {
+        return;
+    }
+
+    $siblings = $configData['dev']['cwmSiblings'] ?? null;
+
+    if (!is_array($siblings) || $siblings === []) {
+        // Nothing declared — nothing to confirm. Silent skip.
+        return;
+    }
+
+    echo "\n=== CWM siblings (cross-component dev) ===\n";
+    echo "This project declares " . count($siblings) . " CWM sibling(s) in cwm-build.config.json.\n";
+    echo "Confirm the local checkout path for each — paths are saved to build.properties\n";
+    echo "and surfaced to Composer via composer.json's repositories[] block.\n\n";
+
+    $existingPaths = $reader->paths();
+    $resolved      = [];
+
+    foreach ($siblings as $package) {
+        if (!is_string($package) || $package === '') {
+            continue;
+        }
+
+        $existing = $existingPaths[$package] ?? null;
+        $default  = $existing
+            ?? detectSiblingDefault($projectRoot, $package)
+            ?? '';
+
+        if ($default !== '' && is_dir($default)) {
+            echo "  {$package}  →  {$default}\n";
+
+            $confirm = ask("    Use this checkout? [Y/n]", 'Y');
+
+            if ($confirm !== null && strtolower(substr(trim((string) $confirm), 0, 1)) === 'n') {
+                $entered = ask("    Path", null);
+                $default = ($entered !== null && $entered !== '') ? trim($entered) : $default;
+            }
+        } else {
+            echo "  {$package}\n";
+
+            if ($default !== '') {
+                echo "    (default: {$default} — not found on disk)\n";
+            }
+
+            $entered = ask("    Path", $default === '' ? null : $default);
+
+            if ($entered === null || $entered === '') {
+                echo "    Skipping — no path provided.\n";
+
+                continue;
+            }
+
+            $default = trim($entered);
+
+            if (!is_dir($default)) {
+                echo "    WARNING: that path doesn't exist either. Saving anyway — fix before `composer install`.\n";
+            }
+        }
+
+        $resolved[$package] = $default;
+    }
+
+    if ($resolved === []) {
+        echo "\n  No paths configured.\n";
+
+        return;
+    }
+
+    // Merge with any pre-existing entries that weren't re-prompted this run
+    // (the user might keep paths for siblings declared elsewhere).
+    $merged = array_merge($existingPaths, $resolved);
+    $reader->writePaths($merged);
+
+    echo "\n  Wrote " . count($resolved) . " path(s) to build.properties.\n";
+
+    // Sync the path-repo URLs in composer.json.
+    syncComposerPathRepos($projectRoot, $resolved);
+}
+
+/**
+ * Best-effort guess at where a CWM sibling lives if the developer hasn't
+ * configured it. Looks under the project root's parent dir for a matching
+ * directory name (matches the common ~/GitHub/<repo> sibling layout).
+ */
+function detectSiblingDefault(string $projectRoot, string $packageName): ?string
+{
+    // composer name format: "vendor/name" — usually "name" is the directory.
+    $base = basename($packageName);
+
+    // Common CWM/Joomla naming: lib_cwmscripture (with underscores). The
+    // composer name might be "joomla-bible-study/lib-cwmscripture" (dashes).
+    // Try a few normalised candidates.
+    $candidates = array_unique([
+        $base,
+        str_replace('-', '_', $base),
+        str_replace('_', '-', $base),
+        strtolower($base),
+    ]);
+
+    $parent = dirname($projectRoot);
+
+    foreach ($candidates as $name) {
+        $candidate = $parent . '/' . $name;
+
+        if (is_dir($candidate)) {
+            return $candidate;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Sync composer.json's `repositories[]` block so each $resolved[$package]
+ * has a matching path-repo entry with the developer's absolute path.
+ *
+ * Adds entries for newly-configured siblings; rewrites URLs on existing
+ * entries. Other repository entries (VCS, registry, etc.) are preserved.
+ *
+ * @param  array<string, string> $resolved Map of package name -> absolute path.
+ */
+function syncComposerPathRepos(string $projectRoot, array $resolved): void
+{
+    $composerPath = $projectRoot . '/composer.json';
+
+    if (!is_file($composerPath)) {
+        echo "  composer.json not found — skipping path-repo sync.\n";
+
+        return;
+    }
+
+    $raw = (string) file_get_contents($composerPath);
+
+    if ($raw === '') {
+        return;
+    }
+
+    $data = json_decode($raw, true);
+
+    if (!is_array($data)) {
+        echo "  composer.json is not valid JSON — skipping path-repo sync.\n";
+
+        return;
+    }
+
+    $data['repositories'] = $data['repositories'] ?? [];
+
+    if (!is_array($data['repositories'])) {
+        return;
+    }
+
+    // Index existing path repos by current URL's basename so we can match
+    // each $resolved package back to its existing entry (if any).
+    $existingByBase = [];
+
+    foreach ($data['repositories'] as $i => $entry) {
+        if (is_array($entry) && ($entry['type'] ?? null) === 'path') {
+            $url                  = (string) ($entry['url'] ?? '');
+            $existingByBase[basename($url)] = $i;
+        }
+    }
+
+    $changed = false;
+
+    foreach ($resolved as $package => $absolutePath) {
+        $base = basename($package);
+        // Match either the composer name basename or the underscore variant.
+        $candidates = array_unique([
+            $base,
+            str_replace('-', '_', $base),
+            str_replace('_', '-', $base),
+        ]);
+
+        $existingIndex = null;
+
+        foreach ($candidates as $candidate) {
+            if (isset($existingByBase[$candidate])) {
+                $existingIndex = $existingByBase[$candidate];
+                break;
+            }
+        }
+
+        if ($existingIndex !== null) {
+            if (($data['repositories'][$existingIndex]['url'] ?? null) !== $absolutePath) {
+                $data['repositories'][$existingIndex]['url'] = $absolutePath;
+                $changed = true;
+            }
+
+            continue;
+        }
+
+        $data['repositories'][] = [
+            'type'    => 'path',
+            'url'     => $absolutePath,
+            'options' => ['symlink' => true],
+        ];
+        $changed = true;
+    }
+
+    if (!$changed) {
+        echo "  composer.json path repos already in sync.\n";
+
+        return;
+    }
+
+    $trailing  = substr($raw, -1) === "\n" ? "\n" : '';
+    $rewritten = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . $trailing;
+
+    if ($rewritten === false || file_put_contents($composerPath, $rewritten) === false) {
+        fwrite(\STDERR, "  WARNING: could not rewrite composer.json — sync repositories[] by hand.\n");
+
+        return;
+    }
+
+    echo "  Updated composer.json repositories[] — re-run `composer update` to refresh symlinks.\n";
+}
 
 /**
  * True when stdin appears to be a TTY. Lets the wizard refuse to run

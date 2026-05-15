@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-15
+
+### Added
+
+- **`dev.cwmSiblings` declaration in `cwm-build.config.json`** — a project
+  now declares the list of CWM sibling packages it expects to find as
+  Composer path repositories:
+  ```json
+  {
+    "dev": {
+      "cwmSiblings": [
+        "joomla-bible-study/lib-cwmscripture",
+        "cwm/scripture-links"
+      ]
+    }
+  }
+  ```
+  This is the project-level "I depend on these siblings via local
+  checkouts" declaration — committed, shared across all developers.
+- **`[paths]` block in `build.properties`** — per-developer mapping
+  from each declared CWM sibling to its absolute path on the local
+  machine:
+  ```ini
+  [paths]
+  joomla-bible-study/lib-cwmscripture = /Users/brent/GitHub/lib_cwmscripture
+  cwm/scripture-links                 = /Users/brent/GitHub/CWMScriptureLinks
+  ```
+  Gitignored (per-developer). Companion to the existing per-install
+  configuration sections.
+  - `PropertiesReader::paths(): array<string, string>` reads the block.
+  - `PropertiesReader::writePaths(array $paths)` rewrites it while
+    preserving every install section.
+  - `PropertiesReader::write()` reciprocally preserves any existing
+    `[paths]` block when re-emitting installs — neither path can
+    accidentally drop the other's state.
+- **`cwm-setup` CWM-siblings flow** — after the Joomla install
+  configuration step, the wizard now:
+  1. Reads `dev.cwmSiblings` from `cwm-build.config.json`.
+  2. For each sibling, surfaces the existing `[paths]` entry,
+     or auto-detects a sibling checkout at `../<name>` next to
+     the project root.
+  3. Prompts to confirm or change the path per sibling.
+  4. Writes the resulting paths to `build.properties [paths]`.
+  5. Synchronises `composer.json`'s `repositories[]` block so each
+     declared sibling has a matching `{"type":"path","url":"..."}`
+     entry pointing at the developer's local checkout.
+
+  Subsequent `composer install` / `composer update` picks up the
+  configured paths automatically — no hand-editing of `composer.json`.
+
+### Changed (non-breaking)
+
+- `PropertiesReader::fromSections()` now excludes `[paths]` from the
+  install auto-discovery branch (when `installs =` is omitted), so
+  a paths-only or paths-plus-sections file parses correctly.
+
+### Migration
+
+Consumers using v1.1.0 path repositories (e.g. CWMLivingWord) can
+adopt the new schema by:
+
+1. Adding `dev.cwmSiblings` to `cwm-build.config.json` listing each
+   Composer package consumed via a local path repo.
+2. Running `composer setup` — the wizard prompts for each sibling's
+   local path, writes them to `build.properties`, and rewrites
+   `composer.json`'s `repositories[]` block accordingly.
+3. Re-running `composer install`.
+
 ## [1.1.0] - 2026-05-15
 
 ### Added
