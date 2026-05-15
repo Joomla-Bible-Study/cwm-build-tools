@@ -88,7 +88,7 @@ final class PropertiesReader
 
         return $hasSections
             ? $this->fromSections($raw)
-            : $this->fromLegacyFlat($raw);
+            : $this->fromFlat($raw);
     }
 
     /**
@@ -112,14 +112,26 @@ final class PropertiesReader
 
         $raw = self::parseProperties((string) file_get_contents($this->path));
 
-        if ($raw === false || !isset($raw['paths']) || !is_array($raw['paths'])) {
+        if ($raw === false) {
             return [];
         }
 
         $out = [];
 
-        foreach ($raw['paths'] as $key => $value) {
-            $out[(string) $key] = (string) $value;
+        // Flat format: `paths.<package> = <absolute path>`. Preferred form
+        // since v1.4 — the template ships this shape so Java-properties-
+        // aware IDEs don't flag the file.
+        foreach ($raw as $key => $value) {
+            if (is_string($value) && preg_match('/^paths\.(.+)$/', (string) $key, $m) === 1) {
+                $out[$m[1]] = $value;
+            }
+        }
+
+        // Backward-compat: `[paths]` INI section.
+        if (isset($raw['paths']) && is_array($raw['paths'])) {
+            foreach ($raw['paths'] as $key => $value) {
+                $out[(string) $key] = (string) $value;
+            }
         }
 
         return $out;
@@ -229,34 +241,49 @@ final class PropertiesReader
     }
 
     /**
-     * Compatibility path for Proclaim's `builder.joomla_paths=` + `builder.<id>.<key>=` layout.
+     * Parse the flat key=value format that ships as the canonical schema
+     * since v1.4. Every key is globally unique so Java-properties-aware
+     * IDEs (PhpStorm, IntelliJ) don't flag duplicate sections — the cost
+     * of moving away from INI `[id]` sections.
+     *
+     * Recognized shape:
+     *   joomla.version = 5.4.2           (default version fallback)
+     *   builder.installs = j5, j6, ...   (explicit id list — preferred)
+     *   builder.<id>.role        = dev|test
+     *   builder.<id>.path        = /abs/path
+     *   builder.<id>.url         = https://...
+     *   builder.<id>.version     = 5.4.2
+     *   builder.<id>.db_host/user/pass/name
+     *   builder.<id>.admin_user/pass/email
+     *
+     * Backward-compat shims (Proclaim's pre-v1.4 layout still parses):
+     *   builder.joomla_paths = /p1,/p2   (positional install paths)
+     *   builder.joomla_dir   = subpath   (appended to each path; absolute
+     *                                     values warned and ignored)
+     *   builder.<id>.username/password/email  (Proclaim admin key names)
+     *   Discover ids from `builder.<id>.url` when no installs= or paths
+     *   listing is set; map `j5dev` → `j5` etc.
      *
      * @param  array<string, mixed>  $raw
      * @return list<InstallConfig>
      */
-    private function fromLegacyFlat(array $raw): array
+    private function fromFlat(array $raw): array
     {
+        $installsRaw = (string) ($raw['builder.installs'] ?? '');
+        $ids         = array_values(array_filter(array_map('trim', explode(',', $installsRaw))));
+
         $pathsRaw = (string) ($raw['builder.joomla_paths']
             ?? $raw['builder.joomla_path']
             ?? '');
+        $positionalPaths = array_values(array_filter(array_map('trim', explode(',', $pathsRaw))));
+
         $rawDir = (string) ($raw['builder.joomla_dir'] ?? '');
         $dir    = trim($rawDir, '/');
-        $paths  = array_values(array_filter(array_map('trim', explode(',', $pathsRaw))));
 
-        if ($paths === []) {
-            return [];
-        }
-
-        // Issue #2.2: Proclaim's existing build.properties uses
-        // `builder.joomla_dir` as a separate ABSOLUTE path (a Joomla CMS
-        // source clone used for class-signature checks), not as a relative
-        // subpath under each install root. cwm-build-tools treats the same
-        // key as a relative subpath, which is what the property's own
-        // documentation says — but the collision means an existing
-        // /Volumes/.../GitHub/joomla-cms value gets concatenated onto each
-        // install path and produces nonsense like
-        // `/Sites/j5-dev/Volumes/.../GitHub/joomla-cms`. Detect and ignore
-        // absolute values rather than silently break the install paths.
+        // Issue #2.2 carry-over: ignore absolute builder.joomla_dir values
+        // (Proclaim's repo uses the same key for a separate absolute Joomla
+        // CMS source path; concatenating it onto each install root produces
+        // nonsense paths).
         if ($dir !== '' && $this->looksAbsolute($rawDir)) {
             fwrite(
                 \STDERR,
@@ -268,40 +295,54 @@ final class PropertiesReader
             $dir = '';
         }
 
-        // Discover ids by scanning for `builder.<id>.url` keys.
-        $ids = [];
+        // Auto-discovery when `builder.installs =` isn't set: prefer
+        // per-install `.path` keys, fall back to `.url` (Proclaim legacy).
+        if ($ids === []) {
+            $idsFromPaths = [];
+            $idsFromUrl   = [];
 
-        foreach ($raw as $key => $_) {
-            if (preg_match('/^builder\.([^.]+)\.url$/', (string) $key, $m)) {
-                $ids[] = $m[1];
+            foreach ($raw as $key => $_) {
+                if (preg_match('/^builder\.([^.]+)\.path$/', (string) $key, $m) === 1) {
+                    $idsFromPaths[] = $m[1];
+                } elseif (preg_match('/^builder\.([^.]+)\.url$/', (string) $key, $m) === 1) {
+                    $idsFromUrl[] = $m[1];
+                }
             }
+
+            $ids = array_values(array_unique($idsFromPaths !== [] ? $idsFromPaths : $idsFromUrl));
         }
 
-        $ids = array_values(array_unique($ids));
-
-        // Default Proclaim ids if discovery turned up nothing.
-        if ($ids === []) {
+        // Proclaim legacy: positional paths with default ids.
+        if ($ids === [] && $positionalPaths !== []) {
             $ids = ['j5dev', 'j6dev'];
+        }
+
+        if ($ids === []) {
+            return [];
         }
 
         $defaultVersion = (string) ($raw['joomla.version'] ?? '');
         $installs       = [];
 
-        foreach ($paths as $i => $rawPath) {
-            $id   = $ids[$i] ?? "j{$i}";
-            $path = rtrim($rawPath, '/');
+        foreach ($ids as $i => $id) {
+            $prefix = "builder.{$id}";
 
-            if ($dir !== '') {
+            // Prefer explicit per-install path; fall back to positional
+            // builder.joomla_paths by index for the Proclaim legacy layout.
+            $path = (string) ($raw["{$prefix}.path"] ?? ($positionalPaths[$i] ?? ''));
+            $path = rtrim($path, '/');
+
+            if ($path !== '' && $dir !== '') {
                 $path .= '/' . $dir;
             }
 
-            $prefix = "builder.{$id}";
+            $version = (string) ($raw["{$prefix}.version"] ?? $defaultVersion);
 
             $installs[] = new InstallConfig(
                 id:      $this->normaliseLegacyId($id),
                 path:    $path,
                 url:     ($raw["{$prefix}.url"] ?? '') === '' ? null : (string) $raw["{$prefix}.url"],
-                version: $defaultVersion === '' ? null : $defaultVersion,
+                version: $version === '' ? null : $version,
                 db:      [
                     'host' => (string) ($raw["{$prefix}.db_host"] ?? 'localhost'),
                     'user' => (string) ($raw["{$prefix}.db_user"] ?? ''),
@@ -309,14 +350,34 @@ final class PropertiesReader
                     'name' => (string) ($raw["{$prefix}.db_name"] ?? ''),
                 ],
                 admin:   [
-                    'user'  => (string) ($raw["{$prefix}.username"] ?? 'admin'),
-                    'pass'  => (string) ($raw["{$prefix}.password"] ?? 'admin'),
-                    'email' => (string) ($raw["{$prefix}.email"] ?? 'admin@example.com'),
+                    'user'  => (string) ($raw["{$prefix}.admin_user"]
+                        ?? $raw["{$prefix}.username"]
+                        ?? 'admin'),
+                    'pass'  => (string) ($raw["{$prefix}.admin_pass"]
+                        ?? $raw["{$prefix}.password"]
+                        ?? 'admin'),
+                    'email' => (string) ($raw["{$prefix}.admin_email"]
+                        ?? $raw["{$prefix}.email"]
+                        ?? 'admin@example.com'),
                 ],
+                role:    $this->normaliseRole((string) ($raw["{$prefix}.role"] ?? InstallConfig::ROLE_DEV)),
             );
         }
 
         return $installs;
+    }
+
+    /**
+     * Backward-compat alias retained so any external caller using the
+     * pre-v1.4 method name still works. Internal callers should use
+     * fromFlat().
+     *
+     * @param  array<string, mixed>  $raw
+     * @return list<InstallConfig>
+     */
+    private function fromLegacyFlat(array $raw): array
+    {
+        return $this->fromFlat($raw);
     }
 
     /**
@@ -406,10 +467,14 @@ final class PropertiesReader
     }
 
     /**
-     * Single emitter for the whole build.properties file — combines
-     * the installs sections with the [paths] block. Both write() and
-     * writePaths() funnel through here so neither path accidentally
-     * drops the other's state.
+     * Single emitter for the whole build.properties file — combines the
+     * `builder.<id>.*` install blocks with the `paths.<package>` cross-
+     * component dep map. Both write() and writePaths() funnel through
+     * here so neither path accidentally drops the other's state.
+     *
+     * Emits the flat-key format (the v1.4 canonical schema): every key
+     * is globally unique so IDEs that parse `.properties` as Java-style
+     * don't flag duplicate sections like `[j5]role=dev` vs `[j6]role=dev`.
      *
      * @param  list<InstallConfig>     $installs
      * @param  array<string, string>   $paths
@@ -417,41 +482,41 @@ final class PropertiesReader
     private function writeFile(array $installs, array $paths): void
     {
         $lines = [
-            '; build.properties — local Joomla installs for cwm-build-tools dev commands.',
-            '; Gitignored. Per-developer. Generated by `composer setup`.',
+            '# build.properties — local Joomla installs for cwm-build-tools dev commands.',
+            '# Gitignored. Per-developer. Generated by `composer setup`.',
             '',
         ];
 
         if ($installs !== []) {
             $ids     = array_map(static fn (InstallConfig $i): string => $i->id, $installs);
-            $lines[] = '; Comma-separated list of install ids (must match the section names below).';
-            $lines[] = 'installs = ' . implode(', ', $ids);
+            $lines[] = '# Comma-separated list of install ids.';
+            $lines[] = 'builder.installs = ' . implode(', ', $ids);
             $lines[] = '';
 
             foreach ($installs as $install) {
-                $lines[] = "[{$install->id}]";
-                $lines[] = 'role = ' . $install->role;
-                $lines[] = 'path = ' . $install->path;
-                $lines[] = 'url = ' . ($install->url ?? '');
-                $lines[] = 'version = ' . ($install->version ?? '');
-                $lines[] = 'db_host = ' . $install->dbHost();
-                $lines[] = 'db_user = ' . $install->dbUser();
-                $lines[] = 'db_pass = ' . $install->dbPass();
-                $lines[] = 'db_name = ' . $install->dbName();
-                $lines[] = 'admin_user = ' . $install->adminUser();
-                $lines[] = 'admin_pass = ' . $install->adminPass();
-                $lines[] = 'admin_email = ' . $install->adminEmail();
+                $prefix  = "builder.{$install->id}";
+                $lines[] = "# ----- {$install->id} ({$install->role}) -----";
+                $lines[] = "{$prefix}.role        = {$install->role}";
+                $lines[] = "{$prefix}.path        = {$install->path}";
+                $lines[] = "{$prefix}.url         = " . ($install->url ?? '');
+                $lines[] = "{$prefix}.version     = " . ($install->version ?? '');
+                $lines[] = "{$prefix}.db_host     = " . $install->dbHost();
+                $lines[] = "{$prefix}.db_user     = " . $install->dbUser();
+                $lines[] = "{$prefix}.db_pass     = " . $install->dbPass();
+                $lines[] = "{$prefix}.db_name     = " . $install->dbName();
+                $lines[] = "{$prefix}.admin_user  = " . $install->adminUser();
+                $lines[] = "{$prefix}.admin_pass  = " . $install->adminPass();
+                $lines[] = "{$prefix}.admin_email = " . $install->adminEmail();
                 $lines[] = '';
             }
         }
 
         if ($paths !== []) {
-            $lines[] = '; Per-developer absolute paths to CWM siblings declared in';
-            $lines[] = '; cwm-build.config.json dev.cwmSiblings. Written by cwm-setup.';
-            $lines[] = '[paths]';
+            $lines[] = '# Per-developer absolute paths to CWM siblings declared in';
+            $lines[] = '# cwm-build.config.json dev.cwmSiblings. Written by cwm-setup.';
 
             foreach ($paths as $package => $absolutePath) {
-                $lines[] = $package . ' = ' . $absolutePath;
+                $lines[] = 'paths.' . $package . ' = ' . $absolutePath;
             }
 
             $lines[] = '';

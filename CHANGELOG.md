@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-15
+
+### Changed (non-breaking — both formats still parse)
+
+- **`build.properties` switched from INI sections to flat keys.** Every
+  field is now a globally unique key (e.g. `builder.j5.role`,
+  `paths.cwm/sibling`) so Java-properties-aware IDEs (PhpStorm,
+  IntelliJ) don't flag "duplicate property key" warnings on `role`,
+  `path`, `db_host`, etc. across sections. Same content, same semantics,
+  zero IDE noise.
+
+  New canonical shape:
+  ```properties
+  joomla.version = 5.4.2
+  builder.installs = j5, j6, j5-test
+
+  builder.j5.role        = dev
+  builder.j5.path        = /path/to/joomla5
+  builder.j5.url         = https://j5-dev.local
+  builder.j5.version     = 5.4.2
+  builder.j5.db_host     = localhost
+  builder.j5.admin_email = admin@example.com
+  # ... etc
+
+  builder.j5-test.role = test
+  builder.j5-test.path = /path/to/joomla5-test
+
+  paths.joomla-bible-study/lib-cwmscripture = /Users/you/GitHub/lib_cwmscripture
+  ```
+
+- Comment marker switched from `;` to `#` to satisfy Java-properties
+  parsers too. PHP's `parse_ini_string` accepts both via
+  `PropertiesReader`'s pre-strip step.
+
+### Internal
+
+- `PropertiesReader::fromLegacyFlat()` renamed to `fromFlat()` (with the
+  old name retained as a private alias for any external caller still
+  using it). The "flat" format is the canonical v1.4 shape, not legacy.
+  - Extended to honor explicit `builder.installs = ...` lists.
+  - Auto-discovers ids from `builder.<id>.path` keys (preferred) before
+    falling back to `builder.<id>.url` (Proclaim legacy).
+  - Parses `builder.<id>.role`, `builder.<id>.version`, and modern
+    `admin_user/pass/email` key names alongside Proclaim's legacy
+    `username/password/email`.
+- `PropertiesReader::paths()` now reads flat `paths.<package>` keys
+  (preferred). Still falls back to the `[paths]` INI section for any
+  existing v1.2/v1.3 files.
+- `PropertiesReader::write()` and `writePaths()` now emit flat keys.
+- `PropertiesReader::fromSections()` retained as a reader-only path for
+  backward compatibility with any developer's existing INI-style
+  `build.properties` from v1.0–v1.3. Next `composer setup` rewrites
+  the file in the new flat shape.
+
+### Migration
+
+Per consumer:
+1. `composer require --dev cwm/build-tools:^1.4`
+2. `composer cwm-sync-configs` refreshes `build.dist.properties` to
+   the new flat-key template.
+3. Developers with an existing INI `build.properties` keep working
+   thanks to `fromSections()` backward-compat. Running `composer
+   setup` will migrate the file to the flat shape on next save.
+
 ## [1.3.0] - 2026-05-15
 
 ### Added

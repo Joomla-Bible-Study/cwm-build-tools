@@ -287,20 +287,11 @@ function syncBuildDistProperties(string $projectRoot, string $templates, bool $d
 
     $templateBody = (string) file_get_contents($source);
 
-    $header = ""
-        . "; ==============================================================================\n"
-        . "; build.dist.properties\n"
-        . ";\n"
-        . "; Auto-managed by `composer cwm-sync-configs`. Do not edit by hand.\n"
-        . "; To change defaults across all CWM repos, edit\n"
-        . ";   cwm-build-tools/templates/build.properties.tmpl\n"
-        . "; and re-run `composer cwm-sync-configs` in each consumer.\n"
-        . ";\n"
-        . "; Per-developer state lives in build.properties (gitignored). Copy this\n"
-        . "; file to build.properties and either edit by hand or run `composer setup`.\n"
-        . "; ==============================================================================\n\n";
-
-    $newContent = $header . $templateBody;
+    // Comment marker is `#` (not `;`) so Java-properties-aware IDEs accept
+    // it cleanly; PHP's `parse_ini_string` accepts both. The template body
+    // already starts with the canonical header, so we don't re-stamp our
+    // own — `composer cwm-sync-configs` is the only writer either way.
+    $newContent = $templateBody;
     $existing   = is_file($target) ? (string) file_get_contents($target) : '';
 
     if ($existing === $newContent) {

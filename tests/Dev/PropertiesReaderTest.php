@@ -405,6 +405,133 @@ final class PropertiesReaderTest extends TestCase
     }
 
     #[Test]
+    public function parses_v1_4_flat_keys_with_explicit_builder_installs(): void
+    {
+        // v1.4 canonical shape: flat keys, no [sections], every key
+        // globally unique so IDEs don't flag duplicates.
+        $path = $this->writeProperties(<<<INI
+            builder.installs = j5, j5-test
+
+            builder.j5.role        = dev
+            builder.j5.path        = /opt/j5
+            builder.j5.url         = https://j5.local
+            builder.j5.version     = 5.4.2
+            builder.j5.db_host     = localhost
+            builder.j5.db_user     = root
+            builder.j5.admin_email = brent@example.com
+
+            builder.j5-test.role = test
+            builder.j5-test.path = /opt/j5-test
+            INI);
+
+        $installs = (new PropertiesReader($path))->installs();
+
+        self::assertCount(2, $installs);
+        self::assertSame('j5', $installs[0]->id);
+        self::assertSame(InstallConfig::ROLE_DEV, $installs[0]->role);
+        self::assertSame('/opt/j5', $installs[0]->path);
+        self::assertSame('5.4.2', $installs[0]->version);
+        self::assertSame('root', $installs[0]->dbUser());
+        self::assertSame('brent@example.com', $installs[0]->adminEmail());
+
+        self::assertSame('j5-test', $installs[1]->id);
+        self::assertSame(InstallConfig::ROLE_TEST, $installs[1]->role);
+    }
+
+    #[Test]
+    public function flat_format_auto_discovers_ids_from_path_keys(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            builder.j5.path = /opt/j5
+            builder.j6.path = /opt/j6
+            INI);
+
+        $installs = (new PropertiesReader($path))->installs();
+
+        self::assertCount(2, $installs);
+        self::assertSame(['j5', 'j6'], array_map(static fn (InstallConfig $i): string => $i->id, $installs));
+    }
+
+    #[Test]
+    public function paths_reads_flat_paths_dot_keys(): void
+    {
+        $path = $this->writeProperties(<<<INI
+            builder.installs = j5
+            builder.j5.path = /opt/j5
+
+            paths.joomla-bible-study/lib-cwmscripture = /Users/brent/GitHub/lib_cwmscripture
+            paths.cwm/scripture-links                 = /Users/brent/GitHub/CWMScriptureLinks
+            INI);
+
+        $paths = (new PropertiesReader($path))->paths();
+
+        self::assertSame(
+            [
+                'joomla-bible-study/lib-cwmscripture' => '/Users/brent/GitHub/lib_cwmscripture',
+                'cwm/scripture-links'                 => '/Users/brent/GitHub/CWMScriptureLinks',
+            ],
+            $paths,
+        );
+    }
+
+    #[Test]
+    public function write_then_read_roundtrips_flat_format(): void
+    {
+        $reader = new PropertiesReader($this->tmpDir . '/roundtrip.properties');
+
+        $original = [
+            new InstallConfig(id: 'j5', path: '/opt/j5', version: '5.4.2', role: InstallConfig::ROLE_DEV),
+            new InstallConfig(id: 'j5-test', path: '/opt/j5-test', role: InstallConfig::ROLE_TEST),
+        ];
+
+        $reader->write($original);
+        $reader->writePaths(['cwm/sib' => '/tmp/cwm-sib']);
+
+        $written  = (string) file_get_contents($this->tmpDir . '/roundtrip.properties');
+        $installs = $reader->installs();
+        $paths    = $reader->paths();
+
+        // Written file must use flat keys, NOT [sections]
+        self::assertStringNotContainsString('[j5]', $written);
+        self::assertStringContainsString('builder.j5.role        = dev', $written);
+        self::assertStringContainsString('builder.j5-test.role        = test', $written);
+        self::assertStringContainsString('paths.cwm/sib = /tmp/cwm-sib', $written);
+
+        // Round-trip preserves data
+        self::assertCount(2, $installs);
+        self::assertSame('j5',      $installs[0]->id);
+        self::assertSame('j5-test', $installs[1]->id);
+        self::assertSame(InstallConfig::ROLE_TEST, $installs[1]->role);
+        self::assertSame(['cwm/sib' => '/tmp/cwm-sib'], $paths);
+    }
+
+    #[Test]
+    public function parses_files_with_hash_comments_for_ide_compat(): void
+    {
+        // build.dist.properties ships with # comments (not ;) so Java-
+        // properties-aware IDEs (PhpStorm default) don't flag comment lines
+        // as syntax errors. PHP's native parse_ini_string only treats ;
+        // as a comment marker, but PropertiesReader strips both # and ;
+        // lines before parsing.
+        $path = $this->writeProperties(<<<INI
+            # build.dist.properties — auto-managed
+            # Multi-line header should be stripped cleanly.
+            installs = j5
+
+            [j5]
+            # Comment inside a section is fine too.
+            role = dev
+            path = /opt/j5
+            INI);
+
+        $installs = (new PropertiesReader($path))->installs();
+
+        self::assertCount(1, $installs);
+        self::assertSame('j5', $installs[0]->id);
+        self::assertSame(InstallConfig::ROLE_DEV, $installs[0]->role);
+    }
+
+    #[Test]
     public function paths_returns_empty_when_file_missing(): void
     {
         $reader = new PropertiesReader($this->tmpDir . '/nope.properties');
@@ -468,8 +595,11 @@ final class PropertiesReaderTest extends TestCase
     }
 
     #[Test]
-    public function write_paths_creates_file_with_paths_block(): void
+    public function write_paths_emits_flat_paths_keys(): void
     {
+        // Switched in v1.4: flat `paths.<package>` keys instead of an
+        // `[paths]` INI section, so Java-properties-aware IDEs handle the
+        // file cleanly.
         $reader = new PropertiesReader($this->tmpDir . '/fresh.properties');
 
         $reader->writePaths([
@@ -478,8 +608,11 @@ final class PropertiesReaderTest extends TestCase
 
         $content = (string) file_get_contents($this->tmpDir . '/fresh.properties');
 
-        self::assertStringContainsString('[paths]', $content);
-        self::assertStringContainsString('joomla-bible-study/lib-cwmscripture = /Users/brent/GitHub/lib_cwmscripture', $content);
+        self::assertStringNotContainsString('[paths]', $content);
+        self::assertStringContainsString(
+            'paths.joomla-bible-study/lib-cwmscripture = /Users/brent/GitHub/lib_cwmscripture',
+            $content,
+        );
     }
 
     #[Test]
