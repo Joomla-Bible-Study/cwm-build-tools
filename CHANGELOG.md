@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-05-15
+
+### Fixed
+
+- **`DevTargetVerifier::satisfies()` now understands Composer stability
+  qualifiers.** Constraints like `@dev`, `*@dev`, and bare `*` are stability
+  / wildcard expressions, not semver ranges; the previous implementation
+  fell through to literal-match and reported `out of range` for every
+  path-repo dep pinned with `@dev` (which is the common shape for CWM
+  sibling deps). Now treats `*` / `@dev` / `*@dev` as any-version,
+  strips trailing `@<stability>` qualifiers from caret/tilde constraints,
+  and matches `dev-<branch>` literally against the installed version.
+
 ## [1.2.1] - 2026-05-15
 
 ### Fixed

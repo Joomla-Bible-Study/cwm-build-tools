@@ -218,7 +218,30 @@ final class DevTargetVerifier
     private function satisfies(string $version, string $constraint): bool
     {
         $constraint = trim($constraint);
-        $version    = $this->normaliseVersion($version);
+
+        // Wildcard / stability-only constraints satisfy any installed version.
+        // Examples: `*`, `@dev`, `*@dev`, `dev-main` (when installed is also `dev-*`).
+        if ($constraint === '*' || $constraint === '@dev' || $constraint === '*@dev') {
+            return true;
+        }
+
+        // Branch alias requirements (`dev-main`, `dev-master`) match when the
+        // installed version is the same dev branch.
+        if (str_starts_with($constraint, 'dev-')) {
+            return $constraint === $version || $constraint === trim($version);
+        }
+
+        // Strip trailing @<stability> qualifier — the stability constraint
+        // doesn't affect range semantics for our purposes.
+        if (preg_match('/^(.*)@[a-z]+$/i', $constraint, $m) === 1) {
+            $constraint = trim($m[1]);
+
+            if ($constraint === '' || $constraint === '*') {
+                return true;
+            }
+        }
+
+        $version = $this->normaliseVersion($version);
 
         if ($constraint === $version) {
             return true;

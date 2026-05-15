@@ -185,6 +185,74 @@ final class DevTargetVerifierTest extends TestCase
     }
 
     #[Test]
+    public function at_dev_stability_constraint_satisfies_any_dev_version(): void
+    {
+        $pkgRoot = $this->tmpDir . '/vendor/cwm/sib';
+        mkdir($pkgRoot, 0o777, true);
+        file_put_contents($pkgRoot . '/sib.xml', '<extension/>');
+
+        $this->writeComposerJson(['require' => ['cwm/sib' => '@dev']]);
+
+        $pkg     = new CwmPackage(
+            name: 'cwm/sib',
+            version: 'dev-main',
+            versionNormalized: 'dev-main',
+            joomlaLinks: [['type' => 'library', 'name' => 'sib']],
+            installPath: $pkgRoot,
+            isPathRepo: false,
+            sourcePath: null,
+            reference: 'abcd',
+        );
+        $install = $this->install();
+
+        // Pre-create the expected links so we focus the assertion on the constraint check.
+        mkdir($this->joomlaRoot . '/libraries', 0o777, true);
+        symlink($pkgRoot, $this->joomlaRoot . '/libraries/sib');
+        mkdir($this->joomlaRoot . '/administrator/manifests/libraries', 0o777, true);
+        symlink($pkgRoot . '/sib.xml', $this->joomlaRoot . '/administrator/manifests/libraries/sib.xml');
+
+        ob_start();
+        $totals = (new DevTargetVerifier($this->projectRoot, []))->verify($install, [$pkg]);
+        $output = (string) ob_get_clean();
+
+        self::assertSame(0, $totals['errors'], "@dev constraint should satisfy dev-main:\n{$output}");
+        self::assertStringNotContainsString('out of range', $output);
+    }
+
+    #[Test]
+    public function wildcard_constraint_satisfies_any_version(): void
+    {
+        $pkgRoot = $this->tmpDir . '/vendor/cwm/sib';
+        mkdir($pkgRoot, 0o777, true);
+        file_put_contents($pkgRoot . '/sib.xml', '<extension/>');
+
+        $this->writeComposerJson(['require' => ['cwm/sib' => '*']]);
+
+        $pkg     = new CwmPackage(
+            name: 'cwm/sib',
+            version: '99.0.0',
+            versionNormalized: '99.0.0.0',
+            joomlaLinks: [['type' => 'library', 'name' => 'sib']],
+            installPath: $pkgRoot,
+            isPathRepo: false,
+            sourcePath: null,
+            reference: 'abcd',
+        );
+        $install = $this->install();
+
+        mkdir($this->joomlaRoot . '/libraries', 0o777, true);
+        symlink($pkgRoot, $this->joomlaRoot . '/libraries/sib');
+        mkdir($this->joomlaRoot . '/administrator/manifests/libraries', 0o777, true);
+        symlink($pkgRoot . '/sib.xml', $this->joomlaRoot . '/administrator/manifests/libraries/sib.xml');
+
+        ob_start();
+        $totals = (new DevTargetVerifier($this->projectRoot, []))->verify($install, [$pkg]);
+        $output = (string) ob_get_clean();
+
+        self::assertSame(0, $totals['errors'], "wildcard `*` should satisfy any version:\n{$output}");
+    }
+
+    #[Test]
     public function returns_error_when_install_path_is_missing(): void
     {
         $install = new InstallConfig(id: 'gone', path: $this->tmpDir . '/not-here');
