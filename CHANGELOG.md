@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-15
+
+### Added
+
+- **`cwm-verify` detects and rebuilds stale `manifest_cache`.** Each row in
+  `#__extensions` carries a `manifest_cache` JSON column that Joomla
+  populates on install and update. When an extension's install
+  scriptfile `update()` doesn't run cleanly, that column drifts away
+  from the source manifest XML — visible to users as
+  `mb_strtolower(null)` deprecation warnings in Joomla 6's manage view.
+  - `ExtensionVerifier::parseManifestXml()` reproduces Joomla's
+    `Installer::parseXMLInstallFile()` shape so cwm-verify can build
+    the canonical cache JSON.
+  - `ExtensionVerifier::compareManifestCache()` checks the four fields
+    the manage view actually reads (`name`, `version`, `description`,
+    `author`) — other fields are informational and not worth surfacing
+    as drift.
+  - `cwm-verify --target test` now reports `STALE: <name> manifest_cache
+    — version: 'old' → 'new'` per drifted extension.
+  - `cwm-verify --target test --fix` UPDATEs the row with rebuilt JSON
+    directly — no extension reinstall required.
+  - Applies to self extensions AND CWM dep extensions installed via
+    path repositories (`expectedFromPackages()` resolves the source
+    manifest from each dep's joomlaLinks tuple).
+- **`cwm-sync-configs` distributes `build.dist.properties` to consumers.**
+  Each consuming project gets an auto-managed copy of cwm-build-tools'
+  `templates/build.properties.tmpl`, headed by a marker comment telling
+  developers to edit the upstream template rather than the local file.
+  Schema changes to `build.properties` (the `role` field added in
+  v1.1.0, the `[paths]` block added in v1.2.0) now propagate to every
+  consumer on the next `composer cwm-sync-configs` run rather than
+  silently drifting.
+
+### Migration
+
+Per-repo:
+1. `composer require --dev cwm/build-tools:^1.3`
+2. `composer cwm-sync-configs` — refreshes `build.dist.properties`
+   from the upstream template (committed change, review the diff).
+3. Optionally `composer cwm-verify --target test --fix` against a
+   live install with stale extension caches.
+
 ## [1.2.2] - 2026-05-15
 
 ### Fixed

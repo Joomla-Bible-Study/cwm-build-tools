@@ -90,9 +90,10 @@ final class ExtensionVerifier
             $row = $this->lookup($pdo, $prefix, $ext);
 
             if ($row !== null) {
-                $drift = $this->computeDrift($row, $ext);
+                $drift         = $this->computeDrift($row, $ext);
+                $manifestDrift = $this->detectManifestCacheDrift($ext, $row);
 
-                if ($drift === []) {
+                if ($drift === [] && $manifestDrift === []) {
                     if ($this->verbose) {
                         echo "  OK:     {$ext['name']} ({$ext['type']})\n";
                     }
@@ -102,17 +103,40 @@ final class ExtensionVerifier
                 }
 
                 if (!$reconcile) {
-                    echo "  DRIFT:  {$ext['name']} — needs " . implode(', ', $drift) . "\n";
-                    $errors++;
+                    if ($drift !== []) {
+                        echo "  DRIFT:  {$ext['name']} — needs " . implode(', ', $drift) . "\n";
+                        $errors++;
+                    }
+
+                    if ($manifestDrift !== []) {
+                        echo "  STALE:  {$ext['name']} manifest_cache — " . implode(', ', $manifestDrift) . "\n";
+                        $errors++;
+                    }
 
                     continue;
                 }
 
-                $sql  = "UPDATE {$prefix}extensions SET " . implode(', ', $drift)
-                    . ' WHERE extension_id = ' . (int) $row['extension_id'];
-                $pdo->prepare($sql)->execute();
-                echo "  FIXED:  {$ext['name']} — " . implode(', ', $drift) . "\n";
-                $fixed++;
+                if ($drift !== []) {
+                    $sql  = "UPDATE {$prefix}extensions SET " . implode(', ', $drift)
+                        . ' WHERE extension_id = ' . (int) $row['extension_id'];
+                    $pdo->prepare($sql)->execute();
+                    echo "  FIXED:  {$ext['name']} — " . implode(', ', $drift) . "\n";
+                    $fixed++;
+                }
+
+                if ($manifestDrift !== []) {
+                    $expected = $this->parseManifestXml((string) ($ext['_manifestPath'] ?? ''));
+
+                    if ($expected !== null
+                        && $this->rebuildManifestCache($pdo, $prefix, (int) $row['extension_id'], $expected)
+                    ) {
+                        echo "  REBUILT: {$ext['name']} manifest_cache — " . implode(', ', $manifestDrift) . "\n";
+                        $fixed++;
+                    } else {
+                        echo "  STALE:  {$ext['name']} manifest_cache — could not rebuild (source XML missing?)\n";
+                        $errors++;
+                    }
+                }
 
                 continue;
             }
@@ -184,14 +208,75 @@ final class ExtensionVerifier
                 };
 
                 if ($row !== null) {
-                    $row['_package'] = $pkg->name;
-                    $row['_version'] = $pkg->version;
+                    $row['_package']      = $pkg->name;
+                    $row['_version']      = $pkg->version;
+                    $row['_manifestPath'] = $this->manifestPathForPackageLink($pkg->sourceRoot(), $link);
                     $out[] = $row;
                 }
             }
         }
 
         return $out;
+    }
+
+    /**
+     * Resolve where a CWM dep's source manifest XML lives so the
+     * manifest_cache check can read the canonical declaration.
+     *
+     * Order of preference:
+     *   1. Explicit `manifest` field on the joomlaLinks tuple (override)
+     *   2. Conventional location per type
+     *      - library/module/component: <pkgRoot>/<name>.xml
+     *      - plugin: <pkgRoot>/<element>.xml or <pkgRoot>/plugins/<group>/<element>/<element>.xml
+     *   3. null when nothing on disk matches (manifest check is skipped
+     *      for that extension with a warning)
+     *
+     * @param  array<string, string> $link
+     */
+    private function manifestPathForPackageLink(string $pkgRoot, array $link): ?string
+    {
+        $pkgRoot = rtrim($pkgRoot, '/');
+
+        if (isset($link['manifest']) && is_string($link['manifest']) && $link['manifest'] !== '') {
+            $explicit = $pkgRoot . '/' . ltrim($link['manifest'], '/');
+
+            return is_file($explicit) ? $explicit : null;
+        }
+
+        $candidates = [];
+
+        switch ($link['type']) {
+            case 'library':
+            case 'module':
+            case 'component':
+                $name = $link['name'] ?? null;
+
+                if ($name !== null) {
+                    $candidates[] = $pkgRoot . '/' . $name . '.xml';
+                }
+                break;
+
+            case 'plugin':
+                $element = $link['element'] ?? null;
+                $group   = $link['group']   ?? null;
+
+                if ($element !== null) {
+                    $candidates[] = $pkgRoot . '/' . $element . '.xml';
+                }
+
+                if ($element !== null && $group !== null) {
+                    $candidates[] = $pkgRoot . '/plugins/' . $group . '/' . $element . '/' . $element . '.xml';
+                }
+                break;
+        }
+
+        foreach ($candidates as $candidate) {
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -300,7 +385,8 @@ final class ExtensionVerifier
                 $manifestPath = $this->findComponentManifest($name);
 
                 if ($manifestPath) {
-                    $comp['menus'] = $this->extractMenus($manifestPath);
+                    $comp['menus']         = $this->extractMenus($manifestPath);
+                    $comp['_manifestPath'] = $manifestPath;
                 }
 
                 $out[] = $comp;
@@ -318,6 +404,7 @@ final class ExtensionVerifier
             $row = $this->describeManifest($type, $manPath);
 
             if ($row !== null) {
+                $row['_manifestPath'] = $manPath;
                 $out[] = $row;
             }
         }
@@ -426,9 +513,200 @@ final class ExtensionVerifier
     /**
      * @return array<string, mixed>|null
      */
+    /**
+     * Compare the row's stored manifest_cache JSON against the canonical
+     * data parsed from the source manifest XML. Returns drift descriptions
+     * suitable for surfacing in verify output.
+     *
+     * No-ops when the row carries no `_manifestPath` (CWM dep without a
+     * discoverable manifest under its source root) or when manifest_cache
+     * is empty (treated as "newly installed, will be populated on next
+     * Joomla install/update of that extension").
+     *
+     * @param  array<string, mixed> $ext  Expected extension row.
+     * @param  array<string, mixed> $row  DB row from lookup().
+     * @return list<string>
+     */
+    private function detectManifestCacheDrift(array $ext, array $row): array
+    {
+        $manifestPath = (string) ($ext['_manifestPath'] ?? '');
+
+        if ($manifestPath === '' || !is_file($manifestPath)) {
+            return [];
+        }
+
+        $actualJson = (string) ($row['manifest_cache'] ?? '');
+
+        if ($actualJson === '' || $actualJson === '[]' || $actualJson === '{}') {
+            // Empty cache means Joomla never wrote one — flag, but it's
+            // not the staleness pattern we're catching here.
+            return ['empty manifest_cache (run extension install/update)'];
+        }
+
+        $expected = $this->parseManifestXml($manifestPath);
+
+        if ($expected === null) {
+            return [];
+        }
+
+        return $this->compareManifestCache($expected, $actualJson);
+    }
+
+    /**
+     * Parse an extension manifest XML file into the exact shape Joomla's
+     * `Installer::parseXMLInstallFile()` produces — which is what ends up
+     * serialized into the `#__extensions.manifest_cache` column on install
+     * and update. Used by the manifest_cache staleness check to compare
+     * the canonical XML against whatever JSON currently sits in the DB.
+     *
+     * Matches joomla-cms 5.4 `libraries/src/Installer/Installer.php::parseXMLInstallFile`.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function parseManifestXml(string $manifestPath): ?array
+    {
+        if (!is_file($manifestPath)) {
+            return null;
+        }
+
+        $previous = libxml_use_internal_errors(true);
+
+        try {
+            $xml = simplexml_load_file($manifestPath);
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
+
+        if (!$xml instanceof \SimpleXMLElement) {
+            return null;
+        }
+
+        $root = $xml->getName();
+
+        if ($root !== 'extension' && $root !== 'metafile') {
+            return null;
+        }
+
+        $data = [];
+
+        $data['name'] = (string) $xml->name;
+        $data['type'] = $root === 'metafile'
+            ? 'language'
+            : (string) $xml->attributes()->type;
+
+        $data['creationDate'] = ((string) $xml->creationDate) ?: 'Unknown';
+        $data['author']       = ((string) $xml->author) ?: 'Unknown';
+        $data['copyright']    = (string) $xml->copyright;
+        $data['authorEmail']  = (string) $xml->authorEmail;
+        $data['authorUrl']    = (string) $xml->authorUrl;
+        $data['version']      = (string) $xml->version;
+        $data['description']  = (string) $xml->description;
+        $data['group']        = (string) $xml->group;
+        $data['changelogurl'] = (string) $xml->changelogurl;
+
+        if (isset($xml->inheritable)) {
+            $data['inheritable'] = (string) $xml->inheritable !== '0';
+        }
+
+        $namespace = isset($xml->namespace) ? (string) $xml->namespace : '';
+
+        if ($namespace !== '') {
+            $data['namespace'] = $namespace;
+        }
+
+        if (isset($xml->parent) && (string) $xml->parent !== '') {
+            $data['parent'] = (string) $xml->parent;
+        }
+
+        if ($xml->files && count($xml->files->children()) > 0) {
+            $filename         = basename($manifestPath);
+            $data['filename'] = preg_replace('/\.[^.]+$/', '', $filename) ?: $filename;
+
+            foreach ($xml->files->children() as $oneFile) {
+                $pluginAttr = (string) $oneFile->attributes()->plugin;
+
+                if ($pluginAttr !== '') {
+                    $data['filename'] = $pluginAttr;
+                    break;
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Compare the canonical manifest data (from the source XML) with the
+     * manifest_cache JSON currently stored on the extension row. Returns a
+     * list of human-readable drift descriptions; an empty list means the
+     * cache is up to date.
+     *
+     * Only checks the fields the Joomla manage view actually reads — version,
+     * name, description, author — because those are the ones whose staleness
+     * triggers the mb_strtolower-on-null deprecation noise in Joomla 6's
+     * extension manager. Other fields (creationDate, license, etc.) are
+     * informational and not worth flagging as drift.
+     *
+     * @param  array<string, mixed> $expected From parseManifestXml().
+     * @return list<string>
+     */
+    public function compareManifestCache(array $expected, string $actualJson): array
+    {
+        $actual = json_decode($actualJson, true);
+
+        if (!is_array($actual)) {
+            return ['manifest_cache is not valid JSON'];
+        }
+
+        $checked = ['name', 'version', 'description', 'author'];
+        $drift   = [];
+
+        foreach ($checked as $field) {
+            $exp = $expected[$field] ?? '';
+            $cur = $actual[$field] ?? '';
+
+            if ($exp === '' && $cur === '') {
+                continue;
+            }
+
+            if ((string) $exp !== (string) $cur) {
+                $expDisplay = $exp === '' ? '(empty)' : $exp;
+                $curDisplay = $cur === '' ? '(empty)' : $cur;
+                $drift[]    = "{$field}: '{$curDisplay}' → '{$expDisplay}'";
+            }
+        }
+
+        return $drift;
+    }
+
+    /**
+     * Rebuild the manifest_cache JSON column for a #__extensions row by
+     * UPDATEing it with the canonical data from the source manifest XML.
+     * Returns true when the row was updated, false on PDO error.
+     */
+    private function rebuildManifestCache(\PDO $pdo, string $prefix, int $extensionId, array $expected): bool
+    {
+        $json = json_encode($expected, JSON_UNESCAPED_SLASHES);
+
+        if ($json === false) {
+            return false;
+        }
+
+        try {
+            $stmt = $pdo->prepare(
+                "UPDATE {$prefix}extensions SET manifest_cache = ? WHERE extension_id = ?"
+            );
+
+            return $stmt->execute([$json, $extensionId]);
+        } catch (\PDOException $e) {
+            return false;
+        }
+    }
+
     private function lookup(\PDO $pdo, string $prefix, array $ext): ?array
     {
-        $sql    = "SELECT extension_id, enabled, locked FROM {$prefix}extensions WHERE type = ? AND element = ?";
+        $sql    = "SELECT extension_id, enabled, locked, manifest_cache FROM {$prefix}extensions WHERE type = ? AND element = ?";
         $params = [$ext['type'], $ext['element']];
 
         if ($ext['type'] === 'plugin' && ($ext['folder'] ?? '') !== '') {

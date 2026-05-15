@@ -41,6 +41,7 @@ if (!is_array($projectConfig)) {
 }
 
 syncGitignore($projectRoot, $templates, $projectConfig, $dryRun);
+syncBuildDistProperties($projectRoot, $templates, $dryRun);
 syncEslint($projectRoot, $templates, $projectConfig, $dryRun);
 checkProfileHints($projectConfig, $toolsRoot);
 
@@ -253,6 +254,69 @@ function syncEslint(string $projectRoot, string $templates, array $config, bool 
     echo "  To migrate, replace the project rule list with the wrapper pattern:\n";
     echo "    import baseConfig from '{$importPath}';\n";
     echo "    export default [...baseConfig, /* project overrides */];\n";
+}
+
+/**
+ * Distribute the canonical `build.dist.properties` template from
+ * cwm-build-tools to the consuming project.
+ *
+ * Background: build.dist.properties is the committed template each
+ * consumer ships so a fresh clone can run `cp build.dist.properties
+ * build.properties` (or have it auto-copied by a post-install-cmd) and
+ * have a starting point. Historically every consumer carried its own
+ * hand-edited copy and they drifted from the cwm-build-tools schema —
+ * recent additions (role field, [paths] block, [j5-test] section)
+ * exposed how fast the drift accumulates.
+ *
+ * This function makes the template authoritative: cwm-build-tools owns
+ * the shape at `templates/build.properties.tmpl` and `cwm-sync-configs`
+ * writes it (with an auto-managed header) into each consumer's
+ * `build.dist.properties`. Devs continue to customize per-machine state
+ * in `build.properties` (gitignored), not here.
+ */
+function syncBuildDistProperties(string $projectRoot, string $templates, bool $dryRun): void
+{
+    $source = $templates . '/build.properties.tmpl';
+    $target = $projectRoot . '/build.dist.properties';
+
+    if (!is_file($source)) {
+        echo "build.dist.properties: cwm-build-tools template missing at {$source} — skipped\n";
+
+        return;
+    }
+
+    $templateBody = (string) file_get_contents($source);
+
+    $header = ""
+        . "; ==============================================================================\n"
+        . "; build.dist.properties\n"
+        . ";\n"
+        . "; Auto-managed by `composer cwm-sync-configs`. Do not edit by hand.\n"
+        . "; To change defaults across all CWM repos, edit\n"
+        . ";   cwm-build-tools/templates/build.properties.tmpl\n"
+        . "; and re-run `composer cwm-sync-configs` in each consumer.\n"
+        . ";\n"
+        . "; Per-developer state lives in build.properties (gitignored). Copy this\n"
+        . "; file to build.properties and either edit by hand or run `composer setup`.\n"
+        . "; ==============================================================================\n\n";
+
+    $newContent = $header . $templateBody;
+    $existing   = is_file($target) ? (string) file_get_contents($target) : '';
+
+    if ($existing === $newContent) {
+        echo "build.dist.properties: up to date\n";
+
+        return;
+    }
+
+    if ($dryRun) {
+        echo "build.dist.properties: would " . ($existing === '' ? 'create' : 'update') . " (dry-run)\n";
+
+        return;
+    }
+
+    file_put_contents($target, $newContent);
+    echo "build.dist.properties: " . ($existing === '' ? 'created' : 'updated') . " from template\n";
 }
 
 /**
