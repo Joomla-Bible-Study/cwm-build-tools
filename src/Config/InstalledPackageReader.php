@@ -31,6 +31,33 @@ final class InstalledPackageReader
     }
 
     /**
+     * Resolve this project's Composer vendor directory, honoring a
+     * `config.vendor-dir` override in composer.json. CWMLivingWord (and
+     * Proclaim) ship with `"vendor-dir": "libraries/vendor"` so cwm-build-tools
+     * MUST read this rather than assume `vendor/`, or `installed.json` is
+     * silently missed and the cross-package machinery degrades to "no deps
+     * found".
+     */
+    public function vendorDir(): string
+    {
+        $composerPath = $this->projectRoot . '/composer.json';
+
+        if (is_file($composerPath)) {
+            $data = json_decode((string) file_get_contents($composerPath), true);
+
+            if (is_array($data)) {
+                $configured = $data['config']['vendor-dir'] ?? null;
+
+                if (is_string($configured) && $configured !== '') {
+                    return $this->projectRoot . '/' . ltrim($configured, '/');
+                }
+            }
+        }
+
+        return $this->projectRoot . '/vendor';
+    }
+
+    /**
      * Every installed package whose composer.json declared
      * `extra.cwm-build-tools.joomlaLinks` — never null, may be empty.
      *
@@ -42,7 +69,7 @@ final class InstalledPackageReader
      */
     public function cwmPackages(): array
     {
-        $installedPath = $this->projectRoot . '/vendor/composer/installed.json';
+        $installedPath = $this->vendorDir() . '/composer/installed.json';
 
         if (!is_file($installedPath)) {
             return [];
@@ -187,7 +214,7 @@ final class InstalledPackageReader
     {
         $relativeFromVendorComposer = $pkg['install-path'] ?? null;
 
-        $base = $this->projectRoot . '/vendor/composer';
+        $base = $this->vendorDir() . '/composer';
 
         if (is_string($relativeFromVendorComposer) && $relativeFromVendorComposer !== '') {
             $resolved = realpath($base . '/' . $relativeFromVendorComposer);
@@ -200,7 +227,7 @@ final class InstalledPackageReader
             return $this->normalisePath($base . '/' . $relativeFromVendorComposer);
         }
 
-        $fallback = $this->projectRoot . '/vendor/' . (string) $pkg['name'];
+        $fallback = $this->vendorDir() . '/' . (string) $pkg['name'];
 
         return realpath($fallback) !== false ? (string) realpath($fallback) : $fallback;
     }

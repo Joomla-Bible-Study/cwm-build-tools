@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-05-15
+
+### Fixed
+
+- **`InstalledPackageReader` now honors `composer.json`'s
+  `config.vendor-dir` override.** Consumers with a non-default vendor
+  directory (e.g. CWMLivingWord and Proclaim both ship with
+  `"vendor-dir": "libraries/vendor"`) had the cross-package machinery
+  silently degrade to zero deps — `installed.json` was being looked up
+  at `<project>/vendor/composer/installed.json` regardless of the
+  configured location. `cwm-link` and `cwm-verify --target dev` now
+  resolve `installed.json` against the actual vendor dir, so the CWM
+  dependencies section appears as designed.
+
 ## [1.2.0] - 2026-05-15
 
 ### Added

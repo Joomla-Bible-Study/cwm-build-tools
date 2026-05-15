@@ -217,6 +217,59 @@ final class InstalledPackageReaderTest extends TestCase
     }
 
     #[Test]
+    public function honors_composer_config_vendor_dir_override(): void
+    {
+        // Regression: CWMLivingWord uses "vendor-dir": "libraries/vendor", and
+        // earlier the reader hardcoded `<project>/vendor/composer/installed.json`,
+        // so the cross-package machinery silently saw zero deps and degraded
+        // to no-op. Confirm the configured vendor-dir is honored.
+        $tmpRoot = sys_get_temp_dir() . '/cwm-installed-reader-' . bin2hex(random_bytes(6));
+        mkdir($tmpRoot . '/libraries/vendor/composer', 0o777, true);
+
+        try {
+            file_put_contents(
+                $tmpRoot . '/composer.json',
+                json_encode([
+                    'name'   => 'consumer/test',
+                    'config' => ['vendor-dir' => 'libraries/vendor'],
+                ]),
+            );
+
+            file_put_contents(
+                $tmpRoot . '/libraries/vendor/composer/installed.json',
+                json_encode([
+                    'packages' => [[
+                        'name'               => 'cwm/sibling',
+                        'version'            => '1.0.0',
+                        'version_normalized' => '1.0.0.0',
+                        'dist'               => ['type' => 'zip', 'url' => 'x', 'reference' => 'r'],
+                        'type'               => 'library',
+                        'install-path'       => '../cwm/sibling',
+                        'extra'              => [
+                            'cwm-build-tools' => [
+                                'joomlaLinks' => [['type' => 'library', 'name' => 'sibling']],
+                            ],
+                        ],
+                    ]],
+                ]),
+            );
+
+            $reader   = new InstalledPackageReader($tmpRoot);
+            $packages = $reader->cwmPackages();
+
+            self::assertCount(1, $packages, 'should find sibling via configured vendor-dir');
+            self::assertSame('cwm/sibling', $packages[0]->name);
+        } finally {
+            @unlink($tmpRoot . '/composer.json');
+            @unlink($tmpRoot . '/libraries/vendor/composer/installed.json');
+            @rmdir($tmpRoot . '/libraries/vendor/composer');
+            @rmdir($tmpRoot . '/libraries/vendor');
+            @rmdir($tmpRoot . '/libraries');
+            @rmdir($tmpRoot);
+        }
+    }
+
+    #[Test]
     public function tolerates_composer1_style_flat_top_level_array(): void
     {
         $tmpRoot = sys_get_temp_dir() . '/cwm-installed-reader-' . bin2hex(random_bytes(6));
