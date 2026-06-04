@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-06-04
+
+### Fixed
+
+- **Component media now links from `media/<name>` when assets are
+  namespaced.** The dev linker always sourced a component's media from
+  `<root>/media`, which only fits the `<media folder="media">` layout
+  (assets directly under `media/`, e.g. Proclaim). For the
+  `<media folder="media/com_x">` layout (assets under `media/com_x/`,
+  e.g. `com_cwmconnect`, `com_livingword`), `cwm-link` pointed the
+  install's `media/<name>` symlink one level too high — the component
+  CSS/JS 404'd and `cwm-verify` flagged the *correct* symlink as a
+  conflict. The resolver now prefers `media/<name>` when that subdir
+  exists and falls back to `media/` otherwise (the same `is_dir()`
+  convention the module derivation already used). Targets are unchanged;
+  only the source path is corrected.
+
 ## [1.4.0] - 2026-05-15
 
 ### Changed (non-breaking — both formats still parse)
