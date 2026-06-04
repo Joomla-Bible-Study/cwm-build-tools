@@ -230,7 +230,9 @@ final class LinkResolver
         foreach (['admin' => "/administrator/components/{$name}",
                   'site'  => "/components/{$name}",
                   'media' => "/media/{$name}"] as $sub => $tail) {
-            $src = $pkgRoot . '/' . $sub;
+            $src = $sub === 'media'
+                ? $this->componentMediaSource($pkgRoot . '/media', $name)
+                : $pkgRoot . '/' . $sub;
 
             if (is_dir($src)) {
                 yield ['source' => $src, 'target' => $joomlaPath . $tail];
@@ -293,7 +295,7 @@ final class LinkResolver
 
         $admin = $this->resolveProject('admin');
         $site  = $this->resolveProject('site');
-        $media = $this->resolveProject('media');
+        $media = $this->componentMediaSource($this->resolveProject('media'), $name);
 
         if (is_dir($admin)) {
             yield ['source' => $admin, 'target' => "{$joomlaPath}/administrator/components/{$name}"];
@@ -306,6 +308,26 @@ final class LinkResolver
         if (is_dir($media)) {
             yield ['source' => $media, 'target' => "{$joomlaPath}/media/{$name}"];
         }
+    }
+
+    /**
+     * Resolve a component's media source directory, honouring both supported
+     * layouts: media files directly under `media/` (manifest
+     * `<media folder="media">`, e.g. Proclaim) or namespaced under
+     * `media/<name>/` (`<media folder="media/<name>">`, e.g. com_cwmconnect,
+     * com_livingword). The namespaced subdir wins when it exists so the
+     * install's `media/<name>` symlink points at the real component assets
+     * instead of one level too high.
+     *
+     * @param  string $mediaDir  The component's media base (…/media).
+     * @param  string $name      The component element name (e.g. com_example).
+     * @return string
+     */
+    private function componentMediaSource(string $mediaDir, string $name): string
+    {
+        $namespaced = $mediaDir . '/' . $name;
+
+        return is_dir($namespaced) ? $namespaced : $mediaDir;
     }
 
     /**
@@ -337,7 +359,9 @@ final class LinkResolver
         foreach (['admin' => "/administrator/components/{$name}",
                   'site'  => "/components/{$name}",
                   'media' => "/media/{$name}"] as $sub => $tail) {
-            $src = $base . '/' . $sub;
+            $src = $sub === 'media'
+                ? $this->componentMediaSource($base . '/media', $name)
+                : $base . '/' . $sub;
 
             if (is_dir($src)) {
                 yield ['source' => $src, 'target' => $joomlaPath . $tail];

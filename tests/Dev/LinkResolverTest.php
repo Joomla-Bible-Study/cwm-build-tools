@@ -33,6 +33,59 @@ final class LinkResolverTest extends TestCase
     }
 
     #[Test]
+    public function media_source_is_the_plain_dir_when_assets_live_directly_under_media(): void
+    {
+        // Proclaim layout: manifest <media folder="media"> — assets live at
+        // media/{css,js,…}. The install's media/<name> must link to media/.
+        $projectRoot = realpath(__DIR__ . '/../fixtures/project-component-toplevel');
+        self::assertNotFalse($projectRoot);
+
+        $config = [
+            'extension' => ['type' => 'component', 'name' => 'com_example'],
+            'manifests' => ['extensions' => []],
+        ];
+
+        $links  = (new LinkResolver($projectRoot, $config))->externalLinks('/var/www/joomla');
+        $source = self::mediaSourceFor($links, '/var/www/joomla/media/com_example');
+
+        self::assertSame($projectRoot . '/media', $source);
+    }
+
+    #[Test]
+    public function media_source_is_the_namespaced_dir_when_assets_live_under_media_name(): void
+    {
+        // com_cwmconnect / com_livingword layout: manifest
+        // <media folder="media/com_example"> — assets live at media/com_example/.
+        // The install's media/<name> must link there, not one level too high.
+        $projectRoot = realpath(__DIR__ . '/../fixtures/project-component-namespaced-media');
+        self::assertNotFalse($projectRoot);
+
+        $config = [
+            'extension' => ['type' => 'component', 'name' => 'com_example'],
+            'manifests' => ['extensions' => []],
+        ];
+
+        $links  = (new LinkResolver($projectRoot, $config))->externalLinks('/var/www/joomla');
+        $source = self::mediaSourceFor($links, '/var/www/joomla/media/com_example');
+
+        self::assertSame($projectRoot . '/media/com_example', $source);
+    }
+
+    /**
+     * @param  list<array{source: string, target: string}>  $links
+     */
+    private static function mediaSourceFor(array $links, string $target): string
+    {
+        foreach ($links as $link) {
+            if ($link['target'] === $target) {
+                return $link['source'];
+            }
+        }
+
+        self::fail("No link found for target {$target}");
+    }
+
+    #[Test]
     public function auto_derives_component_links_when_listed_under_manifests_extensions(): void
     {
         // Different shape: project root has no top-level extension.component;
