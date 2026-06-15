@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#
+# cwm-lint-deprecations — flag Joomla 6/7 upgrade blockers (bootstrap.modal,
+# data-bs-toggle=modal, iframe modal handlers, Joomla.Modal, jQuery globals)
+# in a consumer's source tree. Exits non-zero on any finding so CI can gate.
+#
+# Usage from a consuming project:
+#   composer lint-deprecations
+#   composer lint-deprecations -- --warn
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+exec php "${TOOLS_DIR}/scripts/lint-deprecations.php" "$@"

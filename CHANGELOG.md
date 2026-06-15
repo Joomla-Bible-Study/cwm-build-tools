@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-15
+
+### Added (non-breaking)
+
+- **ESM output from the shared Rollup config — unblocks first-class
+  `JoomlaDialog`.** `templates/rollup.config.js` now chooses output format
+  by source suffix: `*.es6.js` still emits an IIFE bundle (unchanged — every
+  existing consumer keeps building exactly as before), while a new
+  `*.es6.mjs` source emits an ES module (`format: 'es'`). In module builds,
+  bare `joomla.*` specifiers (e.g. `import JoomlaDialog from 'joomla.dialog'`)
+  are marked **external** so the import survives to the browser and Joomla's
+  import-map resolves it at runtime — an IIFE bundle inlines everything and
+  structurally cannot carry a live external ESM import, which is why
+  consuming `JoomlaDialog` (or any Joomla JS module API) was previously
+  impossible without hand-writing an unbundled module. Register the built
+  file as a `type="module"` asset in `joomla.asset.json`. Extra externals
+  (e.g. `vue`) can be added via the `MODULE_EXTERNALS` env var.
+
+- **`cwm-lint-deprecations` — flags Joomla 6/7 upgrade blockers in source.**
+  New CI-gating scanner (`composer lint-deprecations`) that walks the project
+  tree and reports `file:line` for `bootstrap.modal` assets,
+  `data-bs-toggle="modal"` markup, legacy `{handler: 'iframe'}` modal links,
+  the removed `Joomla.Modal` JS API, and jQuery globals. Exits non-zero on
+  any finding (or `--warn` to report without failing). `vendor/`,
+  `node_modules/`, `build/`, `dist/` and `*.min.js` are skipped. `cwm-init`
+  now offers to wire the `lint-deprecations` script into consumers.
+
+### Migration
+
+- No action required for existing builds. To adopt `JoomlaDialog`: name the
+  source `<thing>.es6.mjs`, `import JoomlaDialog from 'joomla.dialog'`, and
+  register the built `<thing>.js` as `"type": "module"` in
+  `joomla.asset.json`. Run `composer lint-deprecations` to find remaining
+  Bootstrap-modal usages to migrate.
+
 ## [1.4.1] - 2026-06-04
 
 ### Fixed

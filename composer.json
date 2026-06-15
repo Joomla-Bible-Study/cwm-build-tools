@@ -46,6 +46,7 @@
         "bin/cwm-setup",
         "bin/cwm-link",
         "bin/cwm-link-check",
+        "bin/cwm-lint-deprecations",
         "bin/cwm-clean",
         "bin/cwm-verify",
         "bin/cwm-install-zip",

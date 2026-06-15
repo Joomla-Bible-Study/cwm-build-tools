@@ -46,6 +46,7 @@ const CWM_COMPOSER_SCRIPTS = [
     'setup'          => 'vendor/bin/cwm-setup',
     'link'           => 'vendor/bin/cwm-link',
     'link-check'     => 'vendor/bin/cwm-link-check',
+    'lint-deprecations' => 'vendor/bin/cwm-lint-deprecations',
     'clean'          => 'vendor/bin/cwm-clean',
     'verify'         => 'vendor/bin/cwm-verify',
     'joomla-install' => 'vendor/bin/cwm-joomla-install',
