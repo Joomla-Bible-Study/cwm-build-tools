@@ -36,6 +36,9 @@ theme:
 nav:
   - Home: index.md
   - How to use: how-to-use.md
+  - Command reference: commands.md
+  - Configuration: configuration.md
+  - Releasing: releasing.md
   - JavaScript & JoomlaDialog: javascript-and-joomladialog.md
 
 markdown_extensions:
