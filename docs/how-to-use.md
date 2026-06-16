@@ -174,12 +174,12 @@ note during release. Override `paths` to silence it.
 
 ## 8. Where to dig deeper
 
-- **`JS_BUILDS_AND_JOOMLADIALOG.md`** — building modern JavaScript
-  (ESM `*.es6.mjs` modules), consuming `JoomlaDialog`, and migrating the
-  Bootstrap-modal / `confirm()` patterns Joomla 6/7 removes.
-- **`CLAUDE.md`** — architecture, threat model, security guardrails,
-  release flow, dist-exclusion rules. Read this before touching the
-  toolchain itself.
+- **[JavaScript & JoomlaDialog](javascript-and-joomladialog.md)** — building
+  modern JavaScript (ESM `*.es6.mjs` modules), consuming `JoomlaDialog`, and
+  migrating the Bootstrap-modal / `confirm()` patterns Joomla 6/7 removes.
+- **[`CLAUDE.md`](https://github.com/Joomla-Bible-Study/cwm-build-tools/blob/main/CLAUDE.md)**
+  — architecture, threat model, security guardrails, release flow,
+  dist-exclusion rules. Read this before touching the toolchain itself.
 - **`examples/`** — minimal `cwm-build.config.json` per archetype.
 - **`templates/profiles/<name>.json`** — the canonical versionTracking
   shape for each archetype.

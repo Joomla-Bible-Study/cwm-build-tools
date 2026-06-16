@@ -6,8 +6,8 @@ Bootstrap-modal / `confirm()` patterns that Joomla 6/7 removes.
 
 > **Audience:** CWM extension authors (Proclaim, lib_cwmscripture,
 > CWMScriptureLinks, CWMLivingWord) and AI assistants helping them.
-> Pair with `HOW_TO_USE.md` (project setup) and `CLAUDE.md`
-> (architecture + guardrails). Requires **cwm/build-tools ≥ 1.5.1**.
+> Pair with [How to use](how-to-use.md) (project setup). Requires
+> **cwm/build-tools ≥ 1.5.1**.
 
 ---
 
@@ -278,8 +278,8 @@ redesign.
 
 ## 10. Where to dig deeper
 
-- **`HOW_TO_USE.md`** — project setup, profiles, everyday commands.
-- **`CHANGELOG.md`** — v1.5.0 (ESM output + `cwm-lint-deprecations`),
-  v1.5.1 (`verifyAssets`).
+- **[How to use](how-to-use.md)** — project setup, profiles, everyday commands.
+- **[`CHANGELOG.md`](https://github.com/Joomla-Bible-Study/cwm-build-tools/blob/main/CHANGELOG.md)**
+  — v1.5.0 (ESM output + `cwm-lint-deprecations`), v1.5.1 (`verifyAssets`).
 - **`templates/rollup.config.js`** — the format-by-suffix logic.
 - **Per-command help:** `composer lint-deprecations -- --help`.

@@ -68,6 +68,8 @@
             "/.phpunit.cache",
             "/.phpunit.result.cache",
             "/CLAUDE.md",
+            "/docs",
+            "/mkdocs.yml",
             "/phpunit.xml",
             "/phpunit.xml.dist",
             "/tests",

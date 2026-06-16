@@ -2,8 +2,9 @@
 
 Shared build, release, and CI tooling for CWM Joomla extensions.
 
-**Documentation:** [`HOW_TO_USE.md`](HOW_TO_USE.md) (setup + everyday commands) ·
-[`JS_BUILDS_AND_JOOMLADIALOG.md`](JS_BUILDS_AND_JOOMLADIALOG.md) (ESM JS builds, `JoomlaDialog`, Joomla 6/7 modal migration) ·
+**📖 Documentation: <https://joomla-bible-study.github.io/cwm-build-tools/>**
+— [How to use](docs/how-to-use.md) (setup + everyday commands) ·
+[JavaScript & JoomlaDialog](docs/javascript-and-joomladialog.md) (ESM JS builds, `JoomlaDialog`, Joomla 6/7 modal migration) ·
 [`CLAUDE.md`](CLAUDE.md) (architecture + guardrails).
 
 ## Why this exists

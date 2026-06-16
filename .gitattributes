@@ -17,6 +17,8 @@
 /.phpunit.cache        export-ignore
 /.phpunit.result.cache export-ignore
 /CLAUDE.md             export-ignore
+/docs                  export-ignore
+/mkdocs.yml            export-ignore
 /phpunit.xml           export-ignore
 /phpunit.xml.dist      export-ignore
 /tests                 export-ignore
