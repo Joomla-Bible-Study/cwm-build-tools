@@ -174,6 +174,9 @@ note during release. Override `paths` to silence it.
 
 ## 8. Where to dig deeper
 
+- **`JS_BUILDS_AND_JOOMLADIALOG.md`** — building modern JavaScript
+  (ESM `*.es6.mjs` modules), consuming `JoomlaDialog`, and migrating the
+  Bootstrap-modal / `confirm()` patterns Joomla 6/7 removes.
 - **`CLAUDE.md`** — architecture, threat model, security guardrails,
   release flow, dist-exclusion rules. Read this before touching the
   toolchain itself.

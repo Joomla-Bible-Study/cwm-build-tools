@@ -2,6 +2,10 @@
 
 Shared build, release, and CI tooling for CWM Joomla extensions.
 
+**Documentation:** [`HOW_TO_USE.md`](HOW_TO_USE.md) (setup + everyday commands) ·
+[`JS_BUILDS_AND_JOOMLADIALOG.md`](JS_BUILDS_AND_JOOMLADIALOG.md) (ESM JS builds, `JoomlaDialog`, Joomla 6/7 modal migration) ·
+[`CLAUDE.md`](CLAUDE.md) (architecture + guardrails).
+
 ## Why this exists
 
 Across `Proclaim`, `lib_cwmscripture`, `CWMScriptureLinks`, and `plg_task_cwmscripture` we kept duplicating the same machinery — version-bump scripts, package zip builders, release pipelines, ARS publish steps, CI workflows, lint/format configs. When one project fixed a bug or added a step, the others drifted. This repo is the single source of truth.
