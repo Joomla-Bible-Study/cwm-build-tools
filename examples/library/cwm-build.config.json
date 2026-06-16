@@ -29,7 +29,9 @@
         "preBuild": {
             "mode": "ensure-minified",
             "dirs": ["media/lib_cwmscripture/js", "media/lib_cwmscripture/css"]
-        }
+        },
+        "_verifyAssets_comment": "Optional (default false). When true, cwm-build fails if any file referenced by a joomla.asset.json (script/style uri) is missing after the pre-build step — catches a *.es6.mjs/*.es6.js source that didn't compile (e.g. JS build skipped, or cwm/build-tools < 1.5 silently ignoring the .es6.mjs suffix). Resolution is by basename under the manifest's media dir; CDN/absolute URLs are skipped.",
+        "verifyAssets": true
     },
     "ars": {
         "endpoint": "https://www.christianwebministries.org",

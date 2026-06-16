@@ -116,48 +116,12 @@ final class PackageBuilderTest extends TestCase
         $this->writeFile('media/lib_cwmscripture/js/foo.js', 'console.log');
         // foo.min.js intentionally missing.
 
-        $builder = new PackageBuilder($this->makeLibConfig(), $this->tmpDir);
-
-        $exitCode = -1;
-        $stderr   = '';
-
         // Capture exit() via a child process — preg flag the missing-min message.
-        $script = <<<'PHP'
-<?php
-require '%s/src/Build/BuildConfig.php';
-require '%s/src/Build/ManifestReader.php';
-require '%s/src/Build/PackageBuilder.php';
-$cfg = CWM\BuildTools\Build\BuildConfig::fromArray(%s);
-$b   = new CWM\BuildTools\Build\PackageBuilder($cfg, '%s');
-$b->build();
-PHP;
-
-        $cwm   = realpath(__DIR__ . '/../..');
-        $cfg   = var_export($this->libConfigArray(), true);
-        $proj  = $this->tmpDir;
-        $code  = sprintf($script, $cwm, $cwm, $cwm, $cfg, $proj);
-        $tmpPhp = $this->tmpDir . '/_run.php';
-        file_put_contents($tmpPhp, $code);
-
-        $proc = proc_open(
-            ['php', $tmpPhp],
-            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes
-        );
-
-        if (!is_resource($proc)) {
-            $this->fail('Could not spawn child PHP for gate test');
-        }
-
-        fclose($pipes[0] ?? STDIN);
-        $stderr = stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exitCode = proc_close($proc);
+        [$exitCode, $stderr] = $this->runBuildInChild($this->libConfigArray());
 
         $this->assertSame(1, $exitCode, 'Gate failure should exit with 1');
-        $this->assertStringContainsString('missing minified assets', (string) $stderr);
-        $this->assertStringContainsString('foo.min.js', (string) $stderr);
+        $this->assertStringContainsString('missing minified assets', $stderr);
+        $this->assertStringContainsString('foo.min.js', $stderr);
     }
 
     #[Test]
@@ -206,6 +170,57 @@ PHP;
         $this->expectOutputRegex('/Package built/');
         $zipPath = $builder->build();
         $this->assertFileExists($zipPath);
+    }
+
+    #[Test]
+    public function verifyAssetsPassesWhenReferencedFilesExistAndSkipsCdnUrls(): void
+    {
+        $this->writeManifest('proclaim.xml', '1.0.0');
+        $this->writeFile('media/joomla.asset.json', (string) json_encode([
+            'name'   => 'com_proclaim',
+            'assets' => [
+                // Local asset — built file lives in a /js/ subdir; resolved by basename.
+                ['name' => 'com_proclaim.cwm-dialog', 'type' => 'script', 'uri' => 'com_proclaim/cwm-dialog.min.js'],
+                // CDN asset — no local file, must be skipped (not flagged missing).
+                ['name' => 'com_proclaim.cdn', 'type' => 'script', 'uri' => 'https://cdn.example.com/x.min.js'],
+            ],
+        ]));
+        $this->writeFile('media/js/cwm-dialog.min.js', 'import x from "joomla.dialog";');
+
+        $builder = new PackageBuilder(
+            $this->makeProclaimConfig([], ['verifyAssets' => true]),
+            $this->tmpDir
+        );
+
+        $this->expectOutputRegex('/Package built/');
+        $zip = $builder->build();
+        $this->assertFileExists($zip);
+    }
+
+    #[Test]
+    public function verifyAssetsFailsWhenReferencedFileIsMissing(): void
+    {
+        $this->writeManifest('proclaim.xml', '1.0.0');
+        $this->writeFile('media/joomla.asset.json', (string) json_encode([
+            'name'   => 'com_proclaim',
+            'assets' => [
+                ['name' => 'com_proclaim.cwm-dialog', 'type' => 'script', 'uri' => 'com_proclaim/cwm-dialog.min.js'],
+            ],
+        ]));
+        // cwm-dialog.min.js intentionally not built — simulates the silent-skip.
+
+        [$exitCode, $stderr] = $this->runBuildInChild([
+            'outputDir'        => 'build/dist',
+            'outputName'       => 'com_proclaim-{version}.zip',
+            'manifest'         => 'proclaim.xml',
+            'sources'          => [['from' => '.', 'to' => '']],
+            'excludeMatchMode' => 'strict',
+            'verifyAssets'     => true,
+        ]);
+
+        $this->assertSame(1, $exitCode, 'Missing asset should exit with 1');
+        $this->assertStringContainsString('Asset verification failed', $stderr);
+        $this->assertStringContainsString('cwm-dialog.min.js', $stderr);
     }
 
     #[Test]
@@ -711,6 +726,50 @@ PHP;
         ];
 
         return BuildConfig::fromArray(array_merge($base, $overrides));
+    }
+
+    /**
+     * Run a build in a child PHP process so an `exit()` from a gate can be
+     * observed. Returns [exitCode, stderr].
+     *
+     * @param  array<string, mixed>  $cfgArray
+     * @return array{0: int, 1: string}
+     */
+    private function runBuildInChild(array $cfgArray): array
+    {
+        $script = <<<'PHP'
+<?php
+require '%s/src/Build/BuildConfig.php';
+require '%s/src/Build/ManifestReader.php';
+require '%s/src/Build/PackageBuilder.php';
+$cfg = CWM\BuildTools\Build\BuildConfig::fromArray(%s);
+$b   = new CWM\BuildTools\Build\PackageBuilder($cfg, '%s');
+$b->build();
+PHP;
+
+        $cwm    = realpath(__DIR__ . '/../..');
+        $code   = sprintf($script, $cwm, $cwm, $cwm, var_export($cfgArray, true), $this->tmpDir);
+        $tmpPhp = $this->tmpDir . '/_run.php';
+        file_put_contents($tmpPhp, $code);
+
+        $proc = proc_open(
+            ['php', $tmpPhp],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+
+        if (!is_resource($proc)) {
+            $this->fail('Could not spawn child PHP for gate test');
+        }
+
+        // The descriptor spec opens only fds 1 and 2 — there is no stdin pipe to
+        // close (closing the real STDIN would break sibling tests under random
+        // execution order).
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return [proc_close($proc), $stderr];
     }
 
     private function writeManifest(string $relPath, string $version): void

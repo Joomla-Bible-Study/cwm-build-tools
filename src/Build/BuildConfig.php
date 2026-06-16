@@ -53,6 +53,7 @@ final class BuildConfig
         public readonly array $includeRoots = [],
         public readonly array $includeRootExtensions = [],
         public readonly ?array $versionPrompt = null,
+        public readonly bool $verifyAssets = false,
     ) {
     }
 
@@ -170,6 +171,7 @@ final class BuildConfig
             includeRoots:          $includeRoots,
             includeRootExtensions: $includeRootExtensions,
             versionPrompt:         $versionPrompt,
+            verifyAssets:          isset($cfg['verifyAssets']) ? (bool) $cfg['verifyAssets'] : false,
         );
     }
 

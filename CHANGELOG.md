@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-06-16
+
+### Added (non-breaking, opt-in)
+
+- **`cwm-build` asset-reference verification (`build.verifyAssets`).** When
+  `build.verifyAssets: true` is set in `cwm-build.config.json`, `cwm-build`
+  now fails — after the pre-build step, before zipping — if any file
+  referenced by a `joomla.asset.json` (`type: script`/`style` with a local
+  `uri`) is absent from the source tree. This closes the silent-skip gap from
+  v1.5.0: if a `*.es6.mjs` module didn't build (JS build skipped, or an older
+  toolchain that ignores the `.es6.mjs` suffix), the asset would 404 at
+  runtime and any dependent JS would break for end users — now it's a loud
+  build failure instead. Resolution is by basename under the manifest's media
+  directory (a `uri` like `com_proclaim/foo.min.js` is served from a media
+  root that doesn't mirror the repo's `media/js/` layout); CDN / absolute
+  URLs are skipped; only manifests that would actually ship are checked.
+  Defaults to `false`, so existing consumers are unaffected until they opt in.
+
 ## [1.5.0] - 2026-06-15
 
 ### Added (non-breaking)

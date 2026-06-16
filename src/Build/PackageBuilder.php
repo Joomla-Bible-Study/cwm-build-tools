@@ -77,6 +77,10 @@ final class PackageBuilder
             $this->runPreBuild($this->config->preBuild);
         }
 
+        if ($this->config->verifyAssets) {
+            $this->verifyAssetReferences();
+        }
+
         $outputDir = $this->resolve($this->config->outputDir);
 
         if (!is_dir($outputDir) && !mkdir($outputDir, 0o777, true) && !is_dir($outputDir)) {
@@ -254,6 +258,140 @@ final class PackageBuilder
             fwrite(STDERR, "\nRun the project's build step (typically `npm run build`) before packaging.\n");
             exit(1);
         }
+    }
+
+    /**
+     * Fail the build if any file referenced by a `joomla.asset.json` is absent
+     * from the (post-pre-build) source tree.
+     *
+     * This is the safety net for the silent-skip failure mode: if an asset's
+     * source (e.g. a `*.es6.mjs` module) didn't build — because the JS build
+     * was skipped, or an older build toolchain ignored the suffix — the asset
+     * file never appears, `joomla.asset.json` 404s at runtime, and any JS that
+     * relies on it breaks for end users. Catching it here turns a silent
+     * runtime breakage into a loud build failure.
+     *
+     * Resolution is by basename anywhere under the asset manifest's own media
+     * directory (a script `uri` like `com_proclaim/foo.min.js` is served from a
+     * media root that doesn't mirror the repo layout — the repo file is
+     * `media/js/foo.min.js`). Protocol-relative / absolute URLs (CDN assets)
+     * are skipped. Only `joomla.asset.json` files that would actually ship
+     * (per the package's own include/exclude rules) are checked.
+     */
+    private function verifyAssetReferences(): void
+    {
+        $missing = [];
+
+        foreach ($this->config->sources as $src) {
+            $sourceReal = realpath($this->resolve($src['from']));
+
+            if ($sourceReal === false || !is_dir($sourceReal)) {
+                continue;
+            }
+
+            $iterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($sourceReal, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::LEAVES_ONLY
+            );
+
+            foreach ($iterator as $file) {
+                if (!$file->isFile() || $file->getFilename() !== 'joomla.asset.json') {
+                    continue;
+                }
+
+                $manifestReal = (string) $file->getRealPath();
+                $relativePath = str_replace('\\', '/', substr($manifestReal, strlen($sourceReal) + 1));
+
+                if (!$this->shouldInclude($relativePath)) {
+                    continue;
+                }
+
+                foreach ($this->missingAssetFiles($manifestReal) as $entry) {
+                    $missing[] = $entry;
+                }
+            }
+        }
+
+        if ($missing !== []) {
+            fwrite(STDERR, "Asset verification failed — files referenced by joomla.asset.json are missing:\n");
+
+            foreach ($missing as $m) {
+                fwrite(STDERR, "  - $m\n");
+            }
+
+            fwrite(
+                STDERR,
+                "\nThese assets were not produced by the build. Common cause: the JS/CSS build did not run,\n"
+                . "or the build toolchain is too old to compile a source (e.g. a *.es6.mjs ES module needs\n"
+                . "cwm/build-tools >= 1.5). Run the project's build (typically `npm run build`) with an\n"
+                . "up-to-date toolchain before packaging.\n"
+            );
+            exit(1);
+        }
+    }
+
+    /**
+     * Return the "<asset name> -> <uri>" labels for every script/style asset in
+     * a joomla.asset.json whose referenced file is absent from the manifest's
+     * media directory.
+     *
+     * @return list<string>
+     */
+    private function missingAssetFiles(string $manifestPath): array
+    {
+        $data = json_decode((string) file_get_contents($manifestPath), true);
+
+        if (!is_array($data) || !isset($data['assets']) || !is_array($data['assets'])) {
+            return [];
+        }
+
+        $mediaDir = \dirname($manifestPath);
+        $missing  = [];
+
+        foreach ($data['assets'] as $asset) {
+            if (!is_array($asset)) {
+                continue;
+            }
+
+            $type = $asset['type'] ?? '';
+            $uri  = $asset['uri']  ?? '';
+
+            if (!in_array($type, ['script', 'style'], true) || !is_string($uri) || $uri === '') {
+                continue;
+            }
+
+            // CDN / absolute / protocol-relative URLs are not local files.
+            if (preg_match('#^(?:[a-z][a-z0-9+.-]*:)?//#i', $uri) === 1) {
+                continue;
+            }
+
+            if (!$this->basenameExistsUnder($mediaDir, basename($uri))) {
+                $name      = is_string($asset['name'] ?? null) ? $asset['name'] : '(unnamed)';
+                $relMani   = str_replace('\\', '/', substr($manifestPath, strlen(rtrim($this->projectRoot, '/')) + 1));
+                $missing[] = "$name -> $uri  (in $relMani)";
+            }
+        }
+
+        return $missing;
+    }
+
+    /**
+     * True if a file named $basename exists anywhere under $dir.
+     */
+    private function basenameExistsUnder(string $dir, string $basename): bool
+    {
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::LEAVES_ONLY
+        );
+
+        foreach ($iterator as $file) {
+            if ($file->isFile() && $file->getFilename() === $basename) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
