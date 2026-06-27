@@ -20,6 +20,7 @@
  * Config block (`cwm-build.config.json`):
  *   "assets": {
  *       "images":             { "from": "build/media_source/images", "to": "media/myext/images" },
+ *       "manifest":           { "from": "build/media_source/joomla.asset.json", "to": "media/myext/joomla.asset.json" },
  *       "vendorMediaSource":  { "from": "build/media_source/vendor", "to": "media/myext/vendor" },
  *       "vendorOutputDir":    "media/myext/vendor",
  *       "packages": [
@@ -45,6 +46,7 @@
  *
  * Path conventions:
  *   - `images.from` / `images.to`            relative to cwd
+ *   - `manifest.from` / `manifest.to`        relative to cwd
  *   - `vendorMediaSource.from` / `to`        relative to cwd
  *   - `vendorOutputDir`                      relative to cwd
  *   - `packages[i].files[j].from`            relative to node_modules/<package.name>/
@@ -200,6 +202,20 @@ if (assets.images && assets.images.from && assets.images.to) {
         copyDir(fromAbs, toAbs);
     } else {
         console.log(`Skipping images: source dir ${assets.images.from} not found.`);
+    }
+}
+
+// 1b. Web-asset manifest (joomla.asset.json) — keep it under build/media_source
+// like every other media artifact so the whole media/ tree stays generated.
+if (assets.manifest && assets.manifest.from && assets.manifest.to) {
+    const fromAbs = path.resolve(cwd, assets.manifest.from);
+    const toAbs   = path.resolve(cwd, assets.manifest.to);
+
+    if (fs.existsSync(fromAbs)) {
+        console.log(`Copying manifest from ${assets.manifest.from} to ${assets.manifest.to}...`);
+        copyFile(fromAbs, toAbs);
+    } else {
+        console.log(`Skipping manifest: source file ${assets.manifest.from} not found.`);
     }
 }
 
