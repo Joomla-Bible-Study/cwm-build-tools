@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-07-25
+
 ### Fixed
 
 - **`cwm-link` no longer symlinks `role=test` installs (data-loss hazard).**
