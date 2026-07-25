@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-07-25
+
 ### Fixed
 
 - **`cwm-sync-configs` now guards `build.dist.properties` against leaked credentials
