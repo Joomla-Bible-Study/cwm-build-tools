@@ -25,6 +25,7 @@
  */
 
 require_once __DIR__ . '/../src/Config/ProfileResolver.php';
+require_once __DIR__ . '/../src/Config/DistPropertiesInspector.php';
 
 $projectRoot = getcwd();
 $toolsRoot   = realpath(__DIR__ . '/..');
@@ -287,6 +288,25 @@ function syncBuildDistProperties(string $projectRoot, string $templates, bool $d
 
     $templateBody = (string) file_get_contents($source);
 
+    // The template is committed by every consumer, so it must never ship a
+    // populated secret. Checked before anything is written: if this ever trips,
+    // the leak is in cwm-build-tools and would propagate to every project.
+    $inspector       = new \CWM\BuildTools\Config\DistPropertiesInspector();
+    $templateSecrets = $inspector->populatedSecretKeys($templateBody);
+
+    if ($templateSecrets !== []) {
+        echo "build.dist.properties: REFUSING to sync — the cwm-build-tools template has populated\n";
+        echo "  credential values, and this file is committed by every consumer:\n";
+
+        foreach ($templateSecrets as $key) {
+            echo "    {$key}\n";
+        }
+
+        echo "  Blank them in {$source} before running this again.\n";
+
+        return;
+    }
+
     // Comment marker is `#` (not `;`) so Java-properties-aware IDEs accept
     // it cleanly; PHP's `parse_ini_string` accepts both. The template body
     // already starts with the canonical header, so we don't re-stamp our
@@ -300,6 +320,34 @@ function syncBuildDistProperties(string $projectRoot, string $templates, bool $d
         return;
     }
 
+    // Two things worth saying out loud before this file is replaced. Both
+    // describe the OLD content, so they have to be reported whether or not the
+    // write actually happens.
+    $existingSecrets = $inspector->populatedSecretKeys($existing);
+    $droppedKeys     = $inspector->keysMissingFromTemplate($existing, $templateBody);
+
+    if ($existingSecrets !== []) {
+        echo "build.dist.properties: WARNING — the current file has real values in credential keys:\n";
+
+        foreach ($existingSecrets as $key) {
+            echo "    {$key}\n";
+        }
+
+        echo "  This file is committed. Per-machine values belong in build.properties (gitignored).\n";
+        echo "  Check whether they reached git: git log -p -- build.dist.properties\n";
+    }
+
+    if ($droppedKeys !== []) {
+        echo "build.dist.properties: NOTE — " . \count($droppedKeys) . " key(s) present locally are not in\n";
+        echo "  the cwm-build-tools template and will be removed:\n";
+
+        foreach ($droppedKeys as $key) {
+            echo "    {$key}\n";
+        }
+
+        echo "  If they are a legitimate part of the schema, add them to the template instead.\n";
+    }
+
     if ($dryRun) {
         echo "build.dist.properties: would " . ($existing === '' ? 'create' : 'update') . " (dry-run)\n";
 
@@ -309,6 +357,8 @@ function syncBuildDistProperties(string $projectRoot, string $templates, bool $d
     file_put_contents($target, $newContent);
     echo "build.dist.properties: " . ($existing === '' ? 'created' : 'updated') . " from template\n";
 }
+
+
 
 /**
  * Read composer.json `config.vendor-dir` so the eslint import path matches

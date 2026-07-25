@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`cwm-sync-configs` now guards `build.dist.properties` against leaked credentials
+  and silent data loss.** That file is committed by every consumer while per-machine
+  values belong in the gitignored `build.properties` — the two names differ by four
+  characters, and the wrong one gets edited. Because sync overwrites the consumer's
+  copy from the template, it also quietly disposed of the evidence: credentials
+  vanished from the working tree while remaining in any commit that had already
+  captured them.
+
+  Three checks now run before the write, via the new
+  `Config\DistPropertiesInspector`:
+
+  - **Refuses to sync** if the cwm-build-tools template itself carries populated
+    credential values — that would propagate to every consumer.
+  - **Warns** when the consumer's existing file has real values in credential keys,
+    naming them and pointing at `git log -p -- build.dist.properties` so the
+    developer can check whether they reached history.
+  - **Reports keys about to be removed** because the template lacks them. Usually
+    stale hand-edits, but occasionally the consumer is ahead of the shared schema
+    and silently deleting that is unhelpful. Found in practice: Proclaim's 11
+    `builder.j6-test.*` keys would have been dropped without a word.
+
+  Matching is on key name (`db_user`, `db_pass`, `db_name`, `password`, `secret`,
+  `token`, `api_key`) rather than value, since local credentials rarely look
+  distinctive. The template's documented `admin_pass = admin` placeholder is
+  deliberately outside the pattern.
+
+### Added
+
+- `templates/build.properties.tmpl` — commented-out `j6-test` section, so a second
+  `role = test` install is part of the shared schema rather than a local addition
+  the next sync deletes. Carries the warning that a `role = test` target must be a
+  real, non-symlinked install, since the harness wipes and reinstalls it.
+- `tests/Config/DistPropertiesInspectorTest.php` — 12 tests, including one asserting
+  the shipped template never carries populated credentials.
+
 ## [1.6.1] - 2026-07-25
 
 ### Fixed
