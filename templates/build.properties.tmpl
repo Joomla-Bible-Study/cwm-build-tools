@@ -75,6 +75,25 @@ builder.j5-test.admin_user  = admin
 builder.j5-test.admin_pass  = admin
 builder.j5-test.admin_email = admin@example.com
 
+# ----- Joomla 6 test install (artifact verification) ----------------------
+# A second role = test install, so the release harness can verify the built
+# package against both supported major versions. Commented out by default —
+# uncomment and add `j6-test` to `builder.installs` above if you run one.
+# Must be a real, non-symlinked install: role = test targets are wiped and
+# reinstalled by the harness, and a symlink would put the working repo in
+# the blast radius.
+#builder.j6-test.role        = test
+#builder.j6-test.path        = /path/to/joomla6-test
+#builder.j6-test.url         = https://j6-test.local
+#builder.j6-test.version     = 6.0.0
+#builder.j6-test.db_host     = localhost
+#builder.j6-test.db_user     =
+#builder.j6-test.db_pass     =
+#builder.j6-test.db_name     =
+#builder.j6-test.admin_user  = admin
+#builder.j6-test.admin_pass  = admin
+#builder.j6-test.admin_email = admin@example.com
+
 # ----- CWM sibling paths --------------------------------------------------
 # Per-developer absolute paths to CWM siblings declared in
 # cwm-build.config.json under dev.cwmSiblings. Written by `composer setup`.
