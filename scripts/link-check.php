@@ -13,6 +13,7 @@ require_once __DIR__ . '/../src/Dev/PropertiesReader.php';
 require_once __DIR__ . '/../src/Dev/LinkResolver.php';
 require_once __DIR__ . '/../src/Dev/Linker.php';
 
+use CWM\BuildTools\Dev\InstallConfig;
 use CWM\BuildTools\Dev\LinkResolver;
 use CWM\BuildTools\Dev\Linker;
 use CWM\BuildTools\Dev\PropertiesReader;
@@ -75,7 +76,10 @@ foreach ($resolver->internalLinks() as $pair) {
     $issues += reportLink($linker->check($pair['source'], $pair['target']), $verbose);
 }
 
-foreach ($reader->installs() as $install) {
+// Mirror cwm-link: only role=dev installs are expected to carry symlinks, so
+// only those are checked. A role=test install is deliberately file-backed and
+// would otherwise report every expected link as MISSING.
+foreach ($reader->installsFor(InstallConfig::ROLE_DEV) as $install) {
     echo "\nInstall: {$install->path}\n";
 
     if (!is_dir($install->path)) {
