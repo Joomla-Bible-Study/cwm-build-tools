@@ -89,8 +89,16 @@ inapplicable. Each entry silences a real finding:
 }
 ```
 
-**Exit codes:** `0` clean, `1` updates available, `2` advisories found (takes
-precedence over `1`). Callers that only test for non-zero are unaffected.
+**Exit codes:** `0` clean, `1` updates available, `2` advisories found *or
+security status unverified* (takes precedence over `1`). Callers that only test
+for non-zero are unaffected.
+
+The check **fails closed**. If a scope cannot be audited — `composer` missing
+from `PATH`, a timeout, a broken lock — it is reported as unverified and exits
+`2` rather than passing. "We found nothing" and "we did not look" are different
+answers, and conflating them is how a vulnerable tree earns a green check. A
+scope with no `composer.json` (or, for npm, no `package.json` + lockfile) is
+skipped rather than failed, since there is genuinely nothing to audit.
 
 !!! note "Trust model"
     Every value here is author-controlled (committed by the project author).

@@ -78,9 +78,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `nestedPaths[]`, `maxDepth`, `ignore[]`. All have working defaults; existing
   configs need no changes. `ignore[]` matches GHSA, PKSA or CVE identifiers.
 
-- **New exit code 2** for "security advisories found", taking precedence over
-  exit 1 ("updates available"). Exit 0 still means clean. Callers that only
-  test for non-zero are unaffected.
+- **New exit code 2** for "security advisories found *or* security status
+  unverified", taking precedence over exit 1 ("updates available"). Exit 0
+  still means clean. Callers that only test for non-zero are unaffected.
+
+- **The security check fails closed.** A scope whose audit could not run —
+  `composer` missing from `PATH`, a timeout, a broken lock — is reported as
+  unverified and exits 2 rather than passing silently. Without this the section
+  had the exact flaw it was written to remove: with `composer` unavailable, a
+  tree carrying four known advisories reported *"All checked packages are up to
+  date, with no known advisories"* and exit 0. "We found nothing" and "we did
+  not look" are different answers. Scopes with no manifest to audit are skipped
+  rather than failed.
 
 ## [1.6.1] - 2026-07-25
 

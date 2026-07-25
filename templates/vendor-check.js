@@ -265,14 +265,28 @@ function checkPhpDependencies(nestedProjects) {
  * is also the honest source of truth for what a project ships.
  */
 function composerAdvisories(label, cwd) {
+    const hasLock      = fs.existsSync(path.join(cwd, 'composer.lock'));
+    const hasInstalled = fs.existsSync(path.join(cwd, 'vendor', 'composer', 'installed.php'));
+
+    // Nothing resolved to audit — no lock and nothing installed. That is a
+    // skip, not a failure; a project with only a composer.json has no
+    // dependency set for audit to reason about.
+    if (!fs.existsSync(path.join(cwd, 'composer.json')) || (!hasLock && !hasInstalled)) {
+        return { ok: true, findings: [] };
+    }
+
     const args = ['audit', '--format=json'];
-    if (fs.existsSync(path.join(cwd, 'composer.lock'))) {
+    if (hasLock) {
         args.splice(1, 0, '--locked');
     }
 
     const data = parseJson(runFile('composer', args, { cwd, allowFailure: true }));
-    if (!data || !data.advisories) {
-        return [];
+
+    // No parsable output means the audit did not run — composer missing from
+    // PATH, a timeout, a broken lock. Report it rather than treating an absent
+    // answer as a clean one.
+    if (!data || typeof data.advisories !== 'object' || data.advisories === null) {
+        return { ok: false, findings: [], scope: label, reason: 'composer audit produced no parsable output' };
     }
 
     const out = [];
@@ -298,13 +312,20 @@ function composerAdvisories(label, cwd) {
             });
         }
     }
-    return out;
+    return { ok: true, findings: out };
 }
 
 function npmAdvisories() {
+    // Nothing to audit deterministically without a manifest and a lockfile.
+    if (!fs.existsSync(path.join(ROOT, 'package.json'))
+        || !fs.existsSync(path.join(ROOT, 'package-lock.json'))) {
+        return { ok: true, findings: [] };
+    }
+
     const data = parseJson(runFile('npm', ['audit', '--json'], { allowFailure: true }));
-    if (!data || !data.vulnerabilities) {
-        return [];
+
+    if (!data || typeof data.vulnerabilities !== 'object' || data.vulnerabilities === null) {
+        return { ok: false, findings: [], scope: '(npm)', reason: 'npm audit produced no parsable output' };
     }
 
     const out = [];
@@ -328,35 +349,54 @@ function npmAdvisories() {
             });
         }
     }
-    return out;
+    return { ok: true, findings: out };
 }
 
+/**
+ * Report known advisories across every audited scope.
+ *
+ * Fails closed. A scope whose audit could not run is reported as unverified and
+ * treated as a failure, because "we did not find anything" and "we did not
+ * look" are not the same answer — and silently conflating them is how a
+ * vulnerable tree earns a green check.
+ */
 function checkSecurity(nestedProjects) {
     console.log('\nSecurity Advisories');
 
-    const findings = [
-        ...composerAdvisories('(root)', ROOT),
-        ...nestedProjects.flatMap(p => composerAdvisories(p, path.join(ROOT, p))),
-        ...npmAdvisories(),
+    const results = [
+        composerAdvisories('(root)', ROOT),
+        ...nestedProjects.map(p => composerAdvisories(p, path.join(ROOT, p))),
+        npmAdvisories(),
     ];
 
+    const findings   = results.flatMap(r => r.findings);
+    const unverified = results.filter(r => !r.ok);
+
     if (findings.length === 0) {
+        // Don't claim a clean result when some scope never reported.
         renderTable(['Scope', 'Package', 'Severity', 'Advisory', 'Summary'], [
-            ['(all)', '(no known advisories)', '', '', ''],
+            unverified.length > 0
+                ? ['(partial)', '(none found in audited scopes)', '', '', '']
+                : ['(all)', '(no known advisories)', '', '', ''],
         ]);
-        return false;
+    } else {
+        findings.sort((a, b) =>
+            (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9)
+            || a.pkg.localeCompare(b.pkg)
+        );
+
+        renderTable(
+            ['Scope', 'Package', 'Severity', 'Advisory', 'Summary'],
+            findings.map(f => [f.scope, f.pkg, f.severity, f.id, truncate(f.title, 60)])
+        );
     }
 
-    findings.sort((a, b) =>
-        (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9)
-        || a.pkg.localeCompare(b.pkg)
-    );
+    if (unverified.length > 0) {
+        console.log('\n  Could not be audited — treat as unknown, not clean:');
+        unverified.forEach(u => console.log(`    ${u.scope}: ${u.reason}`));
+    }
 
-    renderTable(
-        ['Scope', 'Package', 'Severity', 'Advisory', 'Summary'],
-        findings.map(f => [f.scope, f.pkg, f.severity, f.id, truncate(f.title, 60)])
-    );
-    return true;
+    return { hasAdvisories: findings.length > 0, unverified: unverified.length > 0 };
 }
 
 function truncate(text, max) {
@@ -376,12 +416,17 @@ if (nestedProjects.length > 0) {
 const vendorUpdates = checkVendors();
 const devUpdates    = checkDevDependencies();
 const phpUpdates    = checkPhpDependencies(nestedProjects);
-const hasAdvisories = checkSecurity(nestedProjects);
+const security      = checkSecurity(nestedProjects);
 
 console.log('');
 
-if (hasAdvisories) {
+if (security.hasAdvisories) {
     console.log('Security advisories found — see the table above.');
+    process.exit(2);
+}
+
+if (security.unverified) {
+    console.log('Security status unverified — one or more scopes could not be audited.');
     process.exit(2);
 }
 
