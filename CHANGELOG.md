@@ -35,6 +35,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   distinctive. The template's documented `admin_pass = admin` placeholder is
   deliberately outside the pattern.
 
+- **`npm outdated` results were silently discarded, so dev dependency updates
+  were never reported.** `npm outdated` exits 1 when anything *is* outdated,
+  and `runFile()` treated any non-zero exit as failure and returned an empty
+  string. The Dev Dependencies table therefore printed `(all packages) ✓ OK`
+  regardless of actual state — a false clean bill of health. Verified against
+  Proclaim, which reported "OK" while carrying 11 outdated dev dependencies.
+
+  `runFile()` gains an `allowFailure` option that recovers stdout from the
+  thrown error, for the several tools that use a non-zero exit to signal
+  findings rather than failure (`npm outdated`, `npm audit`, `composer audit`).
+
 ### Added
 
 - `templates/build.properties.tmpl` — commented-out `j6-test` section, so a second
@@ -43,6 +54,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   real, non-symlinked install, since the harness wipes and reinstalls it.
 - `tests/Config/DistPropertiesInspectorTest.php` — 12 tests, including one asserting
   the shipped template never carries populated credentials.
+
+- **`vendor-check.js` now audits for security advisories.** A new *Security
+  Advisories* section runs `composer audit` and `npm audit`, reporting package,
+  severity, advisory ID and summary. Advisory IDs are displayed as GHSA where
+  available (Composer's native `advisoryId` is a `PKSA-*`, but the GHSA in
+  `sources[].remoteId` is what Dependabot and GitHub show).
+
+  Audits run against the **lock file** (`composer audit --locked`) rather than
+  the installed tree. Plain `composer audit` inspects `vendor/`, so a project
+  that has not been installed reports `No packages - skipping audit` and exits
+  0 — a silent false clean. The lock is also the honest record of what a
+  project ships.
+
+- **Nested Composer projects are now discovered and checked.** An extension may
+  bundle its own Composer project with a committed `vendor/` tree that ships to
+  end users. Those dependencies are invisible to a root-level `composer
+  outdated`, so a vulnerable bundled package can ship indefinitely unnoticed.
+  Auto-discovery walks the repo (skipping `vendor`, `node_modules`, `media`,
+  `dist` and dotfiles) and the *PHP Dependencies* table gains a `Scope` column.
+
+- **New optional `security` block in `cwm-build.config.json`** — `scanNested`,
+  `nestedPaths[]`, `maxDepth`, `ignore[]`. All have working defaults; existing
+  configs need no changes. `ignore[]` matches GHSA, PKSA or CVE identifiers.
+
+- **New exit code 2** for "security advisories found", taking precedence over
+  exit 1 ("updates available"). Exit 0 still means clean. Callers that only
+  test for non-zero are unaffected.
 
 ## [1.6.1] - 2026-07-25
 
