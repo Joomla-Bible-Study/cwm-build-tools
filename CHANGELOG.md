@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`cwm-link` no longer symlinks `role=test` installs (data-loss hazard).**
+  `scripts/link.php` selected every configured install via
+  `PropertiesReader::installs()` instead of filtering to `role=dev`, so
+  `composer symlink` linked test installs too. That contradicts the documented
+  contract in `InstallConfig` — `role=dev` is *the* symlink target, while a
+  `role=test` install is a real install target for the built zip.
+
+  The consequence was severe. A linked test site points its extension
+  directories back at the consumer's working repo, and reset/teardown harnesses
+  delete those directories to get a clean slate. Because `is_dir()` returns true
+  for a symlink pointing at a directory, such a harness walks *through* the link
+  and empties its target — deleting repo source. This was found in Proclaim with
+  12 links present on `j6-test` (caught before any harness ran; no data lost).
+
+  `scripts/link-check.php` had the same unfiltered selection, reporting every
+  expected link as `MISSING` on a deliberately file-backed test install.
+  `scripts/install-zip.php` was already correct (`ROLE_TEST`), and
+  `scripts/clean.php` is safe either way since `Linker::unlink()` guards on
+  `is_link()` — leaving it unfiltered usefully strips stray links.
+
+  Consumers with a recursive-delete helper should also ensure it checks
+  `is_link()` on the path it is *given*, not only on that path's children.
+
 ## [1.5.1] - 2026-06-16
 
 ### Added (non-breaking, opt-in)

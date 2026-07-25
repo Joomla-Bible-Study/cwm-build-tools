@@ -22,6 +22,7 @@ require_once __DIR__ . '/../src/Dev/LinkResolver.php';
 require_once __DIR__ . '/../src/Dev/Linker.php';
 
 use CWM\BuildTools\Config\InstalledPackageReader;
+use CWM\BuildTools\Dev\InstallConfig;
 use CWM\BuildTools\Dev\LinkResolver;
 use CWM\BuildTools\Dev\Linker;
 use CWM\BuildTools\Dev\PropertiesReader;
@@ -90,10 +91,14 @@ if (!$reader->exists()) {
     exit(1);
 }
 
-$installs = $reader->installs();
+// Only role=dev installs are symlink targets. A role=test install is a real
+// install target for the built zip — linking one points the site's extension
+// dirs back at the working repo, which puts that source in the blast radius of
+// any teardown that deletes extension dirs (cwm-clean, reset harnesses).
+$installs = $reader->installsFor(InstallConfig::ROLE_DEV);
 
 if ($installs === []) {
-    fwrite(STDERR, "No Joomla installs configured in build.properties.\n");
+    fwrite(STDERR, "No role=dev Joomla install configured in build.properties.\n");
 
     exit(1);
 }
