@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-26
+
 ### Changed
 
 - **`build.properties.tmpl` now ships two install examples instead of four**, one
