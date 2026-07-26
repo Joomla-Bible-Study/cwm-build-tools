@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-26
+
+### Fixed
+
+- **Release notes are now converted to HTML before they are published to ARS.**
+  ARS stores a release's `notes` as an HTML fragment and echoes it into the
+  public download page without any Markdown processing, but `ars-publish.sh`
+  was posting the GitHub release body verbatim — and that body is Markdown. The
+  published Proclaim 10.3.6 page therefore read
+
+      ## What's Changed * fix(api): make the API switchable ... **Full
+      Changelog**: https://...
+
+  with every marker literal and the whole changelog collapsed onto one line,
+  because HTML folds newlines into spaces. That fragment is the only changelog
+  a site administrator following a Joomla update link ever sees.
+
+  Conversion is handled by the new `Release\ReleaseNotesFormatter` — a small,
+  dependency-free subset covering what release notes actually contain
+  (headings, lists, emphasis, code spans, Markdown and bare links) rather than
+  a Markdown engine, because this runs mid-release. Source text is escaped
+  before any markup is added, so a GitHub release body cannot inject HTML into
+  the site, and links are stashed before emphasis is applied so a URL
+  containing underscores is not mangled into `<em>`. Notes are treated as
+  Markdown: wrapped lines are joined, and only a blank line starts a new block
+  or ends a list.
+
+  `scripts/render-notes.php` exposes the same conversion as a filter
+  (Markdown on stdin, HTML on stdout).
+
+### Added
+
+- **`release.notesFile` — hand-written release notes, used by both surfaces.**
+  What GitHub generates is a list of pull request titles: accurate, written for
+  the maintainers, and close to useless to someone deciding whether to update.
+  Point `release.notesFile` at a path with a `{version}` placeholder (e.g.
+  `build/release-notes-{version}.md`) and `cwm-release` will lead the release
+  notes with that file, keeping the generated list beneath it, so the GitHub
+  release and the ARS download page carry the same text.
+
+- **`cwm-ars-publish -n <file>`** (or `ARS_NOTES_FILE`) publishes notes on their
+  own, without a full release — which is also how an already-published release
+  gets its notes corrected, since the publisher PATCHes an existing entry.
+
+  Both are optional. With neither configured, behaviour is unchanged apart from
+  the notes now being valid HTML.
+
 ## [1.7.0] - 2026-07-26
 
 ### Changed
