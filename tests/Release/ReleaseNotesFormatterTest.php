@@ -111,14 +111,42 @@ class ReleaseNotesFormatterTest extends TestCase
     }
 
     /**
-     * Consecutive prose lines are one paragraph with real breaks, not one run-on
-     * line — the collapse that made the published notes unreadable.
+     * Notes are written as wrapped Markdown, so consecutive lines are one
+     * paragraph — joined, as Markdown joins them, not hard-broken at whatever
+     * column the author's editor happened to wrap at.
      */
-    public function testAdjacentLinesKeepTheirBreaks(): void
+    public function testWrappedProseLinesJoinIntoOneParagraph(): void
     {
         $html = $this->formatter->toHtml("First line\nSecond line");
 
-        $this->assertSame("<p>First line<br>\nSecond line</p>", $html);
+        $this->assertSame('<p>First line Second line</p>', $html);
+    }
+
+    /**
+     * A bullet whose text ran past the margin is still one bullet. Treating the
+     * continuation as a new block split every wrapped item in the 10.3.6 notes
+     * into a one-line list followed by an orphaned paragraph.
+     */
+    public function testWrappedListItemStaysOneItem(): void
+    {
+        $html = $this->formatter->toHtml("* an item whose text\n  continues on the next line\n* second");
+
+        $this->assertSame(2, substr_count($html, '<li>'));
+        $this->assertStringContainsString('<li>an item whose text continues on the next line</li>', $html);
+        $this->assertSame(1, substr_count($html, '<ul>'), 'One list, not one per line');
+        $this->assertStringNotContainsString('<p>', $html);
+    }
+
+    /**
+     * Emphasis that spans the wrap still resolves, because the item is joined
+     * before inline formatting runs.
+     */
+    public function testEmphasisSpanningAWrapIsResolved(): void
+    {
+        $html = $this->formatter->toHtml("* the *quoted\n  phrase* here");
+
+        $this->assertStringContainsString('<em>quoted phrase</em>', $html);
+        $this->assertStringNotContainsString('*', $html);
     }
 
     public function testBlankLineStartsANewParagraph(): void
@@ -129,11 +157,12 @@ class ReleaseNotesFormatterTest extends TestCase
     }
 
     /**
-     * Prose after a list must not be absorbed into the final bullet.
+     * A blank line is what ends a list — the same rule Markdown uses, and the
+     * one that keeps a wrapped bullet intact.
      */
-    public function testProseFollowingAListClosesIt(): void
+    public function testBlankLineEndsAListSoProseFollowsIt(): void
     {
-        $html = $this->formatter->toHtml("- item\nTrailing note");
+        $html = $this->formatter->toHtml("- item\n\nTrailing note");
 
         $this->assertStringContainsString('</ul>', $html);
         $this->assertStringContainsString('<p>Trailing note</p>', $html);

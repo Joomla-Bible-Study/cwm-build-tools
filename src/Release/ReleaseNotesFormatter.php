@@ -34,18 +34,20 @@ final class ReleaseNotesFormatter
         $lines = explode("\n", str_replace(["\r\n", "\r"], "\n", trim($markdown)));
 
         $html      = [];
-        $paragraph = [];
+        $paragraph = '';
         $list      = [];
 
-        $flush = function () use (&$html, &$paragraph, &$list): void {
-            if ($paragraph !== []) {
-                $html[]    = '<p>' . implode("<br>\n", $paragraph) . '</p>';
-                $paragraph = [];
+        $flushParagraph = function () use (&$html, &$paragraph): void {
+            if ($paragraph !== '') {
+                $html[]    = '<p>' . $this->inline($paragraph) . '</p>';
+                $paragraph = '';
             }
+        };
 
+        $flushList = function () use (&$html, &$list): void {
             if ($list !== []) {
                 $html[] = "<ul>\n" . implode("\n", array_map(
-                    static fn(string $item): string => '<li>' . $item . '</li>',
+                    fn(string $item): string => '<li>' . $this->inline($item) . '</li>',
                     $list
                 )) . "\n</ul>";
                 $list = [];
@@ -57,7 +59,8 @@ final class ReleaseNotesFormatter
 
             // A blank line closes whatever block is open.
             if (trim($line) === '') {
-                $flush();
+                $flushParagraph();
+                $flushList();
                 continue;
             }
 
@@ -65,7 +68,8 @@ final class ReleaseNotesFormatter
             // h2 is demoted to h3 so the notes sit under the page's own title
             // rather than competing with it.
             if (preg_match('/^(#{1,6})\s+(.*)$/', $line, $m) === 1) {
-                $flush();
+                $flushParagraph();
+                $flushList();
                 $level  = min(\strlen($m[1]) + 1, 6);
                 $html[] = '<h' . $level . '>' . $this->inline(trim($m[2])) . '</h' . $level . '>';
                 continue;
@@ -73,7 +77,8 @@ final class ReleaseNotesFormatter
 
             // Horizontal rule.
             if (preg_match('/^\s*([-*_])(\s*\1){2,}\s*$/', $line) === 1) {
-                $flush();
+                $flushParagraph();
+                $flushList();
                 $html[] = '<hr>';
                 continue;
             }
@@ -81,25 +86,26 @@ final class ReleaseNotesFormatter
             // List items. Nesting is flattened: these notes do not use it, and a
             // wrong guess about depth is worse than a flat list.
             if (preg_match('/^\s*[-*+]\s+(.*)$/', $line, $m) === 1) {
-                if ($paragraph !== []) {
-                    $html[]    = '<p>' . implode("<br>\n", $paragraph) . '</p>';
-                    $paragraph = [];
-                }
-
-                $list[] = $this->inline(trim($m[1]));
+                $flushParagraph();
+                $list[] = trim($m[1]);
                 continue;
             }
 
-            // Anything else is paragraph text. A list is closed first so trailing
-            // prose does not get swallowed into the last bullet.
+            // Anything else continues the block already open. Notes are written
+            // as wrapped Markdown, so a line is a continuation far more often
+            // than it is a new block: joining is what keeps a bullet whose text
+            // ran past the margin as one bullet, and what lets emphasis or a
+            // link span the wrap. Only a blank line starts something new.
             if ($list !== []) {
-                $flush();
+                $list[array_key_last($list)] .= ' ' . trim($line);
+                continue;
             }
 
-            $paragraph[] = $this->inline(trim($line));
+            $paragraph = $paragraph === '' ? trim($line) : $paragraph . ' ' . trim($line);
         }
 
-        $flush();
+        $flushParagraph();
+        $flushList();
 
         return implode("\n", $html);
     }
