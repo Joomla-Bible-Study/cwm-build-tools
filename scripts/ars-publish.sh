@@ -218,11 +218,25 @@ NOTES_HTML=$(printf '%s' "$RELEASE_NOTES" | php "${SCRIPT_DIR}/render-notes.php"
 NOTES_JSON=$(printf '%s' "$NOTES_HTML" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
 
 # --- Check if ARS release already exists ---
+#
+# ARS reads bare query parameters, not JSON:API `filter[...]` syntax — see
+# component/api/src/Controller/ReleasesController.php, which maps the input key
+# `category_id` onto `filter.category_id`. Sent as `filter[category_id]` it
+# arrives as a PHP array named `filter`, the lookup returns null, and the filter
+# is silently not applied.
+#
+# That mattered because the response is also capped at 20 rows by default: this
+# read was matching the wanted version against an arbitrary 20-row window of
+# every release on the site, in an order that is not id, version or date. A miss
+# takes the create branch below and publishes a *second* release for a version
+# that already exists, reporting success either way.
+#
+# `page[limit]` is the parameter that raises the cap; `list[limit]` is ignored.
 echo "Checking for existing ARS release..."
 EXISTING=$(curl -s \
     -H "X-Joomla-Token: ${TOKEN}" \
     -H "Accept: application/vnd.api+json" \
-    "${API_BASE}/releases?filter%5Bcategory_id%5D=${ARS_CATEGORY_ID}&filter%5Bsearch%5D=${VERSION}")
+    "${API_BASE}/releases?category_id=${ARS_CATEGORY_ID}&search=${VERSION}&page%5Blimit%5D=200")
 
 EXISTING_ID=$(echo "$EXISTING" | python3 -c "
 import json,sys
@@ -289,10 +303,14 @@ fi
 # --- Create or update download item ---
 echo "Adding download item..."
 
+# Same correction as the release lookup above: ItemsController maps the bare
+# input key `release_id`. Sent as `filter[release_id]` this returned 20 rows
+# spanning 19 different releases, and a miss here creates a duplicate download
+# item on the release.
 EXISTING_ITEM=$(curl -s \
     -H "X-Joomla-Token: ${TOKEN}" \
     -H "Accept: application/vnd.api+json" \
-    "${API_BASE}/items?filter%5Brelease_id%5D=${RELEASE_ID}")
+    "${API_BASE}/items?release_id=${RELEASE_ID}&page%5Blimit%5D=200")
 
 EXISTING_ITEM_ID=$(echo "$EXISTING_ITEM" | python3 -c "
 import json,sys
