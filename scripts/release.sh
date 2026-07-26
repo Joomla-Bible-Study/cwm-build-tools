@@ -208,6 +208,34 @@ else
     NOTES="Release ${VERSION}"
 fi
 
+# Hand-written notes, if this release has any.
+#
+# What GitHub generates is a list of pull request titles — accurate, and written
+# for us rather than for the person deciding whether to update. Those same notes
+# are republished on the ARS download page, where they are the only changelog a
+# site administrator following an update link ever sees.
+#
+# So a notes file, when present, leads; the generated list is kept beneath it so
+# nothing is lost. Configure `release.notesFile` with a {version} placeholder,
+# e.g. "build/release-notes-{version}.md". Absent file, absent config, or a
+# release nobody wrote notes for: unchanged behaviour.
+NOTES_FILE=""
+NOTES_FILE_PATTERN=$(read_config "release.notesFile")
+if [ -n "$NOTES_FILE_PATTERN" ]; then
+    CANDIDATE="${NOTES_FILE_PATTERN//\{version\}/$VERSION}"
+    if [ -f "$CANDIDATE" ]; then
+        NOTES_FILE="$CANDIDATE"
+        echo "  Using hand-written release notes: ${NOTES_FILE}"
+        NOTES="$(cat "$NOTES_FILE")
+
+## Changes
+
+${NOTES}"
+    else
+        echo "  No hand-written notes at ${CANDIDATE}; using generated notes."
+    fi
+fi
+
 GH_REPO_ARG=""
 if [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
     GH_REPO_ARG="--repo ${GH_OWNER}/${GH_REPO}"
@@ -245,6 +273,8 @@ echo ""
 echo "[7/9] Publishing to ARS..."
 ARS_ENDPOINT=$(read_config "ars.endpoint")
 if [ -n "$ARS_ENDPOINT" ]; then
+    # The GitHub release now carries the hand-written notes plus the generated
+    # list, so ARS reads them back from there and both pages agree.
     bash "${TOOLS_DIR}/scripts/ars-publish.sh" -v "$VERSION" -f "${ARTIFACTS[0]}"
 else
     echo "  Skipped: no ars.endpoint configured."
