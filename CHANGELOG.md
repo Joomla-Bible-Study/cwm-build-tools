@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **`build.properties.tmpl` now ships two install examples instead of four**, one
+  of each role, with a note that consumers should add as many as they need — one
+  per Joomla version supported, or several of the same version. Four examples
+  (two dev, two test) read as a fixed set to reproduce rather than a pattern to
+  copy, and left every consumer carrying blocks for installs they do not run.
+  Ids are arbitrary labels; nothing keys off the name.
+
+- **The role documentation now leads with symlinked vs not**, because that is the
+  consequential difference and it was buried in a three-line aside. `role = dev`
+  is symlinked at the working repo; `role = test` is a real file-backed install
+  that the release harness wipes and reinstalls. The warning against pointing a
+  `role = test` install at a symlink is stated in the roles block rather than on
+  one install example, and names both existing backstops (v1.6.1 `cwm-link`
+  filtering, v1.6.2 reset-harness link stripping) as backstops rather than
+  permission.
+
 ## [1.6.2] - 2026-07-25
 
 ### Fixed
