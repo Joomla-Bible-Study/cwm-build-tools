@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-07-26
+
+### Fixed
+
+- **`cwm-sync-languages` no longer writes a translation that changed a
+  placeholder.** (#43, #44)
+
+  `translate_text` and `translate_batch` posted the whole string to Google
+  Translate with nothing protecting the parts that must not change. Joomla
+  language values carry `{placeholder}` tokens, inline HTML and `%s`-style
+  specifiers, and all three were translated as ordinary words:
+
+      en-GB  User <a href='{accountlink}'>{username}</a> updated {type} ...
+      nl-NL  Gebruiker <a href='{accountlink}'>{gebruikersnaam}> heeft {type} ...
+
+  `{username}` became `{gebruikersnaam}`, which never matches the substitution
+  Joomla performs when rendering a log row, so the literal token reached the
+  user. hu-HU lost a closing brace, giving the unmatchable `{username</a>`;
+  cs-CZ closed anchors with `<a>`, which also survives the `str_replace('</a>')`
+  Joomla uses to strip links from notification emails. Twenty-one strings across
+  three languages shipped this way — all valid INI, all silently wrong, with no
+  build step that would notice.
+
+  Two defences now apply. `mask_protected`/`unmask_protected` swap the protected
+  fragments for sentinels around the API call, restoring them highest-index-first
+  so `ZQX1ZQX` is not mistaken for part of `ZQX10ZQX`, and tolerating the case
+  changes and injected spaces engines introduce. `translation_is_safe` then
+  compares placeholders and specifiers as sorted multisets and anchors by count:
+  reordering for grammar passes, renaming, dropping, duplicating or unbalancing
+  does not. **A rejected translation falls back to the English source** — Joomla
+  already handles that per key, and an untranslated string is strictly better
+  than one whose placeholders no longer resolve.
+
+  Masking covers any `%<letter>`, not only the specifiers `sprintf` understands.
+  Real files also use `%d`, `%1$d`, `%%` and `%t`, the last filled in by the
+  component rather than by `sprintf`, as in `"Migrating %d of %t files..."`.
+
+### Added
+
+- **Python tests, run from `composer test`.** `composer test` now runs
+  `test:php` (PHPUnit) and `test:python` (stdlib `unittest`, no new dependency).
+  The 25 new tests are driven by corruption actually observed rather than
+  invented, and the fix was additionally validated by round-tripping every real
+  string in Proclaim — 29,273 across 159 language files — which is what caught a
+  false rejection of legitimately empty values (`KEY=""`).
+
+  A first foothold against #32, which notes `scripts/` has no coverage at all.
+
 ## [1.8.2] - 2026-07-26
 
 ### Fixed
