@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-07-26
+
+### Fixed
+
+- **`cwm-release` now stages only the file each step produces**, instead of
+  committing whatever happens to be in the working tree. (#38, #41)
+
+  Three of the four `git add -A` calls were paired with a `git diff --quiet`
+  guard, and the two disagree: the guard inspects only tracked files while the
+  action stages everything, untracked included. The question asked was "did a
+  tracked file change?"; the answer acted on was "commit the entire working
+  tree".
+
+  Steps 6 and 8 run after the release is pushed, so anything left lying around —
+  a scratch script, a downloaded artifact, a dumped token — was committed and
+  pushed. Step 6 force-moves the tag onto its commit, so strays landed in the
+  published tag. Step 8 is worse: `git stash` does not take untracked files, so
+  they follow the checkout onto the development branch and are committed there.
+
+  Each site now stages exactly what its step writes — the configured
+  `changelog.file`, and the resolved `versionsJson` path, which is the only file
+  `VersionTracker::updateForRelease` touches.
+
+  The guard is now `git status --porcelain -- <path>` rather than
+  `git diff --quiet -- <path>`: the latter reports no change for a file that is
+  new and untracked, so a changelog created rather than edited would have been
+  silently skipped.
+
+  Step 4 keeps `git add -A`, where it is safe — the step 1 pre-check uses
+  `git status --porcelain`, which covers untracked files, so the tree was empty
+  of them before the run began. It now lists what it is about to add, since
+  "produced by the build" is an inference spanning three steps.
+
 ## [1.8.1] - 2026-07-26
 
 ### Fixed
