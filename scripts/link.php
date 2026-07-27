@@ -20,9 +20,10 @@ require_once __DIR__ . '/../src/Dev/InstallConfig.php';
 require_once __DIR__ . '/../src/Dev/PropertiesReader.php';
 require_once __DIR__ . '/../src/Dev/LinkResolver.php';
 require_once __DIR__ . '/../src/Dev/Linker.php';
+require_once __DIR__ . '/../src/Dev/LinkPlanner.php';
 
 use CWM\BuildTools\Config\InstalledPackageReader;
-use CWM\BuildTools\Dev\InstallConfig;
+use CWM\BuildTools\Dev\LinkPlanner;
 use CWM\BuildTools\Dev\LinkResolver;
 use CWM\BuildTools\Dev\Linker;
 use CWM\BuildTools\Dev\PropertiesReader;
@@ -95,7 +96,18 @@ if (!$reader->exists()) {
 // install target for the built zip — linking one points the site's extension
 // dirs back at the working repo, which puts that source in the blast radius of
 // any teardown that deletes extension dirs (cwm-clean, reset harnesses).
-$installs = $reader->installsFor(InstallConfig::ROLE_DEV);
+//
+// That choice lives in LinkPlanner rather than here because this is where it
+// was got wrong in v1.6.1, and nothing in scripts/ can be tested. See #32.
+$plan     = LinkPlanner::selectInstalls($reader);
+$installs = $plan['linkable'];
+
+// Surfaced rather than skipped silently: a stale path usually means a machine
+// that was never set up, and "linked 0 installs" with no reason reads as a tool
+// failure.
+foreach ($plan['missing'] as $absent) {
+    echo "WARNING: Path not found, skipping: {$absent->path}\n";
+}
 
 if ($installs === []) {
     fwrite(STDERR, "No role=dev Joomla install configured in build.properties.\n");
@@ -116,12 +128,6 @@ foreach ($resolver->internalLinks() as $pair) {
 $linkedInstalls = 0;
 
 foreach ($installs as $install) {
-    if (!is_dir($install->path)) {
-        echo "WARNING: Path not found, skipping: {$install->path}\n";
-
-        continue;
-    }
-
     echo "\nLinking against: {$install->path}\n";
 
     $selfLinks = $resolver->externalLinks($install->path);
@@ -136,27 +142,12 @@ foreach ($installs as $install) {
     $totalConflicts += applyLinks($linker, 'Self (' . ($config['extension']['name'] ?? 'this project') . ')', $selfLinks, $force, $verbose, null);
 
     if ($depLinks !== []) {
-        $byPackage = [];
-
-        foreach ($depLinks as $link) {
-            $byPackage[$link['package']][] = $link;
-        }
+        $byPackage = LinkPlanner::groupByPackage($depLinks);
 
         echo "\n  CWM dependencies (" . count($byPackage) . ")\n";
 
         foreach ($byPackage as $pkgName => $links) {
-            $package = null;
-
-            foreach ($cwmPackages as $p) {
-                if ($p->name === $pkgName) {
-                    $package = $p;
-                    break;
-                }
-            }
-
-            $tag = $package === null
-                ? ''
-                : " @ {$package->version} (" . ($package->isPathRepo ? 'path' : 'registry') . ')';
+            $tag = LinkPlanner::describePackage(LinkPlanner::findPackage($cwmPackages, $pkgName));
 
             echo "    {$pkgName}{$tag}\n";
 
