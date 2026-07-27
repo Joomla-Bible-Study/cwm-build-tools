@@ -1,0 +1,8 @@
+InstalledPackageReaderTest::detects_path_repo_install_and_resolves_source_path
+resolves this directory with realpath() and compares the result to the reader's
+sourcePath. realpath() returns false for a path that does not exist, so without
+a tracked file here the directory is absent on a clean checkout and the test
+fails comparing a string to false.
+
+Git does not track empty directories. This file is what makes the fixture
+survive a clone — it has no other purpose and its contents are not read.
