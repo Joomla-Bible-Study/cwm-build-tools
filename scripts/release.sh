@@ -168,15 +168,57 @@ if [ -z "$OUTPUT_GLOB" ]; then
     exit 1
 fi
 
-# Resolve glob — should match exactly one file
+# Resolve the artifact for *this* version.
+#
+# The glob is deliberately version-agnostic (pkg_x-*.zip), so anything left in
+# the output directory matches it too — a baseline downloaded by the upgrade
+# harness, or simply the previous release. Taking ARTIFACTS[0] from an
+# unsorted glob therefore picks whatever sorts first, and bash sorts
+# lexically: releasing 10.3.3 alongside a stale 10.3.2 selects the 10.3.2 zip.
+#
+# That is not hypothetical. Proclaim 10.3.3 shipped pkg_proclaim-10.3.2.zip as
+# its GitHub asset and its ARS item, and the standing mitigation has been to
+# remember to clear build/dist first. A manual step is a poor guard for a
+# failure this quiet — the wrong file uploads and everything reports success.
+#
+# Lexical order is wrong for versions anyway: 10.3.10 sorts before 10.3.2.
+#
+# So match on the version being released rather than on ordering, and refuse to
+# guess when the answer is not unambiguous.
 shopt -s nullglob
-ARTIFACTS=( $OUTPUT_GLOB )
+ALL_ARTIFACTS=( $OUTPUT_GLOB )
 shopt -u nullglob
 
-if [ "${#ARTIFACTS[@]}" -eq 0 ]; then
+if [ "${#ALL_ARTIFACTS[@]}" -eq 0 ]; then
     echo "Error: No build artifact matched $OUTPUT_GLOB"
     exit 1
 fi
+
+ARTIFACTS=()
+for artifact in "${ALL_ARTIFACTS[@]}"; do
+    case "$(basename "$artifact")" in
+        *"-${VERSION}".zip) ARTIFACTS+=( "$artifact" ) ;;
+    esac
+done
+
+if [ "${#ARTIFACTS[@]}" -eq 0 ]; then
+    echo "Error: No build artifact for version ${VERSION} matched $OUTPUT_GLOB"
+    echo "       Found instead:"
+    printf '         %s\n' "${ALL_ARTIFACTS[@]}"
+    echo "       The build step should have produced a file named *-${VERSION}.zip."
+    exit 1
+fi
+
+if [ "${#ARTIFACTS[@]}" -gt 1 ]; then
+    echo "Error: ${#ARTIFACTS[@]} artifacts match version ${VERSION}; refusing to guess:"
+    printf '         %s\n' "${ARTIFACTS[@]}"
+    exit 1
+fi
+
+if [ "${#ALL_ARTIFACTS[@]}" -gt 1 ]; then
+    echo "  Note: ${#ALL_ARTIFACTS[@]} files matched the glob; selected by version."
+fi
+
 echo "  Built: ${ARTIFACTS[*]}"
 echo ""
 
