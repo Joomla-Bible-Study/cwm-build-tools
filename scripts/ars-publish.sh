@@ -34,7 +34,17 @@
 #                              1Password CLI for the configured tokenItem.
 #
 # Usage:
-#   bash scripts/ars-publish.sh -v <version> -f <path-to-zip>
+#   bash scripts/ars-publish.sh -v <version> -f <path-to-zip> [-n <notes-file>]
+#
+# Release notes:
+#   ARS renders a release's notes as HTML on the public download page. Notes are
+#   authored in Markdown and converted by scripts/render-notes.php before they
+#   are sent — publishing Markdown directly leaves "##" and "**" literal and
+#   collapses the whole changelog onto one line.
+#
+#   -n <file> (or ARS_NOTES_FILE) supplies notes written for the people reading
+#   that page. Without it the notes fall back to the GitHub release body, which
+#   is normally GitHub's auto-generated list of pull request titles.
 #
 set -euo pipefail
 
@@ -60,16 +70,23 @@ read_config_json() {
 # --- Parse args ---
 VERSION=""
 ZIP_PATH=""
-while getopts "v:f:" opt; do
+NOTES_FILE="${ARS_NOTES_FILE:-}"
+while getopts "v:f:n:" opt; do
     case "$opt" in
         v) VERSION="$OPTARG" ;;
         f) ZIP_PATH="$OPTARG" ;;
-        *) echo "Usage: ars-publish.sh -v <version> -f <path-to-zip>"; exit 1 ;;
+        n) NOTES_FILE="$OPTARG" ;;
+        *) echo "Usage: ars-publish.sh -v <version> -f <path-to-zip> [-n <notes-file>]"; exit 1 ;;
     esac
 done
 
 if [ -z "$VERSION" ] || [ -z "$ZIP_PATH" ]; then
-    echo "Usage: ars-publish.sh -v <version> -f <path-to-zip>"
+    echo "Usage: ars-publish.sh -v <version> -f <path-to-zip> [-n <notes-file>]"
+    exit 1
+fi
+
+if [ -n "$NOTES_FILE" ] && [ ! -f "$NOTES_FILE" ]; then
+    echo "Error: notes file not found: $NOTES_FILE"
     exit 1
 fi
 
@@ -179,15 +196,47 @@ SHA256=$(shasum -a 256 "$ZIP_PATH" 2>/dev/null | cut -d' ' -f1 || echo "")
 SHA384=$(shasum -a 384 "$ZIP_PATH" 2>/dev/null | cut -d' ' -f1 || echo "")
 SHA512=$(shasum -a 512 "$ZIP_PATH" 2>/dev/null | cut -d' ' -f1 || echo "")
 
-# --- Get GitHub release notes ---
-RELEASE_NOTES=$(gh release view "$TAG" --repo "${GH_OWNER}/${GH_REPO}" --json body --jq '.body' 2>/dev/null || echo "")
+# --- Assemble the release notes ---
+#
+# ARS renders `notes` as HTML, so Markdown cannot be handed over as-is: the
+# public 10.3.6 download page showed "## What's Changed * fix(api): ..." with
+# every marker literal and every newline collapsed. Whatever the source, the
+# text is Markdown and gets converted before it is sent.
+#
+# The source is a hand-written notes file when one is given (-n, or
+# ARS_NOTES_FILE), falling back to the GitHub release body. The fallback is
+# GitHub's auto-generated list of pull request titles, which is accurate but
+# written for us rather than for the administrator reading the download page.
+if [ -n "$NOTES_FILE" ]; then
+    echo "Using release notes from ${NOTES_FILE}"
+    RELEASE_NOTES=$(cat "$NOTES_FILE")
+else
+    RELEASE_NOTES=$(gh release view "$TAG" --repo "${GH_OWNER}/${GH_REPO}" --json body --jq '.body' 2>/dev/null || echo "")
+fi
+
+NOTES_HTML=$(printf '%s' "$RELEASE_NOTES" | php "${SCRIPT_DIR}/render-notes.php")
+NOTES_JSON=$(printf '%s' "$NOTES_HTML" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
 
 # --- Check if ARS release already exists ---
+#
+# ARS reads bare query parameters, not JSON:API `filter[...]` syntax — see
+# component/api/src/Controller/ReleasesController.php, which maps the input key
+# `category_id` onto `filter.category_id`. Sent as `filter[category_id]` it
+# arrives as a PHP array named `filter`, the lookup returns null, and the filter
+# is silently not applied.
+#
+# That mattered because the response is also capped at 20 rows by default: this
+# read was matching the wanted version against an arbitrary 20-row window of
+# every release on the site, in an order that is not id, version or date. A miss
+# takes the create branch below and publishes a *second* release for a version
+# that already exists, reporting success either way.
+#
+# `page[limit]` is the parameter that raises the cap; `list[limit]` is ignored.
 echo "Checking for existing ARS release..."
 EXISTING=$(curl -s \
     -H "X-Joomla-Token: ${TOKEN}" \
     -H "Accept: application/vnd.api+json" \
-    "${API_BASE}/releases?filter%5Bcategory_id%5D=${ARS_CATEGORY_ID}&filter%5Bsearch%5D=${VERSION}")
+    "${API_BASE}/releases?category_id=${ARS_CATEGORY_ID}&search=${VERSION}&page%5Blimit%5D=200")
 
 EXISTING_ID=$(echo "$EXISTING" | python3 -c "
 import json,sys
@@ -212,7 +261,7 @@ if [ -n "$EXISTING_ID" ]; then
             \"version\": \"${VERSION}\",
             \"alias\": \"${ALIAS}\",
             \"maturity\": \"${ARS_MATURITY}\",
-            \"notes\": $(echo "$RELEASE_NOTES" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),
+            \"notes\": ${NOTES_JSON},
             \"created\": \"${RELEASE_DATE}\",
             \"published\": 1
         }" \
@@ -230,7 +279,7 @@ else
             \"version\": \"${VERSION}\",
             \"alias\": \"${ALIAS}\",
             \"maturity\": \"${ARS_MATURITY}\",
-            \"notes\": $(echo "$RELEASE_NOTES" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),
+            \"notes\": ${NOTES_JSON},
             \"created\": \"${RELEASE_DATE}\",
             \"published\": 1,
             \"access\": 1,
@@ -254,10 +303,14 @@ fi
 # --- Create or update download item ---
 echo "Adding download item..."
 
+# Same correction as the release lookup above: ItemsController maps the bare
+# input key `release_id`. Sent as `filter[release_id]` this returned 20 rows
+# spanning 19 different releases, and a miss here creates a duplicate download
+# item on the release.
 EXISTING_ITEM=$(curl -s \
     -H "X-Joomla-Token: ${TOKEN}" \
     -H "Accept: application/vnd.api+json" \
-    "${API_BASE}/items?filter%5Brelease_id%5D=${RELEASE_ID}")
+    "${API_BASE}/items?release_id=${RELEASE_ID}&page%5Blimit%5D=200")
 
 EXISTING_ITEM_ID=$(echo "$EXISTING_ITEM" | python3 -c "
 import json,sys

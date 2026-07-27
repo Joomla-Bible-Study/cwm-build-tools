@@ -31,6 +31,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck source=lib/artifacts.sh
+source "${SCRIPT_DIR}/lib/artifacts.sh"
 PROJECT_ROOT="$(pwd)"
 
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"
@@ -168,15 +171,15 @@ if [ -z "$OUTPUT_GLOB" ]; then
     exit 1
 fi
 
-# Resolve glob — should match exactly one file
-shopt -s nullglob
-ARTIFACTS=( $OUTPUT_GLOB )
-shopt -u nullglob
+# Resolve the artifact for *this* version.
+#
+# The selection lives in lib/artifacts.sh so it can be tested — see #52. It was
+# wrong once already: cwm-release took the first glob match, and bash sorts
+# lexically, so Proclaim 10.3.3 published pkg_proclaim-10.3.2.zip to GitHub and
+# ARS while reporting success.
+ARTIFACT="$(cwm_select_artifact_for_version "$VERSION" "$OUTPUT_GLOB")" || exit 1
+ARTIFACTS=( "$ARTIFACT" )
 
-if [ "${#ARTIFACTS[@]}" -eq 0 ]; then
-    echo "Error: No build artifact matched $OUTPUT_GLOB"
-    exit 1
-fi
 echo "  Built: ${ARTIFACTS[*]}"
 echo ""
 
@@ -189,6 +192,20 @@ echo "[4/9] Committing version bump..."
 git add -u
 # Pull in any new files the build step generated (e.g. a fresh changelog
 # stub, regenerated build artifacts that live in tracked directories).
+#
+# `git add -A` is deliberate here and safe for a reason worth stating: the
+# step 1 pre-check uses `git status --porcelain`, which reports untracked
+# files too, so the tree was empty of them before this run began. Anything
+# untracked now was produced by steps 1-3.
+#
+# It is still listed, because "produced by the build" is an inference about a
+# window several steps wide, and a release commit is a bad place to discover
+# it was wrong.
+UNTRACKED=$(git ls-files --others --exclude-standard)
+if [ -n "$UNTRACKED" ]; then
+    echo "  New files being committed with the version bump:"
+    printf '    %s\n' $UNTRACKED
+fi
 git add -A
 git commit -m "chore: bump version to ${VERSION}"
 git push
@@ -206,6 +223,34 @@ if [ -n "$PREV_TAG" ] && [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
         --jq '.body' 2>/dev/null || echo "Release ${VERSION}")
 else
     NOTES="Release ${VERSION}"
+fi
+
+# Hand-written notes, if this release has any.
+#
+# What GitHub generates is a list of pull request titles — accurate, and written
+# for us rather than for the person deciding whether to update. Those same notes
+# are republished on the ARS download page, where they are the only changelog a
+# site administrator following an update link ever sees.
+#
+# So a notes file, when present, leads; the generated list is kept beneath it so
+# nothing is lost. Configure `release.notesFile` with a {version} placeholder,
+# e.g. "build/release-notes-{version}.md". Absent file, absent config, or a
+# release nobody wrote notes for: unchanged behaviour.
+NOTES_FILE=""
+NOTES_FILE_PATTERN=$(read_config "release.notesFile")
+if [ -n "$NOTES_FILE_PATTERN" ]; then
+    CANDIDATE="${NOTES_FILE_PATTERN//\{version\}/$VERSION}"
+    if [ -f "$CANDIDATE" ]; then
+        NOTES_FILE="$CANDIDATE"
+        echo "  Using hand-written release notes: ${NOTES_FILE}"
+        NOTES="$(cat "$NOTES_FILE")
+
+## Changes
+
+${NOTES}"
+    else
+        echo "  No hand-written notes at ${CANDIDATE}; using generated notes."
+    fi
 fi
 
 GH_REPO_ARG=""
@@ -228,8 +273,19 @@ echo "[6/9] Updating changelog..."
 CHANGELOG_FILE=$(read_config "changelog.file")
 if [ -n "$CHANGELOG_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
     bash "${TOOLS_DIR}/scripts/generate-changelog-entry.sh" "$VERSION"
-    if ! git diff --quiet 2>/dev/null; then
-        git add -A
+    # Stage the changelog and nothing else. This used to be `git add -A` behind
+    # a `git diff --quiet` guard, and those two disagree: the guard inspects
+    # only tracked files, while the action staged everything, untracked
+    # included. Anything left in the working tree after step 4 — a scratch
+    # script, a downloaded artifact, a dumped token — was committed here, and
+    # the tag is force-moved onto this commit immediately below, so it landed
+    # in the published tag too.
+    #
+    # The guard is `git status --porcelain`, not `git diff --quiet`: the latter
+    # reports no change for a file that is new and untracked, so a changelog
+    # created rather than edited would be silently skipped.
+    if [ -n "$(git status --porcelain -- "$CHANGELOG_FILE")" ]; then
+        git add -- "$CHANGELOG_FILE"
         git commit -m "chore: add changelog entry for ${VERSION}"
         git push
         # Move tag to include changelog commit
@@ -245,6 +301,8 @@ echo ""
 echo "[7/9] Publishing to ARS..."
 ARS_ENDPOINT=$(read_config "ars.endpoint")
 if [ -n "$ARS_ENDPOINT" ]; then
+    # The GitHub release now carries the hand-written notes plus the generated
+    # list, so ARS reads them back from there and both pages agree.
     bash "${TOOLS_DIR}/scripts/ars-publish.sh" -v "$VERSION" -f "${ARTIFACTS[0]}"
 else
     echo "  Skipped: no ars.endpoint configured."
@@ -254,20 +312,28 @@ echo ""
 # --- Step 8: versions.json update (current + next.* + _updated) ---
 echo "[8/9] Updating versions.json..."
 DEV_BRANCH=$(read_config "github.developmentBranch")
-HAS_VERSION_TRACKING=$(php "${TOOLS_DIR}/scripts/resolve-tracking.php" versionsJson)
+# This is the project-relative path to versions.json, and it is the only file
+# `version-tracker.php --mode=release` writes (VersionTracker::updateForRelease
+# touches versionsJson alone). Both commits below stage exactly it.
+VERSIONS_FILE=$(php "${TOOLS_DIR}/scripts/resolve-tracking.php" versionsJson)
 
-if [ -z "$HAS_VERSION_TRACKING" ]; then
+if [ -z "$VERSIONS_FILE" ]; then
     echo "  Skipped: no versionTracking.versionsJson configured."
 elif [ -n "$DEV_BRANCH" ]; then
     # Project uses separate dev branch (versions.json lives there, not on release branch)
+    #
+    # Note `git stash` does not take untracked files, so any that are present
+    # follow the checkout onto the development branch. Staging the versions
+    # file by name — rather than the `git add -A` this used to run — is what
+    # keeps them from being committed and pushed there.
     git stash 2>/dev/null || true
     git checkout "$DEV_BRANCH"
     git pull
 
     php "${TOOLS_DIR}/scripts/version-tracker.php" --mode=release -v "$VERSION"
 
-    if ! git diff --quiet 2>/dev/null; then
-        git add -A
+    if [ -n "$(git status --porcelain -- "$VERSIONS_FILE")" ]; then
+        git add -- "$VERSIONS_FILE"
         git commit -m "chore: update versions.json for ${TAG} release"
         git push
     fi
@@ -278,8 +344,8 @@ else
     # Single-branch project: update inline on the release branch
     php "${TOOLS_DIR}/scripts/version-tracker.php" --mode=release -v "$VERSION"
 
-    if ! git diff --quiet 2>/dev/null; then
-        git add -A
+    if [ -n "$(git status --porcelain -- "$VERSIONS_FILE")" ]; then
+        git add -- "$VERSIONS_FILE"
         git commit -m "chore: update versions.json for ${TAG} release"
         git push
     fi

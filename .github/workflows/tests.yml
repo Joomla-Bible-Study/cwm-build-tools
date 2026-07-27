@@ -1,0 +1,136 @@
+name: Tests
+
+# Runs this repository's own test suite.
+#
+# joomla-package-ci.yml is a reusable workflow for *consuming* projects and
+# never runs here; docs.yml only builds the documentation site. So until this
+# existed, nothing verified this repo on push or pull request, and every PR
+# merged reporting "no checks reported" (see issue #46).
+#
+# That matters more here than in most repos: this package cuts the releases for
+# every CWM project, and its failure mode is quiet. A regression in release.sh
+# or ars-publish.sh does not throw — it publishes something wrong and reports
+# success.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # 8.3 is the composer.json floor; 8.4 is what the maintainers actually
+        # run day to day, and a release that only works on one of them should
+        # fail here rather than at a consumer.
+        php: ['8.3', '8.4']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: json, simplexml, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Set up Python
+        # scripts/sync-languages.py is tested by tests/python. Runners ship a
+        # Python, but pinning it keeps the Python half of `composer test` from
+        # depending on whatever the image happens to provide.
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ matrix.php }}-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Run tests
+        # composer test runs PHPUnit and the Python suite.
+        run: composer test
+
+  lint:
+    name: Coding standards
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: json, simplexml, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Check syntax of every PHP file
+        # Catches a parse error in scripts/, which has no unit coverage at all
+        # (issue #32) and is otherwise only exercised by running a release.
+        run: find src scripts tests -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null
+
+      - name: shellcheck every shell script
+        # Preinstalled on ubuntu runners. Catches quoting, unset variables and
+        # word-splitting — the class of shell bug bash -n cannot see. The
+        # semantic bugs (#37, #38, #51) need the behavioural tests in
+        # tests/shell for that; this covers the rest. See #52.
+        run: shellcheck -S warning scripts/*.sh scripts/lib/*.sh
+
+      - name: Run shell behavioural tests
+        run: |
+          rc=0
+          for t in tests/shell/*.test.sh; do
+            bash "$t" || rc=1
+          done
+          exit $rc
+
+      - name: Check syntax of every shell script
+        # release.sh and ars-publish.sh are the release pipeline; a syntax error
+        # in either is discovered mid-release today.
+        # `rc`, not `status`: the latter is read-only in zsh, and this loop is
+        # the sort of thing someone pastes into a local shell to reproduce.
+        run: |
+          rc=0
+          for f in scripts/*.sh; do
+            bash -n "$f" || rc=1
+          done
+          exit $rc
+
+      - name: Spellcheck
+        # Docs, comments and templates. Named ignores: "unparseable" is a
+        # legitimate variant spelling; "UPDATEing" is deliberate emphasis of
+        # the SQL verb in a docblock; "titel" is the Dutch mistranslation the
+        # sync-languages placeholder tests assert against — "fixing" that
+        # fixture would defeat the test.
+        run: |
+          pip install codespell
+          codespell --ignore-words-list unparseable,updateing,titel \
+            README.md CHANGELOG.md docs/ templates/ scripts/ src/ tests/
+
+      - name: Check Python syntax
+        run: python3 -m py_compile scripts/*.py

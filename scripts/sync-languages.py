@@ -369,6 +369,108 @@ def get_cache_key(text, target_lang):
     """Generate a cache key for a translation."""
     return hashlib.md5(f"{text}:{target_lang}".encode('utf-8')).hexdigest()
 
+# --- Protecting the parts of a string that must not be translated ---------
+#
+# Joomla language values carry {placeholder} tokens, inline HTML and printf
+# specifiers. Sent to a translation engine as prose, all three get translated
+# as ordinary words, and the result is a string that is still valid INI and
+# silently wrong at runtime. One real run produced:
+#
+#   en-GB  User <a href='{accountlink}'>{username}</a> updated ...
+#   nl-NL  Gebruiker <a href='{accountlink}'>{gebruikersnaam}> heeft ...
+#
+# {username} became {gebruikersnaam}, so it never matches the substitution
+# Joomla performs at render time, and the literal token reaches the user.
+# hu-HU lost a closing brace; cs-CZ closed anchors with <a> instead of </a>.
+#
+# Two defences below, and the second is the one that matters: masking reduces
+# how often the engine mangles something, but validation is what guarantees
+# nothing broken is ever written.
+
+# Any %<letter> is treated as a substitution token, not just the printf ones
+# Text::sprintf understands. Proclaim's own strings include "Migrating %d of %t
+# files...", where %t is filled in by the component rather than by sprintf —
+# from a translator's point of view the distinction does not exist, and both
+# break the same way if translated.
+PROTECTED_PATTERN = re.compile(
+    r'(\{[A-Za-z0-9_]+\}'      # {placeholder}
+    r'|</?[A-Za-z][^<>]*>'     # HTML tag, opening or closing
+    r'|%%'                     # escaped literal percent
+    r'|%\d+\$[A-Za-z]'         # positional: %1$s, %2$d
+    r'|%[A-Za-z])'             # plain: %s, %d, %t
+)
+
+PLACEHOLDER_PATTERN = re.compile(r'\{[A-Za-z0-9_]+\}')
+PRINTF_PATTERN = re.compile(r'%%|%\d+\$[A-Za-z]|%[A-Za-z]')
+
+def mask_protected(text):
+    """
+    Replace everything that must survive translation with opaque sentinels.
+
+    Returns (masked_text, tokens). The sentinel is a short alphanumeric run
+    because engines pass those through far more reliably than punctuation or
+    private-use characters — but it is not trusted, which is what
+    translation_is_safe() is for.
+    """
+    tokens = []
+
+    def take(match):
+        tokens.append(match.group(0))
+        return f'ZQX{len(tokens) - 1}ZQX'
+
+    return PROTECTED_PATTERN.sub(take, text), tokens
+
+def unmask_protected(text, tokens):
+    """
+    Put the protected fragments back.
+
+    Engines routinely alter a sentinel's case or wedge spaces into it, so the
+    match is deliberately loose. Anything still not recovered is left as-is and
+    caught by validation.
+    """
+    for index, token in reversed(list(enumerate(tokens))):
+        pattern = re.compile(
+            r'Z\s*Q\s*X\s*' + str(index) + r'\s*Z\s*Q\s*X',
+            re.IGNORECASE
+        )
+        text = pattern.sub(lambda _m, t=token: t, text)
+
+    return text
+
+def translation_signature(text):
+    """
+    The parts of a string a translation must reproduce exactly.
+
+    Placeholders and printf specifiers are compared as sorted multisets, so
+    reordering for grammar is fine while renaming, dropping or duplicating is
+    not. Anchors are compared by count, which catches both the unclosed-tag
+    case and a tag being translated away.
+    """
+    return (
+        sorted(PLACEHOLDER_PATTERN.findall(text)),
+        sorted(PRINTF_PATTERN.findall(text)),
+        len(re.findall(r'<a\b', text, re.IGNORECASE)),
+        len(re.findall(r'</a\s*>', text, re.IGNORECASE)),
+    )
+
+def translation_is_safe(source, translated):
+    """
+    Whether a translation may be written.
+
+    A rejected translation falls back to the English source, which Joomla
+    already handles per key — an untranslated string is strictly better than
+    one whose placeholders no longer resolve.
+    """
+    if translated is None:
+        return False
+
+    # An empty result is a failure for real text, but language files legitimately
+    # contain empty values (KEY="") and those have nothing to translate.
+    if not translated.strip():
+        return not source.strip()
+
+    return translation_signature(source) == translation_signature(translated)
+
 def translate_text(text, target_lang, source_lang='en'):
     """
     Translate text using Google Translate API.
@@ -391,9 +493,11 @@ def translate_text(text, target_lang, source_lang='en'):
         # Google Translate API v2 endpoint
         url = 'https://translation.googleapis.com/language/translate/v2'
 
+        masked, tokens = mask_protected(text)
+
         params = {
             'key': GOOGLE_API_KEY,
-            'q': text,
+            'q': masked,
             'source': source_lang,
             'target': target_lang,
             'format': 'text'
@@ -406,7 +510,14 @@ def translate_text(text, target_lang, source_lang='en'):
             result = json.loads(response.read().decode('utf-8'))
 
         if 'data' in result and 'translations' in result['data']:
-            translated = result['data']['translations'][0]['translatedText']
+            translated = unmask_protected(
+                result['data']['translations'][0]['translatedText'], tokens
+            )
+
+            if not translation_is_safe(text, translated):
+                print(f"    Rejected translation (placeholders changed): {text[:60]}")
+                return None
+
             # Cache the result
             _translation_cache[cache_key] = translated
             return translated
@@ -458,8 +569,16 @@ def translate_batch(texts, target_lang, source_lang='en'):
             ('target', target_lang),
             ('format', 'text')
         ]
+        # Mask before sending; the token list is kept per text so each result
+        # can be restored and then checked against its own source.
+        masked_texts, masked_tokens = [], []
         for text in uncached_texts:
-            params.append(('q', text))
+            masked, tokens = mask_protected(text)
+            masked_texts.append(masked)
+            masked_tokens.append(tokens)
+
+        for masked in masked_texts:
+            params.append(('q', masked))
 
         data = urllib.parse.urlencode(params).encode('utf-8')
         req = urllib.request.Request(url, data=data, method='POST')
@@ -469,13 +588,28 @@ def translate_batch(texts, target_lang, source_lang='en'):
 
         if 'data' in result and 'translations' in result['data']:
             translations = result['data']['translations']
+            rejected = 0
             for i, trans in enumerate(translations):
                 original_idx = uncached_indices[i]
-                translated = trans['translatedText']
+                source = uncached_texts[i]
+                translated = unmask_protected(trans['translatedText'], masked_tokens[i])
+
+                # A translation that lost, renamed or unbalanced any protected
+                # fragment is discarded rather than written. Falling back to
+                # English is something Joomla handles per key; a placeholder
+                # that no longer resolves is not.
+                if not translation_is_safe(source, translated):
+                    rejected += 1
+                    results[original_idx] = source
+                    continue
+
                 results[original_idx] = translated
                 # Cache the result
-                cache_key = get_cache_key(uncached_texts[i], target_lang)
+                cache_key = get_cache_key(source, target_lang)
                 _translation_cache[cache_key] = translated
+
+            if rejected:
+                print(f"    Kept English for {rejected} string(s): translation altered placeholders or markup")
 
         # Small delay to avoid rate limiting
         time.sleep(0.1)

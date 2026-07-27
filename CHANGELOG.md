@@ -9,32 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **`cwm-sync-configs` now guards `build.dist.properties` against leaked credentials
-  and silent data loss.** That file is committed by every consumer while per-machine
-  values belong in the gitignored `build.properties` — the two names differ by four
-  characters, and the wrong one gets edited. Because sync overwrites the consumer's
-  copy from the template, it also quietly disposed of the evidence: credentials
-  vanished from the working tree while remaining in any commit that had already
-  captured them.
-
-  Three checks now run before the write, via the new
-  `Config\DistPropertiesInspector`:
-
-  - **Refuses to sync** if the cwm-build-tools template itself carries populated
-    credential values — that would propagate to every consumer.
-  - **Warns** when the consumer's existing file has real values in credential keys,
-    naming them and pointing at `git log -p -- build.dist.properties` so the
-    developer can check whether they reached history.
-  - **Reports keys about to be removed** because the template lacks them. Usually
-    stale hand-edits, but occasionally the consumer is ahead of the shared schema
-    and silently deleting that is unhelpful. Found in practice: Proclaim's 11
-    `builder.j6-test.*` keys would have been dropped without a word.
-
-  Matching is on key name (`db_user`, `db_pass`, `db_name`, `password`, `secret`,
-  `token`, `api_key`) rather than value, since local credentials rarely look
-  distinctive. The template's documented `admin_pass = admin` placeholder is
-  deliberately outside the pattern.
-
 - **`npm outdated` results were silently discarded, so dev dependency updates
   were never reported.** `npm outdated` exits 1 when anything *is* outdated,
   and `runFile()` treated any non-zero exit as failure and returned an empty
@@ -47,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   findings rather than failure (`npm outdated`, `npm audit`, `composer audit`).
 
 ### Added
+
 
 - `templates/build.properties.tmpl` — commented-out `j6-test` section, so a second
   `role = test` install is part of the shared schema rather than a local addition
@@ -90,6 +65,217 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   date, with no known advisories"* and exit 0. "We found nothing" and "we did
   not look" are different answers. Scopes with no manifest to audit are skipped
   rather than failed.
+
+
+## [1.8.3] - 2026-07-26
+
+### Fixed
+
+- **`cwm-sync-languages` no longer writes a translation that changed a
+  placeholder.** (#43, #44)
+
+  `translate_text` and `translate_batch` posted the whole string to Google
+  Translate with nothing protecting the parts that must not change. Joomla
+  language values carry `{placeholder}` tokens, inline HTML and `%s`-style
+  specifiers, and all three were translated as ordinary words:
+
+      en-GB  User <a href='{accountlink}'>{username}</a> updated {type} ...
+      nl-NL  Gebruiker <a href='{accountlink}'>{gebruikersnaam}> heeft {type} ...
+
+  `{username}` became `{gebruikersnaam}`, which never matches the substitution
+  Joomla performs when rendering a log row, so the literal token reached the
+  user. hu-HU lost a closing brace, giving the unmatchable `{username</a>`;
+  cs-CZ closed anchors with `<a>`, which also survives the `str_replace('</a>')`
+  Joomla uses to strip links from notification emails. Twenty-one strings across
+  three languages shipped this way — all valid INI, all silently wrong, with no
+  build step that would notice.
+
+  Two defences now apply. `mask_protected`/`unmask_protected` swap the protected
+  fragments for sentinels around the API call, restoring them highest-index-first
+  so `ZQX1ZQX` is not mistaken for part of `ZQX10ZQX`, and tolerating the case
+  changes and injected spaces engines introduce. `translation_is_safe` then
+  compares placeholders and specifiers as sorted multisets and anchors by count:
+  reordering for grammar passes, renaming, dropping, duplicating or unbalancing
+  does not. **A rejected translation falls back to the English source** — Joomla
+  already handles that per key, and an untranslated string is strictly better
+  than one whose placeholders no longer resolve.
+
+  Masking covers any `%<letter>`, not only the specifiers `sprintf` understands.
+  Real files also use `%d`, `%1$d`, `%%` and `%t`, the last filled in by the
+  component rather than by `sprintf`, as in `"Migrating %d of %t files..."`.
+
+### Added
+
+- **Python tests, run from `composer test`.** `composer test` now runs
+  `test:php` (PHPUnit) and `test:python` (stdlib `unittest`, no new dependency).
+  The 25 new tests are driven by corruption actually observed rather than
+  invented, and the fix was additionally validated by round-tripping every real
+  string in Proclaim — 29,273 across 159 language files — which is what caught a
+  false rejection of legitimately empty values (`KEY=""`).
+
+  A first foothold against #32, which notes `scripts/` has no coverage at all.
+
+## [1.8.2] - 2026-07-26
+
+### Fixed
+
+- **`cwm-release` now stages only the file each step produces**, instead of
+  committing whatever happens to be in the working tree. (#38, #41)
+
+  Three of the four `git add -A` calls were paired with a `git diff --quiet`
+  guard, and the two disagree: the guard inspects only tracked files while the
+  action stages everything, untracked included. The question asked was "did a
+  tracked file change?"; the answer acted on was "commit the entire working
+  tree".
+
+  Steps 6 and 8 run after the release is pushed, so anything left lying around —
+  a scratch script, a downloaded artifact, a dumped token — was committed and
+  pushed. Step 6 force-moves the tag onto its commit, so strays landed in the
+  published tag. Step 8 is worse: `git stash` does not take untracked files, so
+  they follow the checkout onto the development branch and are committed there.
+
+  Each site now stages exactly what its step writes — the configured
+  `changelog.file`, and the resolved `versionsJson` path, which is the only file
+  `VersionTracker::updateForRelease` touches.
+
+  The guard is now `git status --porcelain -- <path>` rather than
+  `git diff --quiet -- <path>`: the latter reports no change for a file that is
+  new and untracked, so a changelog created rather than edited would have been
+  silently skipped.
+
+  Step 4 keeps `git add -A`, where it is safe — the step 1 pre-check uses
+  `git status --porcelain`, which covers untracked files, so the tree was empty
+  of them before the run began. It now lists what it is about to add, since
+  "produced by the build" is an inference spanning three steps.
+
+## [1.8.1] - 2026-07-26
+
+### Fixed
+
+- **`cwm-ars-publish` now uses the query parameters ARS actually reads**, so it
+  reliably finds an existing release or download item instead of publishing a
+  duplicate. (#37, #39)
+
+  Both create-vs-update lookups sent JSON:API `filter[...]` syntax. ARS reads
+  bare input keys — `ReleasesController::displayList` and
+  `ItemsController::displayList` map `category_id`, `search` and `release_id`
+  onto their filter state. Sent as `filter[category_id]` the value arrives as a
+  PHP array named `filter`, the lookup returns null, and the filter is silently
+  not applied.
+
+  That was load-bearing, because the response is also capped at 20 rows by
+  default. Both lookups were matching against an arbitrary 20-row window of
+  every release and item on the site, ordered by neither id, version nor date —
+  on christianwebministries.org the item lookup returned 20 rows spanning 19
+  different releases. A miss takes the create branch and publishes a second
+  release, or a second download item, reporting success either way. The risk
+  grew with every release added.
+
+  With the bare names both queries return exactly one row. `page[limit]` is
+  passed as well, because the 20-row cap is real and independent of the
+  parameter bug (`list[limit]` is not honoured). The client-side exact match on
+  version is kept: `search` is a LIKE, so `10.3.1` could in principle also match
+  a future `10.3.10`.
+
+  Also corrects the note in `ars-list.sh` that blamed "this ARS install" for
+  ignoring the category filter. It was the parameter name, not the build.
+
+## [1.8.0] - 2026-07-26
+
+### Fixed
+
+- **Release notes are now converted to HTML before they are published to ARS.**
+  ARS stores a release's `notes` as an HTML fragment and echoes it into the
+  public download page without any Markdown processing, but `ars-publish.sh`
+  was posting the GitHub release body verbatim — and that body is Markdown. The
+  published Proclaim 10.3.6 page therefore read
+
+      ## What's Changed * fix(api): make the API switchable ... **Full
+      Changelog**: https://...
+
+  with every marker literal and the whole changelog collapsed onto one line,
+  because HTML folds newlines into spaces. That fragment is the only changelog
+  a site administrator following a Joomla update link ever sees.
+
+  Conversion is handled by the new `Release\ReleaseNotesFormatter` — a small,
+  dependency-free subset covering what release notes actually contain
+  (headings, lists, emphasis, code spans, Markdown and bare links) rather than
+  a Markdown engine, because this runs mid-release. Source text is escaped
+  before any markup is added, so a GitHub release body cannot inject HTML into
+  the site, and links are stashed before emphasis is applied so a URL
+  containing underscores is not mangled into `<em>`. Notes are treated as
+  Markdown: wrapped lines are joined, and only a blank line starts a new block
+  or ends a list.
+
+  `scripts/render-notes.php` exposes the same conversion as a filter
+  (Markdown on stdin, HTML on stdout).
+
+### Added
+
+- **`release.notesFile` — hand-written release notes, used by both surfaces.**
+  What GitHub generates is a list of pull request titles: accurate, written for
+  the maintainers, and close to useless to someone deciding whether to update.
+  Point `release.notesFile` at a path with a `{version}` placeholder (e.g.
+  `build/release-notes-{version}.md`) and `cwm-release` will lead the release
+  notes with that file, keeping the generated list beneath it, so the GitHub
+  release and the ARS download page carry the same text.
+
+- **`cwm-ars-publish -n <file>`** (or `ARS_NOTES_FILE`) publishes notes on their
+  own, without a full release — which is also how an already-published release
+  gets its notes corrected, since the publisher PATCHes an existing entry.
+
+  Both are optional. With neither configured, behaviour is unchanged apart from
+  the notes now being valid HTML.
+
+## [1.7.0] - 2026-07-26
+
+### Changed
+
+- **`build.properties.tmpl` now ships two install examples instead of four**, one
+  of each role, with a note that consumers should add as many as they need — one
+  per Joomla version supported, or several of the same version. Four examples
+  (two dev, two test) read as a fixed set to reproduce rather than a pattern to
+  copy, and left every consumer carrying blocks for installs they do not run.
+  Ids are arbitrary labels; nothing keys off the name.
+
+- **The role documentation now leads with symlinked vs not**, because that is the
+  consequential difference and it was buried in a three-line aside. `role = dev`
+  is symlinked at the working repo; `role = test` is a real file-backed install
+  that the release harness wipes and reinstalls. The warning against pointing a
+  `role = test` install at a symlink is stated in the roles block rather than on
+  one install example, and names both existing backstops (v1.6.1 `cwm-link`
+  filtering, v1.6.2 reset-harness link stripping) as backstops rather than
+  permission.
+
+## [1.6.2] - 2026-07-25
+
+### Fixed
+
+- **`cwm-sync-configs` now guards `build.dist.properties` against leaked credentials
+  and silent data loss.** That file is committed by every consumer while per-machine
+  values belong in the gitignored `build.properties` — the two names differ by four
+  characters, and the wrong one gets edited. Because sync overwrites the consumer's
+  copy from the template, it also quietly disposed of the evidence: credentials
+  vanished from the working tree while remaining in any commit that had already
+  captured them.
+
+  Three checks now run before the write, via the new
+  `Config\DistPropertiesInspector`:
+
+  - **Refuses to sync** if the cwm-build-tools template itself carries populated
+    credential values — that would propagate to every consumer.
+  - **Warns** when the consumer's existing file has real values in credential keys,
+    naming them and pointing at `git log -p -- build.dist.properties` so the
+    developer can check whether they reached history.
+  - **Reports keys about to be removed** because the template lacks them. Usually
+    stale hand-edits, but occasionally the consumer is ahead of the shared schema
+    and silently deleting that is unhelpful. Found in practice: Proclaim's 11
+    `builder.j6-test.*` keys would have been dropped without a word.
+
+  Matching is on key name (`db_user`, `db_pass`, `db_name`, `password`, `secret`,
+  `token`, `api_key`) rather than value, since local credentials rarely look
+  distinctive. The template's documented `admin_pass = admin` placeholder is
+  deliberately outside the pattern.
 
 ## [1.6.1] - 2026-07-25
 
