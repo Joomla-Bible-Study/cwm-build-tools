@@ -26,6 +26,8 @@
 
 require_once __DIR__ . '/../src/Config/ProfileResolver.php';
 require_once __DIR__ . '/../src/Config/DistPropertiesInspector.php';
+require_once __DIR__ . '/../src/Config/GitignorePaths.php';
+require_once __DIR__ . '/../src/Config/ManagedBlock.php';
 
 $projectRoot = getcwd();
 $toolsRoot   = realpath(__DIR__ . '/..');
@@ -59,8 +61,8 @@ function syncGitignore(string $projectRoot, string $templates, array $config, bo
     $managedBlock   = file_get_contents($templates . '/gitignore-managed.txt') ?: '';
     $extensionBlock = renderExtensionPathsBlock($config);
 
-    $newContent = upsertBlock($existing, 'managed',         $managedBlock);
-    $newContent = upsertBlock($newContent, 'extension paths', $extensionBlock);
+    $newContent = \CWM\BuildTools\Config\ManagedBlock::upsert($existing, 'managed', $managedBlock);
+    $newContent = \CWM\BuildTools\Config\ManagedBlock::upsert($newContent, 'extension paths', $extensionBlock);
 
     if ($newContent === $existing) {
         echo ".gitignore: up to date\n";
@@ -107,11 +109,11 @@ function renderExtensionPathsBlock(array $config): string
 
     $lines = [];
 
-    foreach (resolveOutputPaths($config) as $path) {
+    foreach (\CWM\BuildTools\Config\GitignorePaths::outputPaths($config) as $path) {
         $lines[] = $path;
     }
 
-    foreach (resolveMediaPaths($config, (string) $name, (string) $type) as $path) {
+    foreach (\CWM\BuildTools\Config\GitignorePaths::mediaPaths($config, (string) $name, (string) $type) as $path) {
         $lines[] = $path;
     }
 
@@ -120,60 +122,6 @@ function renderExtensionPathsBlock(array $config): string
     }
 
     return implode("\n", $lines) . "\n";
-}
-
-/**
- * @return list<string>
- */
-function resolveOutputPaths(array $config): array
-{
-    $explicit = $config['gitignore']['outputPaths'] ?? null;
-
-    if (is_array($explicit)) {
-        return array_values(array_map('strval', $explicit));
-    }
-
-    $glob = (string) ($config['build']['outputGlob'] ?? '');
-
-    if ($glob === '') {
-        return ['/build/dist/'];
-    }
-
-    $dir = trim(\dirname($glob), '/.');
-
-    if ($dir === '') {
-        return ['/build/dist/'];
-    }
-
-    return ['/' . $dir . '/'];
-}
-
-/**
- * @return list<string>
- */
-function resolveMediaPaths(array $config, string $name, string $type): array
-{
-    $explicit = $config['gitignore']['mediaPaths'] ?? null;
-
-    if (is_array($explicit)) {
-        return array_values(array_map('strval', $explicit));
-    }
-
-    // Auto-derive only for the extension types whose name maps cleanly to a
-    // single /media/<x>/ directory by Joomla convention. Packages own no
-    // media dir of their own, plugins/modules don't have a generic one.
-    if (!\in_array($type, ['library', 'component'], true)) {
-        return [];
-    }
-
-    $stripped = preg_replace('/^(lib_|com_)/', '', $name);
-
-    return [
-        "/media/{$stripped}/js/*.min.js",
-        "/media/{$stripped}/js/*.min.js.map",
-        "/media/{$stripped}/css/*.min.css",
-        "/media/{$stripped}/css/*.min.css.map",
-    ];
 }
 
 /**
@@ -382,36 +330,6 @@ function vendorDirFromComposer(string $projectRoot): string
     $dir = (string) ($data['config']['vendor-dir'] ?? 'vendor');
 
     return trim($dir, '/') ?: 'vendor';
-}
-
-/**
- * Insert or replace a marker-delimited block in $content. Lines outside
- * the markers are preserved verbatim.
- */
-function upsertBlock(string $content, string $blockId, string $blockBody): string
-{
-    $startMarker = "# === cwm-build-tools: {$blockId} (do not edit between markers) ===";
-    $endMarker   = "# === cwm-build-tools: end {$blockId} ===";
-
-    $blockBody = trim($blockBody, "\n");
-
-    // Block has no content for this project — strip if present.
-    if (trim($blockBody) === '') {
-        $pattern = '/' . preg_quote($startMarker, '/') . '.*?' . preg_quote($endMarker, '/') . "\n?/s";
-
-        return preg_replace($pattern, '', $content) ?? $content;
-    }
-
-    $newBlock = "{$startMarker}\n{$blockBody}\n{$endMarker}\n";
-
-    if (str_contains($content, $startMarker)) {
-        $pattern = '/' . preg_quote($startMarker, '/') . '.*?' . preg_quote($endMarker, '/') . "\n?/s";
-
-        return preg_replace($pattern, $newBlock, $content) ?? $content;
-    }
-
-    // Append, preserving trailing newline behavior
-    return rtrim($content, "\n") . "\n\n" . $newBlock;
 }
 
 /**
