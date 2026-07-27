@@ -121,5 +121,16 @@ jobs:
           done
           exit $rc
 
+      - name: Spellcheck
+        # Docs, comments and templates. Named ignores: "unparseable" is a
+        # legitimate variant spelling; "UPDATEing" is deliberate emphasis of
+        # the SQL verb in a docblock; "titel" is the Dutch mistranslation the
+        # sync-languages placeholder tests assert against — "fixing" that
+        # fixture would defeat the test.
+        run: |
+          pip install codespell
+          codespell --ignore-words-list unparseable,updateing,titel \
+            README.md CHANGELOG.md docs/ templates/ scripts/ src/ tests/
+
       - name: Check Python syntax
         run: python3 -m py_compile scripts/*.py
