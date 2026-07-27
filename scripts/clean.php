@@ -77,6 +77,19 @@ foreach ($resolver->internalLinks() as $pair) {
     }
 }
 
+// installs(), not installsFor(ROLE_DEV) — deliberately wider than cwm-link.
+//
+// This reads like the v1.6.1 defect that PR #48 extracted out of link.php, and
+// it is not. Linking a role=test install is destructive: it points a real
+// install's extension directories back at the working repo, which the release
+// harness then deletes. Unlinking one is the cure, so cleaning has to be able
+// to reach installs that linking must never touch — including symlinks left
+// behind by the buggy version.
+//
+// Safe because Linker::unlink() returns false for anything that is not a
+// symlink, so a role=test install with real directories is a no-op. That guard
+// is load-bearing and covered by LinkerTest::unlink_returns_false_for_real_files;
+// anything that makes unlink() more aggressive has to reconsider this loop.
 foreach ($reader->installs() as $install) {
     if (!is_dir($install->path)) {
         continue;
