@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-07-26
+
+### Fixed
+
+- **`cwm-ars-publish` now uses the query parameters ARS actually reads**, so it
+  reliably finds an existing release or download item instead of publishing a
+  duplicate. (#37, #39)
+
+  Both create-vs-update lookups sent JSON:API `filter[...]` syntax. ARS reads
+  bare input keys — `ReleasesController::displayList` and
+  `ItemsController::displayList` map `category_id`, `search` and `release_id`
+  onto their filter state. Sent as `filter[category_id]` the value arrives as a
+  PHP array named `filter`, the lookup returns null, and the filter is silently
+  not applied.
+
+  That was load-bearing, because the response is also capped at 20 rows by
+  default. Both lookups were matching against an arbitrary 20-row window of
+  every release and item on the site, ordered by neither id, version nor date —
+  on christianwebministries.org the item lookup returned 20 rows spanning 19
+  different releases. A miss takes the create branch and publishes a second
+  release, or a second download item, reporting success either way. The risk
+  grew with every release added.
+
+  With the bare names both queries return exactly one row. `page[limit]` is
+  passed as well, because the 20-row cap is real and independent of the
+  parameter bug (`list[limit]` is not honoured). The client-side exact match on
+  version is kept: `search` is a LIKE, so `10.3.1` could in principle also match
+  a future `10.3.10`.
+
+  Also corrects the note in `ars-list.sh` that blamed "this ARS install" for
+  ignoring the category filter. It was the parameter name, not the build.
+
 ## [1.8.0] - 2026-07-26
 
 ### Fixed
