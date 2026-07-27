@@ -16,6 +16,7 @@ declare(strict_types=1);
  *   composer cwm-verify -- -v                # also list OK rows
  */
 
+require_once __DIR__ . '/../src/Cli/Flags.php';
 require_once __DIR__ . '/../src/Config/CwmPackage.php';
 require_once __DIR__ . '/../src/Config/InstalledPackageReader.php';
 require_once __DIR__ . '/../src/Dev/InstallConfig.php';
@@ -25,6 +26,7 @@ require_once __DIR__ . '/../src/Dev/Linker.php';
 require_once __DIR__ . '/../src/Dev/LinkResolver.php';
 require_once __DIR__ . '/../src/Dev/DevTargetVerifier.php';
 
+use CWM\BuildTools\Cli\Flags;
 use CWM\BuildTools\Config\InstalledPackageReader;
 use CWM\BuildTools\Dev\DevTargetVerifier;
 use CWM\BuildTools\Dev\ExtensionVerifier;
@@ -96,9 +98,9 @@ HELP;
     exit(0);
 }
 
-$verbose   = in_array('-v', $argv, true) || in_array('--verbose', $argv, true);
+$verbose   = Flags::has($argv, ['-v', '--verbose']);
 $reconcile = in_array('--fix', $argv, true);
-$target    = extractFlagValue($argv, '--target');
+$target    = Flags::value($argv, '--target');
 
 if ($target !== null && !in_array($target, [InstallConfig::ROLE_DEV, InstallConfig::ROLE_TEST], true)) {
     fwrite(\STDERR, "--target must be one of: dev, test\n");
@@ -192,20 +194,4 @@ function loadConfig(string $projectRoot): array
     return $config;
 }
 
-/**
- * @param  list<string> $argv
- */
-function extractFlagValue(array $argv, string $flag): ?string
-{
-    foreach ($argv as $i => $arg) {
-        if ($arg === $flag) {
-            return $argv[$i + 1] ?? null;
-        }
-
-        if (str_starts_with($arg, $flag . '=')) {
-            return substr($arg, strlen($flag) + 1);
-        }
-    }
-
-    return null;
-}
+// (Flag parsing extracted to Cli\Flags — see #32.)

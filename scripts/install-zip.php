@@ -20,10 +20,14 @@ declare(strict_types=1);
  * install scriptfile, manifest declarations, schema updates).
  */
 
+require_once __DIR__ . '/../src/Build/DistZipResolver.php';
+require_once __DIR__ . '/../src/Cli/Flags.php';
 require_once __DIR__ . '/../src/Dev/InstallConfig.php';
 require_once __DIR__ . '/../src/Dev/PropertiesReader.php';
 require_once __DIR__ . '/../src/Dev/ExtensionInstaller.php';
 
+use CWM\BuildTools\Build\DistZipResolver;
+use CWM\BuildTools\Cli\Flags;
 use CWM\BuildTools\Dev\ExtensionInstaller;
 use CWM\BuildTools\Dev\InstallConfig;
 use CWM\BuildTools\Dev\PropertiesReader;
@@ -75,8 +79,8 @@ HELP;
 }
 
 $projectRoot = getcwd() ?: '.';
-$verbose     = in_array('-v', $argv, true) || in_array('--verbose', $argv, true);
-$explicitZip = extractFlagValue($argv, '--zip');
+$verbose     = Flags::has($argv, ['-v', '--verbose']);
+$explicitZip = Flags::value($argv, '--zip');
 
 $config = loadConfig($projectRoot);
 $reader = new PropertiesReader($projectRoot . '/build.properties');
@@ -96,11 +100,16 @@ if ($testInstalls === []) {
     exit(1);
 }
 
-$zipPath = $explicitZip !== null
-    ? resolveExplicitZip($projectRoot, $explicitZip)
-    : resolveZipFromOutputGlob($projectRoot, $config);
+// Resolution logic lives in Build\DistZipResolver so it can be tested — #32.
+$resolver = new DistZipResolver();
 
-if ($zipPath === null) {
+try {
+    $zipPath = $explicitZip !== null
+        ? $resolver->resolveExplicit($projectRoot, $explicitZip)
+        : $resolver->resolveFromGlob($projectRoot, (string) ($config['build']['outputGlob'] ?? ''));
+} catch (\RuntimeException $e) {
+    fwrite(\STDERR, $e->getMessage() . "\n");
+
     exit(1);
 }
 
@@ -178,70 +187,5 @@ function loadConfig(string $projectRoot): array
     return $config;
 }
 
-/**
- * Find the value of `--name value` or `--name=value` in $argv.
- *
- * @param  list<string>  $argv
- */
-function extractFlagValue(array $argv, string $flag): ?string
-{
-    foreach ($argv as $i => $arg) {
-        if ($arg === $flag) {
-            return $argv[$i + 1] ?? null;
-        }
-
-        if (str_starts_with($arg, $flag . '=')) {
-            return substr($arg, strlen($flag) + 1);
-        }
-    }
-
-    return null;
-}
-
-function resolveExplicitZip(string $projectRoot, string $rawPath): ?string
-{
-    $candidate = $rawPath[0] === '/'
-        ? $rawPath
-        : $projectRoot . '/' . ltrim($rawPath, '/');
-
-    $resolved = realpath($candidate);
-
-    if ($resolved === false || !is_file($resolved)) {
-        fwrite(\STDERR, "--zip path not found: {$candidate}\n");
-
-        return null;
-    }
-
-    return $resolved;
-}
-
-/**
- * @param  array<string, mixed>  $config
- */
-function resolveZipFromOutputGlob(string $projectRoot, array $config): ?string
-{
-    $glob = (string) ($config['build']['outputGlob'] ?? '');
-
-    if ($glob === '') {
-        fwrite(\STDERR, "build.outputGlob is not set in cwm-build.config.json — cannot locate the dist zip.\n");
-        fwrite(\STDERR, "Either set it (e.g. \"build/dist/lib_x-*.zip\") or pass --zip explicitly.\n");
-
-        return null;
-    }
-
-    $pattern = $projectRoot . '/' . ltrim($glob, '/');
-    $matches = glob($pattern) ?: [];
-
-    if ($matches === []) {
-        fwrite(\STDERR, "No zip matched build.outputGlob '{$glob}'.\n");
-        fwrite(\STDERR, "Run 'composer cwm-build' first, or pass --zip <path>.\n");
-
-        return null;
-    }
-
-    // Pick the most recently modified zip — handles the common case where
-    // multiple versions sit in build/dist/ during iterative testing.
-    usort($matches, static fn (string $a, string $b): int => filemtime($b) <=> filemtime($a));
-
-    return $matches[0];
-}
+// (Zip resolution and flag parsing extracted to Build\DistZipResolver and
+// Cli\Flags — see #32.)

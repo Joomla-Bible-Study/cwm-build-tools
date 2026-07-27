@@ -16,11 +16,17 @@ declare(strict_types=1);
  *   composer setup -- --help
  */
 
+require_once __DIR__ . '/../src/Config/ComposerPathRepoSync.php';
 require_once __DIR__ . '/../src/Dev/InstallConfig.php';
+require_once __DIR__ . '/../src/Dev/InstallIntake.php';
 require_once __DIR__ . '/../src/Dev/PropertiesReader.php';
+require_once __DIR__ . '/../src/Dev/SiblingPathGuesser.php';
 
+use CWM\BuildTools\Config\ComposerPathRepoSync;
 use CWM\BuildTools\Dev\InstallConfig;
+use CWM\BuildTools\Dev\InstallIntake;
 use CWM\BuildTools\Dev\PropertiesReader;
+use CWM\BuildTools\Dev\SiblingPathGuesser;
 
 $projectRoot = getcwd();
 
@@ -38,6 +44,9 @@ WHAT IT DOES
   Walks you through one or more Joomla install paths (J5, J6, future J7)
   and captures, per install:
     - filesystem path
+    - role: `dev` (cwm-link symlinks the working tree here) or `test`
+      (cwm-install-zip deploys the built artifact here; reset/teardown
+      tooling may wipe it — never point it at a working install)
     - dev URL (informational; not required)
     - target Joomla version (used by cwm-joomla-install)
     - DB credentials, admin credentials (reserved; cwm-verify reads
@@ -106,25 +115,26 @@ $defaultIds = $existingList !== []
     : ['j5', 'j6'];
 $index      = 0;
 
+// Every judgement about the answers lives in InstallIntake so it can be
+// tested (#32) — including preserving an install's existing role, which
+// this loop used to drop on every re-run.
+$intake = new InstallIntake();
+
 while (true) {
     $defaultId = $defaultIds[$index] ?? '';
-    $id        = ask("Install id #" . ($index + 1) . " (e.g. j5, j6, j7)", $defaultId === '' ? null : $defaultId);
+    $rawId     = ask("Install id #" . ($index + 1) . " (e.g. j5, j6, j7)", $defaultId === '' ? null : $defaultId);
 
-    if ($id === null || $id === '') {
+    if ($rawId === null || $rawId === '') {
         break;
     }
 
-    if (!preg_match('/^[a-z0-9][a-z0-9_-]*$/i', $id)) {
+    $id = $intake->normaliseId($rawId);
+
+    if ($id === null) {
         echo "  Invalid id — use letters, digits, dash or underscore.\n";
 
         continue;
     }
-
-    // Section names in build.properties are lowercase by convention; the
-    // legacy Proclaim mapping (j5dev → j5) and the example template both
-    // assume lowercase. Normalise here so a user typing "J5" still ends
-    // up matching what LinkResolver and ExtensionVerifier expect.
-    $id = strtolower($id);
 
     $existing = $existingById[$id] ?? null;
 
@@ -140,6 +150,14 @@ while (true) {
         echo "  WARNING: '{$path}' does not exist yet. You can run 'composer joomla-install' later to populate it.\n";
     }
 
+    $rawRole = ask("  Role (dev = symlink target, test = zip-install target)", $existing?->role ?? InstallConfig::ROLE_DEV);
+    $role    = $intake->normaliseRole((string) $rawRole);
+
+    if ($role === null) {
+        echo "  Unrecognised role '{$rawRole}' — keeping '" . ($existing?->role ?? InstallConfig::ROLE_DEV) . "'.\n";
+        $role = null; // let assemble() fall back to existing/dev
+    }
+
     $url     = ask("  Dev URL (optional)", $existing?->url ?? "https://{$id}-dev.local");
     $version = ask("  Default Joomla version", $existing?->version ?? '5.4.2');
 
@@ -152,23 +170,19 @@ while (true) {
     $adminPass  = ask("  Admin password", $existing?->adminPass() ?? 'admin');
     $adminEmail = ask("  Admin email", $existing?->adminEmail() ?? 'admin@example.com');
 
-    $installs[] = new InstallConfig(
-        id:      $id,
-        path:    $path,
-        url:     $url ?: null,
-        version: $version ?: null,
-        db:      [
-            'host' => $dbHost ?: 'localhost',
-            'user' => $dbUser ?? '',
-            'pass' => $dbPass ?? '',
-            'name' => $dbName ?? '',
-        ],
-        admin:   [
-            'user'  => $adminUser ?: 'admin',
-            'pass'  => $adminPass ?: 'admin',
-            'email' => $adminEmail ?: 'admin@example.com',
-        ],
-    );
+    $installs[] = $intake->assemble($id, [
+        'path'       => $path,
+        'url'        => $url,
+        'version'    => $version,
+        'role'       => $role,
+        'dbHost'     => $dbHost,
+        'dbUser'     => $dbUser,
+        'dbPass'     => $dbPass,
+        'dbName'     => $dbName,
+        'adminUser'  => $adminUser,
+        'adminPass'  => $adminPass,
+        'adminEmail' => $adminEmail,
+    ], $existing);
 
     $index++;
     echo "\n";
@@ -251,7 +265,7 @@ function configureCwmSiblings(string $projectRoot, PropertiesReader $reader): vo
 
         $existing = $existingPaths[$package] ?? null;
         $default  = $existing
-            ?? detectSiblingDefault($projectRoot, $package)
+            ?? (new SiblingPathGuesser())->guess(dirname($projectRoot), $package)
             ?? '';
 
         if ($default !== '' && is_dir($default)) {
@@ -306,44 +320,11 @@ function configureCwmSiblings(string $projectRoot, PropertiesReader $reader): vo
 }
 
 /**
- * Best-effort guess at where a CWM sibling lives if the developer hasn't
- * configured it. Looks under the project root's parent dir for a matching
- * directory name (matches the common ~/GitHub/<repo> sibling layout).
- */
-function detectSiblingDefault(string $projectRoot, string $packageName): ?string
-{
-    // composer name format: "vendor/name" — usually "name" is the directory.
-    $base = basename($packageName);
-
-    // Common CWM/Joomla naming: lib_cwmscripture (with underscores). The
-    // composer name might be "joomla-bible-study/lib-cwmscripture" (dashes).
-    // Try a few normalised candidates.
-    $candidates = array_unique([
-        $base,
-        str_replace('-', '_', $base),
-        str_replace('_', '-', $base),
-        strtolower($base),
-    ]);
-
-    $parent = dirname($projectRoot);
-
-    foreach ($candidates as $name) {
-        $candidate = $parent . '/' . $name;
-
-        if (is_dir($candidate)) {
-            return $candidate;
-        }
-    }
-
-    return null;
-}
-
-/**
  * Sync composer.json's `repositories[]` block so each $resolved[$package]
  * has a matching path-repo entry with the developer's absolute path.
  *
- * Adds entries for newly-configured siblings; rewrites URLs on existing
- * entries. Other repository entries (VCS, registry, etc.) are preserved.
+ * The mutation itself lives in Config\ComposerPathRepoSync so it can be
+ * tested (#32) — this wrapper owns only the file I/O.
  *
  * @param  array<string, string> $resolved Map of package name -> absolute path.
  */
@@ -371,68 +352,16 @@ function syncComposerPathRepos(string $projectRoot, array $resolved): void
         return;
     }
 
-    $data['repositories'] = $data['repositories'] ?? [];
+    $result = (new ComposerPathRepoSync())->sync($data, $resolved);
 
-    if (!is_array($data['repositories'])) {
-        return;
-    }
-
-    // Index existing path repos by current URL's basename so we can match
-    // each $resolved package back to its existing entry (if any).
-    $existingByBase = [];
-
-    foreach ($data['repositories'] as $i => $entry) {
-        if (is_array($entry) && ($entry['type'] ?? null) === 'path') {
-            $url                  = (string) ($entry['url'] ?? '');
-            $existingByBase[basename($url)] = $i;
-        }
-    }
-
-    $changed = false;
-
-    foreach ($resolved as $package => $absolutePath) {
-        $base = basename($package);
-        // Match either the composer name basename or the underscore variant.
-        $candidates = array_unique([
-            $base,
-            str_replace('-', '_', $base),
-            str_replace('_', '-', $base),
-        ]);
-
-        $existingIndex = null;
-
-        foreach ($candidates as $candidate) {
-            if (isset($existingByBase[$candidate])) {
-                $existingIndex = $existingByBase[$candidate];
-                break;
-            }
-        }
-
-        if ($existingIndex !== null) {
-            if (($data['repositories'][$existingIndex]['url'] ?? null) !== $absolutePath) {
-                $data['repositories'][$existingIndex]['url'] = $absolutePath;
-                $changed = true;
-            }
-
-            continue;
-        }
-
-        $data['repositories'][] = [
-            'type'    => 'path',
-            'url'     => $absolutePath,
-            'options' => ['symlink' => true],
-        ];
-        $changed = true;
-    }
-
-    if (!$changed) {
+    if (!$result['changed']) {
         echo "  composer.json path repos already in sync.\n";
 
         return;
     }
 
     $trailing  = substr($raw, -1) === "\n" ? "\n" : '';
-    $rewritten = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . $trailing;
+    $rewritten = json_encode($result['data'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . $trailing;
 
     if ($rewritten === false || file_put_contents($composerPath, $rewritten) === false) {
         fwrite(\STDERR, "  WARNING: could not rewrite composer.json — sync repositories[] by hand.\n");
