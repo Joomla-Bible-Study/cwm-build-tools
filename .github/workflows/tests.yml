@@ -94,6 +94,21 @@ jobs:
         # (issue #32) and is otherwise only exercised by running a release.
         run: find src scripts tests -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null
 
+      - name: shellcheck every shell script
+        # Preinstalled on ubuntu runners. Catches quoting, unset variables and
+        # word-splitting — the class of shell bug bash -n cannot see. The
+        # semantic bugs (#37, #38, #51) need the behavioural tests in
+        # tests/shell for that; this covers the rest. See #52.
+        run: shellcheck -S warning scripts/*.sh scripts/lib/*.sh
+
+      - name: Run shell behavioural tests
+        run: |
+          rc=0
+          for t in tests/shell/*.test.sh; do
+            bash "$t" || rc=1
+          done
+          exit $rc
+
       - name: Check syntax of every shell script
         # release.sh and ars-publish.sh are the release pipeline; a syntax error
         # in either is discovered mid-release today.
