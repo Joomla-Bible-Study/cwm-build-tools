@@ -32,6 +32,8 @@ cwm-init` rather than authoring by hand. Minimal examples live in
 | `assets` | Source-tree asset staging (`images`, `vendorMediaSource`, `packages[]`). Source paths, not install paths. |
 | `dev` | Optional dev-link overrides — `deriveLinks`, `links[]`, `internalLinks[]`, `cwmSiblings`. |
 | `gitignore` | `{ outputPaths[], mediaPaths[] }` feeding the managed `.gitignore` block. |
+| `vendors` | Bundled npm libraries `vendor:check` reports on — `[{ npm, label?, notes? }]`. |
+| `security` | Optional `vendor:check` audit tuning. See [security block](#the-security-block). |
 
 ### The `build` block
 
@@ -50,6 +52,53 @@ Consumed by `cwm-build` / `cwm-package`.
 | `preBuild` | `{ mode: "ensure-minified", dirs[] }` or `{ mode: "run", command }` (e.g. `npm run build`). Runs before zipping. |
 | `verifyAssets` | `true` to fail the build if a `joomla.asset.json`-referenced file is missing. See the [JS guide](javascript-and-joomladialog.md#72-buildverifyassets-fail-loudly-if-an-asset-didnt-build). |
 | `versionPrompt` | `{ enabled, timeout }` for the interactive 3-way version prompt. |
+
+### The `security` block
+
+Consumed by `vendor:check` (`templates/vendor-check.js`). Entirely optional —
+every key has a working default, so existing configs need no changes.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `scanNested` | `true` | Discover Composer projects nested inside the repo and audit them too. |
+| `nestedPaths[]` | *(unset)* | Explicit project dirs relative to the root. Setting this skips auto-discovery entirely — use it when the walk is too slow or picks up something unwanted. |
+| `maxDepth` | `6` | Auto-discovery depth limit. |
+| `ignore[]` | `[]` | Advisory IDs to suppress. Matches GHSA, PKSA or CVE. |
+
+**Why nested projects matter.** An extension may bundle its own Composer
+project whose `vendor/` tree is committed and ships to end users. Those
+dependencies are invisible to a root-level `composer outdated`, so a vulnerable
+bundled package can ship indefinitely without the tool noticing. Proclaim hit
+exactly this: `vendor:check` reported "all up to date" while the bundled YouTube
+addon carried a Guzzle with four open advisories.
+
+Auto-discovery skips `vendor`, `node_modules`, `media`, `dist` and dotfile
+directories, and does not descend into a nested project's own subtree.
+
+Audits read the **lock file**, not the installed tree — an uninstalled project
+would otherwise report `No packages - skipping audit` and pass silently.
+
+Use `ignore[]` sparingly and only for advisories you have assessed as
+inapplicable. Each entry silences a real finding:
+
+```json
+{
+  "security": {
+    "ignore": ["GHSA-xxxx-xxxx-xxxx"]
+  }
+}
+```
+
+**Exit codes:** `0` clean, `1` updates available, `2` advisories found *or
+security status unverified* (takes precedence over `1`). Callers that only test
+for non-zero are unaffected.
+
+The check **fails closed**. If a scope cannot be audited — `composer` missing
+from `PATH`, a timeout, a broken lock — it is reported as unverified and exits
+`2` rather than passing. "We found nothing" and "we did not look" are different
+answers, and conflating them is how a vulnerable tree earns a green check. A
+scope with no `composer.json` (or, for npm, no `package.json` + lockfile) is
+skipped rather than failed, since there is genuinely nothing to audit.
 
 !!! note "Trust model"
     Every value here is author-controlled (committed by the project author).
