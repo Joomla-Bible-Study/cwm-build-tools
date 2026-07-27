@@ -34,6 +34,10 @@ TOOLS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # shellcheck source=lib/artifacts.sh
 source "${SCRIPT_DIR}/lib/artifacts.sh"
+# shellcheck source=lib/version.sh
+source "${SCRIPT_DIR}/lib/version.sh"
+# shellcheck source=lib/notes.sh
+source "${SCRIPT_DIR}/lib/notes.sh"
 PROJECT_ROOT="$(pwd)"
 
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"
@@ -111,31 +115,20 @@ echo ""
 if [ -n "${1:-}" ]; then
     VERSION="$1"
 else
-    if [ -n "$PKG_MANIFEST" ] && [ -f "$PKG_MANIFEST" ]; then
-        CURRENT=$(grep -oE '<version>[^<]+</version>' "$PKG_MANIFEST" | head -1 | sed -E 's|</?version>||g')
+    if [ -n "$PKG_MANIFEST" ]; then
+        CURRENT=$(cwm_version_from_manifest "$PKG_MANIFEST" || true)
         echo "Current package version: ${CURRENT:-unknown}"
     fi
     printf "Enter new version (e.g., 1.2.3): "
     read -r VERSION
 fi
 
-if [ -z "$VERSION" ]; then
-    echo "Error: No version provided."
-    exit 1
-fi
+# Validation, tag and pre-release derivation live in lib/version.sh so
+# they can be tested — see #52.
+cwm_validate_release_version "$VERSION" || exit 1
 
-if [[ "$VERSION" == *-dev* ]]; then
-    echo "Error: Development versions cannot be released. Use -alpha, -beta, or -rc for testing."
-    exit 1
-fi
-
-TAG="v${VERSION}"
-
-# Pre-release detection
-PRERELEASE_FLAG=""
-if [[ "$VERSION" == *-* ]]; then
-    PRERELEASE_FLAG="--prerelease"
-fi
+TAG=$(cwm_tag_for_version "$VERSION")
+PRERELEASE_FLAG=$(cwm_prerelease_flag "$VERSION")
 
 echo ""
 echo "=== ${PKG_NAME} Release ${VERSION} ==="
@@ -236,22 +229,16 @@ fi
 # nothing is lost. Configure `release.notesFile` with a {version} placeholder,
 # e.g. "build/release-notes-{version}.md". Absent file, absent config, or a
 # release nobody wrote notes for: unchanged behaviour.
-NOTES_FILE=""
+#
+# Resolution and assembly live in lib/notes.sh so they can be tested — see #52.
 NOTES_FILE_PATTERN=$(read_config "release.notesFile")
-if [ -n "$NOTES_FILE_PATTERN" ]; then
-    CANDIDATE="${NOTES_FILE_PATTERN//\{version\}/$VERSION}"
-    if [ -f "$CANDIDATE" ]; then
-        NOTES_FILE="$CANDIDATE"
-        echo "  Using hand-written release notes: ${NOTES_FILE}"
-        NOTES="$(cat "$NOTES_FILE")
-
-## Changes
-
-${NOTES}"
-    else
-        echo "  No hand-written notes at ${CANDIDATE}; using generated notes."
-    fi
+NOTES_FILE=$(cwm_resolve_notes_file "$NOTES_FILE_PATTERN" "$VERSION" || true)
+if [ -n "$NOTES_FILE" ]; then
+    echo "  Using hand-written release notes: ${NOTES_FILE}"
+elif [ -n "$NOTES_FILE_PATTERN" ]; then
+    echo "  No hand-written notes at ${NOTES_FILE_PATTERN//\{version\}/$VERSION}; using generated notes."
 fi
+NOTES=$(cwm_assemble_release_notes "$NOTES_FILE" "$NOTES")
 
 GH_REPO_ARG=""
 if [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then

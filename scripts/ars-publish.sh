@@ -51,6 +51,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(pwd)"
 
+# shellcheck source=lib/version.sh
+source "${SCRIPT_DIR}/lib/version.sh"
+# shellcheck source=lib/ars.sh
+source "${SCRIPT_DIR}/lib/ars.sh"
+
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -121,27 +126,21 @@ if [ -z "$GH_OWNER" ] || [ -z "$GH_REPO" ]; then
 fi
 
 ZIP_PREFIX="${ZIP_PREFIX:-$EXT_NAME}"
-ALIAS_PREFIX="${ALIAS_PREFIX:-$(echo "$EXT_NAME" | sed -E 's/^(pkg_|com_|lib_|plg_|mod_|tpl_)//')}"
 TOKEN_ITEM="${TOKEN_ITEM:-CWM ARS API Token}"
 TOKEN_VAULT="${TOKEN_VAULT:-CWM}"
 ARS_ENVIRONMENTS="${ARS_ENVIRONMENTS:-null}"
 
+# Naming and version derivation live in lib/ars.sh and lib/version.sh so
+# they can be tested — see #52.
+ALIAS_PREFIX=$(cwm_ars_alias_prefix "$EXT_NAME" "$ALIAS_PREFIX")
+
 API_BASE="${SITE_URL%/}/api/index.php/v1/ars"
-TAG="v${VERSION}"
-ALIAS=$(echo "${ALIAS_PREFIX}-${VERSION}" | tr '.' '-')
+TAG=$(cwm_tag_for_version "$VERSION")
+ALIAS=$(cwm_ars_release_alias "$ALIAS_PREFIX" "$VERSION")
 ZIP_NAME=$(basename "$ZIP_PATH")
 GITHUB_DOWNLOAD_URL="https://github.com/${GH_OWNER}/${GH_REPO}/releases/download/${TAG}/${ZIP_NAME}"
 
-# Determine ARS maturity from version string
-if [[ "$VERSION" == *-alpha* ]]; then
-    ARS_MATURITY="alpha"
-elif [[ "$VERSION" == *-beta* ]]; then
-    ARS_MATURITY="beta"
-elif [[ "$VERSION" == *-rc* ]]; then
-    ARS_MATURITY="rc"
-else
-    ARS_MATURITY="stable"
-fi
+ARS_MATURITY=$(cwm_maturity_for_version "$VERSION")
 
 echo "Publishing ${EXT_NAME} ${VERSION} to ARS (maturity: ${ARS_MATURITY})..."
 echo "  endpoint:      ${SITE_URL}"
@@ -238,14 +237,8 @@ EXISTING=$(curl -s \
     -H "Accept: application/vnd.api+json" \
     "${API_BASE}/releases?category_id=${ARS_CATEGORY_ID}&search=${VERSION}&page%5Blimit%5D=200")
 
-EXISTING_ID=$(echo "$EXISTING" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-for r in d.get('data',[]):
-    if r['attributes']['version'] == '${VERSION}':
-        print(r['attributes']['id'])
-        break
-" 2>/dev/null || echo "")
+# The exact-version match lives in lib/ars.sh so it can be tested — see #52.
+EXISTING_ID=$(echo "$EXISTING" | cwm_ars_find_release_id "$VERSION")
 
 if [ -n "$EXISTING_ID" ]; then
     echo "ARS release already exists (ID: ${EXISTING_ID}). Updating..."
@@ -312,14 +305,8 @@ EXISTING_ITEM=$(curl -s \
     -H "Accept: application/vnd.api+json" \
     "${API_BASE}/items?release_id=${RELEASE_ID}&page%5Blimit%5D=200")
 
-EXISTING_ITEM_ID=$(echo "$EXISTING_ITEM" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-for i in d.get('data',[]):
-    if i['attributes'].get('url','').endswith('${ZIP_NAME}'):
-        print(i['attributes']['id'])
-        break
-" 2>/dev/null || echo "")
+# Basename match in lib/ars.sh, same reason.
+EXISTING_ITEM_ID=$(echo "$EXISTING_ITEM" | cwm_ars_find_item_id "$ZIP_NAME")
 
 DESCRIPTION_TEXT="${ITEM_DESCRIPTION:-$EXT_NAME}"
 DESCRIPTION_JSON=$(printf '%s' "$DESCRIPTION_TEXT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')

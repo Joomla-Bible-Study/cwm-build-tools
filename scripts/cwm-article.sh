@@ -64,8 +64,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(pwd)"
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"
+
+# shellcheck source=lib/version.sh
+source "${SCRIPT_DIR}/lib/version.sh"
+# shellcheck source=lib/bullets.sh
+source "${SCRIPT_DIR}/lib/bullets.sh"
 
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Error: $CONFIG_FILE not found"
@@ -126,8 +132,7 @@ else
         echo "       configure manifests.package in cwm-build.config.json."
         exit 1
     fi
-    VERSION=$(grep -oE '<version>[^<]+</version>' "$VERSION_MANIFEST" | head -1 | sed -E 's|</?version>||g')
-    if [ -z "$VERSION" ]; then
+    if ! VERSION=$(cwm_version_from_manifest "$VERSION_MANIFEST"); then
         echo "Error: No <version> element in ${VERSION_MANIFEST}."
         exit 1
     fi
@@ -214,46 +219,11 @@ AUTH_HEADER="Authorization: Bearer ${TOKEN}"
 JSON_HEADER="Content-Type: application/json"
 ACCEPT_HEADER="Accept: application/vnd.api+json"
 
-# --- HTML helpers ---
-# Escape <, >, & for safe inclusion as text content
-html_escape() {
-    sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
-}
-
-# Convert one-line markdown to inline HTML:
-#   **text**       → <strong>text</strong>
-#   <https://…>    → <a href="…">…</a>
-#   bare https://… → <a href="…">…</a>
-inline_md() {
-    local s="$1"
-    # **bold**
-    s=$(echo "$s" | sed -E 's@\*\*([^*]+)\*\*@<strong>\1</strong>@g')
-    # <https://…>  → keep as proper link
-    s=$(echo "$s" | sed -E 's@<(https?://[^>]+)>@<a href="\1">\1</a>@g')
-    # bare URLs not already inside an anchor — best-effort
-    s=$(echo "$s" | sed -E 's@(^|[[:space:]])(https?://[^[:space:]<]+)@\1<a href="\2">\2</a>@g')
-    echo "$s"
-}
-
-# Build <li>…</li> entries from RAW_BULLETS (one per non-empty line)
-build_li() {
-    local out=""
-    while IFS= read -r line; do
-        # Trim leading dashes/spaces and a leading "- " marker if present
-        line=$(echo "$line" | sed -E 's@^[[:space:]]*[-*][[:space:]]+@@; s@^[[:space:]]+@@; s@[[:space:]]+$@@')
-        [ -z "$line" ] && continue
-        # Escape HTML, then re-apply minimal markdown (escape happens BEFORE inline_md
-        # would otherwise reintroduce angle-bracket links — so escape only here for text).
-        local esc
-        esc=$(printf '%s' "$line" | html_escape)
-        local rendered
-        rendered=$(inline_md "$esc")
-        out+="<li>${rendered}</li>"$'\n'
-    done <<< "$RAW_BULLETS"
-    printf '%s' "$out"
-}
-
-LIST_ITEMS=$(build_li)
+# --- Render bullets as list items ---
+# Escaping, inline markdown and <li> assembly live in lib/bullets.sh so
+# they can be tested — see #52. (The move also fixed the documented
+# <https://…> link form, which the old in-script version never rendered.)
+LIST_ITEMS=$(printf '%s\n' "$RAW_BULLETS" | cwm_bullets_to_li)
 
 # --- Compose article HTML (mirrors the CWM 10.2.2-style announcement structure) ---
 # Everything goes in introtext so the article shows in full on category /
