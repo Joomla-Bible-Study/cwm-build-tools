@@ -189,6 +189,20 @@ echo "[4/9] Committing version bump..."
 git add -u
 # Pull in any new files the build step generated (e.g. a fresh changelog
 # stub, regenerated build artifacts that live in tracked directories).
+#
+# `git add -A` is deliberate here and safe for a reason worth stating: the
+# step 1 pre-check uses `git status --porcelain`, which reports untracked
+# files too, so the tree was empty of them before this run began. Anything
+# untracked now was produced by steps 1-3.
+#
+# It is still listed, because "produced by the build" is an inference about a
+# window several steps wide, and a release commit is a bad place to discover
+# it was wrong.
+UNTRACKED=$(git ls-files --others --exclude-standard)
+if [ -n "$UNTRACKED" ]; then
+    echo "  New files being committed with the version bump:"
+    printf '    %s\n' $UNTRACKED
+fi
 git add -A
 git commit -m "chore: bump version to ${VERSION}"
 git push
@@ -256,8 +270,19 @@ echo "[6/9] Updating changelog..."
 CHANGELOG_FILE=$(read_config "changelog.file")
 if [ -n "$CHANGELOG_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
     bash "${TOOLS_DIR}/scripts/generate-changelog-entry.sh" "$VERSION"
-    if ! git diff --quiet 2>/dev/null; then
-        git add -A
+    # Stage the changelog and nothing else. This used to be `git add -A` behind
+    # a `git diff --quiet` guard, and those two disagree: the guard inspects
+    # only tracked files, while the action staged everything, untracked
+    # included. Anything left in the working tree after step 4 — a scratch
+    # script, a downloaded artifact, a dumped token — was committed here, and
+    # the tag is force-moved onto this commit immediately below, so it landed
+    # in the published tag too.
+    #
+    # The guard is `git status --porcelain`, not `git diff --quiet`: the latter
+    # reports no change for a file that is new and untracked, so a changelog
+    # created rather than edited would be silently skipped.
+    if [ -n "$(git status --porcelain -- "$CHANGELOG_FILE")" ]; then
+        git add -- "$CHANGELOG_FILE"
         git commit -m "chore: add changelog entry for ${VERSION}"
         git push
         # Move tag to include changelog commit
@@ -284,20 +309,28 @@ echo ""
 # --- Step 8: versions.json update (current + next.* + _updated) ---
 echo "[8/9] Updating versions.json..."
 DEV_BRANCH=$(read_config "github.developmentBranch")
-HAS_VERSION_TRACKING=$(php "${TOOLS_DIR}/scripts/resolve-tracking.php" versionsJson)
+# This is the project-relative path to versions.json, and it is the only file
+# `version-tracker.php --mode=release` writes (VersionTracker::updateForRelease
+# touches versionsJson alone). Both commits below stage exactly it.
+VERSIONS_FILE=$(php "${TOOLS_DIR}/scripts/resolve-tracking.php" versionsJson)
 
-if [ -z "$HAS_VERSION_TRACKING" ]; then
+if [ -z "$VERSIONS_FILE" ]; then
     echo "  Skipped: no versionTracking.versionsJson configured."
 elif [ -n "$DEV_BRANCH" ]; then
     # Project uses separate dev branch (versions.json lives there, not on release branch)
+    #
+    # Note `git stash` does not take untracked files, so any that are present
+    # follow the checkout onto the development branch. Staging the versions
+    # file by name — rather than the `git add -A` this used to run — is what
+    # keeps them from being committed and pushed there.
     git stash 2>/dev/null || true
     git checkout "$DEV_BRANCH"
     git pull
 
     php "${TOOLS_DIR}/scripts/version-tracker.php" --mode=release -v "$VERSION"
 
-    if ! git diff --quiet 2>/dev/null; then
-        git add -A
+    if [ -n "$(git status --porcelain -- "$VERSIONS_FILE")" ]; then
+        git add -- "$VERSIONS_FILE"
         git commit -m "chore: update versions.json for ${TAG} release"
         git push
     fi
@@ -308,8 +341,8 @@ else
     # Single-branch project: update inline on the release branch
     php "${TOOLS_DIR}/scripts/version-tracker.php" --mode=release -v "$VERSION"
 
-    if ! git diff --quiet 2>/dev/null; then
-        git add -A
+    if [ -n "$(git status --porcelain -- "$VERSIONS_FILE")" ]; then
+        git add -- "$VERSIONS_FILE"
         git commit -m "chore: update versions.json for ${TAG} release"
         git push
     fi
