@@ -20,3 +20,7 @@ Thumbs.db
 .env
 .env.local
 /composer.lock
+
+# Python bytecode from scripts/ and tests/python/
+__pycache__/
+*.pyc
