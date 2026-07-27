@@ -2,31 +2,13 @@
 #
 # Tests for scripts/lib/artifacts.sh.
 #
-# Plain bash rather than bats, so the suite runs anywhere `composer test` does
-# without adding a dependency. The assertions needed here are simple enough
-# that a runner is a few lines; if shell coverage grows much past this, bats
-# earns its place (issue #52).
-
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=helpers.sh
+source "${SCRIPT_DIR}/helpers.sh"
 # shellcheck source=../../scripts/lib/artifacts.sh
 source "${SCRIPT_DIR}/../../scripts/lib/artifacts.sh"
-
-PASS=0
-FAIL=0
-
-# assert_equals <expected> <actual> <description>
-assert_equals() {
-    if [ "$1" = "$2" ]; then
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        echo "  FAIL: $3"
-        echo "        expected: $1"
-        echo "        actual:   $2"
-    fi
-}
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -108,5 +90,4 @@ fixture pkg_proclaim-10.3.2.zip pkg_proclaim-10.3.6.zip
 out="$(cwm_select_artifact_for_version 10.3.6 "$GLOB" 2>/dev/null)"
 assert_equals "1" "$(printf '%s' "$out" | grep -c .)" "stdout carries only the path"
 
-echo "  artifacts.test.sh: ${PASS} passed, ${FAIL} failed"
-[ "$FAIL" -eq 0 ]
+finish
