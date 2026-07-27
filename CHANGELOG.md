@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-27
+
 ### Fixed
+
+- **`cwm-release` now selects the build artifact by version, not by glob
+  order.** (#51)
+
+  The output glob is version-agnostic, and bash expands globs lexically, so
+  releasing alongside a stale artifact picked whatever sorted first — Proclaim
+  10.3.3 shipped `pkg_proclaim-10.3.2.zip` as both its GitHub asset and its ARS
+  item this way, with every step reporting success. The version being released
+  is already known, so the artifact is matched as `*-<version>.zip`; no match
+  and ambiguous matches are loud errors rather than guesses. The selection
+  lives in `scripts/lib/artifacts.sh` where the shell test suite exercises it,
+  including the 10.3.3 scenario verbatim.
 
 - **`npm outdated` results were silently discarded, so dev dependency updates
   were never reported.** `npm outdated` exits 1 when anything *is* outdated,
@@ -22,13 +36,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **This repository now tests itself.** (#46, #47) `tests.yml` runs
+  `composer test` (PHPUnit + the Python suite) on PHP 8.3 and 8.4 for every
+  push and pull request, plus syntax checks over every PHP, shell and Python
+  file. Before this, every PR merged with "no checks reported" — and the first
+  CI run promptly caught a fixture that had been broken on clean checkouts
+  since May.
 
-- `templates/build.properties.tmpl` — commented-out `j6-test` section, so a second
-  `role = test` install is part of the shared schema rather than a local addition
-  the next sync deletes. Carries the warning that a `role = test` target must be a
-  real, non-symlinked install, since the harness wipes and reinstalls it.
-- `tests/Config/DistPropertiesInspectorTest.php` — 12 tests, including one asserting
-  the shipped template never carries populated credentials.
+- **Script decision logic extracted into tested classes.** (#32, #48, #49, #50)
+  `Dev\LinkPlanner` (cwm-link's role filter — the v1.6.1 defect, now pinned by
+  a test that fails if it is reintroduced), `Build\ManifestVersionWriter`
+  (bump's manifest rewriting; first-`<version>`-only behaviour pinned), and
+  `Config\ManagedBlock` / `Config\GitignorePaths` (sync-configs' `.gitignore`
+  handling; idempotence verified byte-for-byte). Suite grew from 247 to 306
+  PHP tests.
+
+- **Shell behavioural tests and shellcheck.** (#52, #53) `scripts/lib/` holds
+  sourceable functions the entry-point scripts call, `tests/shell/` exercises
+  them, and CI runs both plus `shellcheck -S warning` across `scripts/`.
+
+- **Spellcheck in CI.** (#54) codespell over docs, comments and templates,
+  with each ignore named and justified in the workflow.
+
 
 - **`vendor-check.js` now audits for security advisories.** A new *Security
   Advisories* section runs `composer audit` and `npm audit`, reporting package,
