@@ -28,6 +28,7 @@
  * @license GPL-2.0-or-later
  */
 
+require_once __DIR__ . '/../src/Build/ManifestVersionWriter.php';
 require_once __DIR__ . '/../src/Release/VersionTracker.php';
 require_once __DIR__ . '/../src/Config/ProfileResolver.php';
 
@@ -49,7 +50,7 @@ if (!$version) {
     exit(1);
 }
 
-if (!preg_match('/^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$/', $version)) {
+if (!CWM\BuildTools\Build\ManifestVersionWriter::isValidVersion($version)) {
     fwrite(STDERR, "Error: Version '$version' does not look like semver (e.g., 1.2.3 or 1.2.3-beta1)\n");
     exit(1);
 }
@@ -116,31 +117,10 @@ if ($only === null && $tracking !== null) {
  */
 function bumpManifest(string $path, string $version, string $date): void
 {
-    $content = file_get_contents($path);
-
-    if ($content === false) {
-        throw new RuntimeException("Could not read $path");
-    }
-
-    $original = $content;
-
-    $content = preg_replace(
-        '~<version>[^<]*</version>~',
-        '<version>' . $version . '</version>',
-        $content,
-        1
-    );
-
-    $content = preg_replace(
-        '~<creationDate>[^<]*</creationDate>~',
-        '<creationDate>' . $date . '</creationDate>',
-        $content,
-        1
-    );
-
-    if ($content !== $original) {
-        file_put_contents($path, $content);
-        echo "  $path → $version\n";
+    // The rewriting itself lives in ManifestVersionWriter so it can be tested;
+    // this keeps only the reporting. See issue #32.
+    if (CWM\BuildTools\Build\ManifestVersionWriter::rewriteFile($path, $version, $date)) {
+        echo "  $path \u{2192} $version\n";
     } else {
         echo "  $path (no change)\n";
     }
