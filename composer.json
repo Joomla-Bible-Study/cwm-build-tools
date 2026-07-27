@@ -3,7 +3,13 @@
     "description": "Shared build, release, and CI tooling for CWM Joomla extensions",
     "type": "library",
     "license": "GPL-2.0-or-later",
-    "keywords": ["joomla", "build", "release", "ars", "cwm"],
+    "keywords": [
+        "joomla",
+        "build",
+        "release",
+        "ars",
+        "cwm"
+    ],
     "authors": [
         {
             "name": "CWM Team",
@@ -77,6 +83,11 @@
         ]
     },
     "scripts": {
-        "test": "phpunit"
+        "test": [
+            "@test:php",
+            "@test:python"
+        ],
+        "test:php": "phpunit",
+        "test:python": "python3 -m unittest discover -s tests/python -v"
     }
 }
