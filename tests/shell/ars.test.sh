@@ -91,4 +91,23 @@ assert_equals "" "$got" "an item without a url is skipped"
 got="$(printf '%s' 'not json' | cwm_ars_find_item_id pkg_proclaim-10.3.6.zip)"
 assert_equals "" "$got" "malformed JSON yields nothing"
 
+# --- Environments validation -------------------------------------------------
+# Publishing an item with NO environments makes ARS emit update XML with
+# bogus php_minimum / targetplatform values that block the update on every
+# real site (Proclaim 10.3.4-10.4.0). The publish must refuse instead.
+
+check_envs() {
+    if cwm_ars_validate_environments "$1"; then echo ok; else echo fail; fi
+}
+
+assert_equals "ok" "$(check_envs '["45","46","48","49","50"]')" "a string-id array is valid"
+assert_equals "ok" "$(check_envs '[45, 46]')" "a numeric-id array is valid"
+assert_equals "fail" "$(check_envs 'null')" "an unset key (json null) is refused"
+assert_equals "fail" "$(check_envs '[]')" "an empty array is refused"
+assert_equals "fail" "$(check_envs '')" "an empty string is refused"
+assert_equals "fail" "$(check_envs '"45"')" "a bare string is refused: must be an array"
+assert_equals "fail" "$(check_envs '{"45": true}')" "an object is refused"
+assert_equals "fail" "$(check_envs '["45", ""]')" "a blank id inside the array is refused"
+assert_equals "fail" "$(check_envs 'not json')" "malformed JSON is refused"
+
 finish
