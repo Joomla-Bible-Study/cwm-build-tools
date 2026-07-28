@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-07-27
+
+### Fixed
+
+- **`cwm-ars-publish` refuses to publish without `ars.environments`.** (#58)
+
+  `read_config_json` yields the literal `null` when the key is absent, and the
+  ARS item payload shipped it verbatim. ARS then derives the update XML's
+  requirements from an item with no environments — `php_minimum` 8.5 and a
+  Joomla 6.1+/7-only `targetplatform` — so the update is invisible on
+  Joomla 5 and blocked everywhere else, with every publish step reporting
+  success. Proclaim 10.3.4–10.4.0 all shipped this way and were repaired by
+  PATCHing the live items. `ars.environments` is now documented as required
+  (a non-empty JSON array of ARS environment ids) and validated by
+  `cwm_ars_validate_environments` in `scripts/lib/ars.sh` before any API
+  call; the error points at a known-good item's `environments` attribute as
+  the place to copy ids from, since the ARS `/environments` endpoint 404s.
+
 ## [1.9.0] - 2026-07-27
 
 ### Fixed
