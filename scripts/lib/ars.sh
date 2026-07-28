@@ -116,3 +116,31 @@ for i in d.get('data', []):
         break
 " "$1" 2>/dev/null || true
 }
+
+# Validate the configured ars.environments value.
+#
+# An item published with no environments makes ARS emit update XML with
+# bogus php_minimum / targetplatform requirements that block the update
+# on every real site (Proclaim 10.3.4-10.4.0 shipped invisible to
+# Joomla 5 and "requires PHP 8.5" this way). The publish must refuse to
+# run rather than ship that.
+#
+# Arguments:
+#   $1  the ars.environments config value as JSON (read_config_json
+#       output: a JSON array, or the literal string "null" when unset)
+#
+# Returns:
+#   0 when the value is a non-empty JSON array of ids, 1 otherwise.
+cwm_ars_validate_environments() {
+    python3 -c "
+import json, sys
+
+try:
+    v = json.loads(sys.argv[1])
+except (ValueError, IndexError):
+    sys.exit(1)
+ok = isinstance(v, list) and len(v) > 0 \
+    and all(isinstance(e, (str, int)) and str(e).strip().isdigit() for e in v)
+sys.exit(0 if ok else 1)
+" "$1" 2>/dev/null
+}

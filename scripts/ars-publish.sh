@@ -8,8 +8,12 @@
 #   categoryId      Numeric ARS category id for releases of this extension
 #   updateStreamId  Numeric ARS update-stream id; the changelog URL is also
 #                   patched on this stream when changelogUrl is set
+#   environments    Non-empty JSON array of ARS environment ids (Joomla / PHP
+#                   versions). Required: publishing an item with no
+#                   environments makes ARS emit update XML with wrong
+#                   php_minimum / targetplatform values that block updates
+#                   on every real site.
 # Optional ars.* fields:
-#   environments     JSON array of ARS environment ids (Joomla / PHP versions)
 #   tokenItem        1Password item label (default: "CWM ARS API Token")
 #   tokenVault       1Password vault (default: "CWM")
 #   zipPrefix        Override the artifact prefix when scanning local builds.
@@ -117,6 +121,15 @@ GH_REPO=$(read_config "github.repo")
 
 if [ -z "$SITE_URL" ] || [ -z "$ARS_CATEGORY_ID" ] || [ -z "$ARS_UPDATE_STREAM_ID" ]; then
     echo "Error: ars.endpoint, ars.categoryId, ars.updateStreamId are required in cwm-build.config.json"
+    exit 1
+fi
+
+# ars.environments must be a non-empty array: an item published without
+# environments makes ARS emit update XML with bogus php_minimum /
+# targetplatform requirements that block the update on every real site.
+if ! cwm_ars_validate_environments "$ARS_ENVIRONMENTS"; then
+    echo "Error: ars.environments must be a non-empty JSON array of ARS environment ids in cwm-build.config.json (got: ${ARS_ENVIRONMENTS})."
+    echo "       Copy the ids from a known-good existing item: GET {endpoint}/api/index.php/v1/ars/items and read its \"environments\" attribute."
     exit 1
 fi
 
