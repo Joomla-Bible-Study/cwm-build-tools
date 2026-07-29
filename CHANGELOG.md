@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-07-29
+
 ### Added
 
 - **`run-lint-syntax` and `php-extensions` inputs on both reusable workflows.**
