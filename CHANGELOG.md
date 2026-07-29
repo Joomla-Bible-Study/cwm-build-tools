@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-29
+
 ### Added
 
 - **`cwm-release --dry-run`.** Walks all nine steps and writes nothing: no
