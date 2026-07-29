@@ -76,6 +76,16 @@ on:
         required: false
         type: boolean
         default: true
+      run-lint-syntax:
+        description: 'Whether to run the PHP syntax check. Separate from run-lint because a project can have one and not the other, or style debt it has not paid down yet.'
+        required: false
+        type: boolean
+        default: true
+      php-extensions:
+        description: 'Extensions for setup-php'
+        required: false
+        type: string
+        default: 'mbstring, json, xml, zip, curl'
       build-command:
         description: 'Composer script that builds the library zip; empty to skip packaging'
         required: false
@@ -105,7 +115,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ inputs.php-version }}
-          extensions: mbstring, json, xml, zip, curl
+          extensions: ${{ inputs.php-extensions }}
           coverage: none
           tools: composer:v2
 
@@ -144,7 +154,7 @@ jobs:
         run: bash -c "$NPM_BUILD_CMD"
 
       - name: Check PHP syntax
-        if: ${{ inputs.run-lint }}
+        if: ${{ inputs.run-lint-syntax }}
         env:
           LINT_PATHS: ${{ inputs.lint-paths }}
         # Prefers the project's own composer script when it has one, so a
@@ -180,6 +190,10 @@ jobs:
         if: ${{ inputs.build-command != '' }}
         env:
           BUILD_CMD: ${{ inputs.build-command }}
+          # A build that pulls prebuilt dependencies from the releases API
+          # needs this: unauthenticated is 60 requests an hour shared across
+          # every job on the runner's IP.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash -c "$BUILD_CMD"
 
       - name: Verify package built

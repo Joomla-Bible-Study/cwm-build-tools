@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`run-lint-syntax` and `php-extensions` inputs on both reusable workflows.**
+  `run-lint` gated the syntax check and PHP CS Fixer together, which assumed
+  every project runs both. CWMLivingWord runs only `lint:syntax` — it has style
+  debt it has not paid down — so migrating it would have newly enabled the
+  fixer and failed CI on unrelated formatting. The two are now independent, and
+  the setup-php extension list is configurable rather than fixed.
+
+### Fixed
+
+- **The build steps now pass `GITHUB_TOKEN`.** A `preBuild` hook that pulls
+  prebuilt member zips from the GitHub releases API (CWMLivingWord fetches
+  three scripture zips this way) was running unauthenticated: 60 requests an
+  hour shared across every job on the runner's IP. That is a flaky-CI source
+  rather than a hypothetical, and the workflow a project migrates *to* should
+  not be worse at this than the one it migrates *from*.
+
 ## [1.10.0] - 2026-07-29
 
 ### Added
