@@ -16,10 +16,10 @@ Across `Proclaim`, `lib_cwmscripture`, `CWMScriptureLinks`, and `plg_task_cwmscr
 | Surface | What | Where |
 |---|---|---|
 | **CLI tools** | `cwm-release`, `cwm-bump`, `cwm-build`, `cwm-package`, `cwm-sync-configs`, `cwm-sync-languages`, `cwm-ars-publish`, `cwm-changelog`, `cwm-article`, `cwm-init`, `cwm-setup`, `cwm-link`, `cwm-link-check`, `cwm-lint-deprecations`, `cwm-clean`, `cwm-verify`, `cwm-joomla-install`, `cwm-joomla-latest`, `cwm-joomla-cms-deps` | `bin/` |
-| **Scripts** | Generic 8-step release pipeline, multi-manifest version bumper, config syncer | `scripts/` |
-| **PHP library** | `ProjectConfig`, `ManifestReader`, `PackageBuilder`, `ArsPublisher`, `Bumper` | `src/` (PSR-4 `CWM\BuildTools\`) |
-| **Reusable GH Actions** | `joomla-package-ci.yml`, `joomla-library-ci.yml` (called via `workflow_call`) | `.github/workflows/` |
-| **Synced config templates** | `.gitignore` block, `.editorconfig`, `.php-cs-fixer.base.php`, `phpunit.xml` boilerplate, `eslint.config.base.mjs`, `rollup.config.js`, `build-css.js`, `build-assets.js`, `vendor-check.js`, `vendor-update.js`, `versions.json.tmpl` | `templates/` |
+| **Scripts** | Generic 9-step release pipeline, multi-manifest version bumper, config syncer | `scripts/` |
+| **PHP library** | `ProjectConfig`, `ManifestReader`, `PackageBuilder`, `Packager`, `VersionTracker`, `TokenSubstituter`, `LinkResolver`, `Linker`, `PropertiesReader`, `ExtensionVerifier` | `src/` (PSR-4 `CWM\BuildTools\`) |
+| **Reusable GH Actions** | `joomla-package-ci.yml` (called via `workflow_call`) | `.github/workflows/` |
+| **Synced config templates** | `.gitignore` block, `build.properties.tmpl`, `cwm-build.config.json.tmpl`, `eslint.config.base.mjs`, `rollup.config.js`, `build-css.js`, `build-assets.js`, `vendor-check.js`, `vendor-update.js`, `versions.json.tmpl`, per-extension-type `profiles/` | `templates/` |
 
 ## Distribution
 
@@ -295,13 +295,16 @@ between bump and build, so the released zip carries correct tags.
 
 ### Phase 1 — Release pipeline (mostly done)
 - [x] Repo skeleton
-- [x] `scripts/release.sh` (parameterized 8-step pipeline)
+- [x] `scripts/release.sh` (parameterized 9-step pipeline)
 - [x] `scripts/bump.php` (config-driven multi-manifest bumper)
 - [x] `scripts/ars-publish.sh` (ARS publish via JSON API + 1Password auth)
 - [x] `scripts/generate-changelog-entry.sh` (markdown → Joomla changelog XML)
-- [ ] Port `src/Release/ArsPublisher.php` so PHP callers don't shell out
-- [ ] `release.sh --dry-run` for testable end-to-end runs
-- [ ] Wire CWMScriptureLinks as first consumer
+- [x] Wire CWMScriptureLinks as first consumer — since joined by Proclaim,
+      `lib_cwmscripture`, and CWMLivingWord
+- [ ] Port `src/Release/ArsPublisher.php` so PHP callers don't shell out —
+      still a stub that throws; `scripts/ars-publish.sh` is the live path
+- [ ] `release.sh --dry-run` for testable end-to-end runs — `cwm-changelog`,
+      `cwm-sync-configs`, and `cwm-article` have one; `cwm-release` does not
 
 ### Phase 1b — Local dev environment (done in 0.4.0-alpha)
 - [x] `cwm-setup` interactive wizard + `build.properties` schema
@@ -311,23 +314,29 @@ between bump and build, so the released zip carries correct tags.
 - [x] Legacy Proclaim flat `build.properties` compatibility
 
 ### Phase 2 — Reusable CI workflow
-- [ ] `joomla-package-ci.yml` (workflow_call)
+- [x] `joomla-package-ci.yml` (workflow_call) — written, but unchanged since
+      the initial scaffold and not yet called by any project, so treat it as
+      unproven until the migration below lands
 - [ ] `joomla-library-ci.yml`
-- [ ] Migrate one project's `ci.yml` to use it
+- [ ] Migrate one project's `ci.yml` to use it — all four consumers still
+      hand-roll their own
 
 ### Phase 3 — Config sync
 - [x] `cwm-sync-configs` with managed-block strategy (`.gitignore`)
+- [x] `cwm-init` to scaffold new projects
 - [ ] Sync handlers for `.editorconfig`, `.php-cs-fixer.dist.php`
 - [ ] Templates: `.editorconfig`, `.php-cs-fixer.base.php`, `phpunit.xml`
-- [ ] `cwm-init` to scaffold new projects (currently a stub)
 
-### Phase 4 — Generic builder
-- [ ] `src/Build/PackageBuilder.php` capable of replacing project-specific `build-package.php`s
-- [ ] Migrate at least two projects onto it
+### Phase 4 — Generic builder (done)
+- [x] `src/Build/PackageBuilder.php` capable of replacing project-specific `build-package.php`s
+- [x] Migrate at least two projects onto it — Proclaim, CWMScriptureLinks,
+      `lib_cwmscripture`, and CWMLivingWord all build via `cwm-package` /
+      `cwm-build`; no project-specific `build-package.php` remains
 
-### Testing
-- [ ] `tests/` + `phpunit.xml` (composer.json already declares PHPUnit ^11)
-- [ ] Unit tests for `PropertiesReader` (incl. comment-stripping regression),
+### Testing (done)
+- [x] `tests/` + `phpunit.xml` — 337 tests / 835 assertions, plus Python and
+      shell suites, run on PHP 8.3 and 8.4 by `.github/workflows/tests.yml`
+- [x] Unit tests for `PropertiesReader` (incl. comment-stripping regression),
       `LinkResolver`, `Linker::relativePath`, `ExtensionVerifier::expectedExtensions`
 
 ## License
