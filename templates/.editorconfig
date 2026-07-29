@@ -1,0 +1,66 @@
+# EditorConfig — https://editorconfig.org
+#
+# Shared across every CWM Joomla extension. Synced into consumers by
+# `cwm-sync-configs`, which stamps a managed-file header on its copy and
+# refuses to overwrite one that has been hand-edited. Change this file in
+# cwm-build-tools, not in the consumer.
+#
+# PHP is four spaces, matching what Proclaim, CWMScriptureLinks and
+# lib_cwmscripture already had before this template existed. That is a
+# deliberate departure from joomla-cms core (which indents PHP with tabs)
+# — the CWM extensions have never followed core here, and reformatting
+# them to agree would churn every file for no benefit.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = tab
+
+[*.{php,inc}]
+indent_style = space
+indent_size = 4
+
+[*.{js,mjs,cjs,ts,json,css,scss,less,vue,yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# composer.json is rewritten by Composer with four-space indentation;
+# matching it keeps `composer require` from producing a whitespace diff.
+[composer.json]
+indent_style = space
+indent_size = 4
+
+[*.xml]
+indent_style = space
+indent_size = 4
+
+# Joomla .ini language files carry no indentation, and trailing space can
+# be significant in a translated string.
+[*.ini]
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = false
+
+[*.md]
+indent_style = space
+indent_size = 2
+# Two trailing spaces are a hard line break in Markdown.
+trim_trailing_whitespace = false
+
+[*.{sh,bash}]
+indent_style = space
+indent_size = 4
+
+[Makefile]
+indent_style = tab
+
+# Vendored and generated trees are not ours to reformat.
+[{vendor,node_modules,build/dist}/**]
+indent_style = unset
+indent_size = unset
+trim_trailing_whitespace = unset
+insert_final_newline = unset

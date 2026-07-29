@@ -110,13 +110,24 @@ on top of auto-derive (deduped by target).
 ### Release flow
 
 1. Edit `CHANGELOG.md` — move `## [Unreleased]` content under a new
-   `## [vX.Y.Z-alpha] - YYYY-MM-DD` heading.
-2. `git commit -m "chore(release): cut vX.Y.Z-alpha"` on `main`.
-3. `git tag -a vX.Y.Z-alpha -m "vX.Y.Z-alpha"`.
-4. `git push origin main && git push origin vX.Y.Z-alpha`.
-5. `gh release create vX.Y.Z-alpha --prerelease --title 'vX.Y.Z-alpha' --notes "..."`.
+   `## [X.Y.Z] - YYYY-MM-DD` heading.
+2. `git commit -m "chore(release): cut vX.Y.Z"` on `main`.
+3. `git tag -a vX.Y.Z -m "vX.Y.Z"`.
+4. `git push origin main && git push origin vX.Y.Z`.
+5. `gh release create vX.Y.Z --title 'vX.Y.Z' --notes "..."`.
+6. **Re-point the moving major tag:**
+   `git tag -fa v1 -m "v1 -> vX.Y.Z" && git push origin v1 --force`.
+
+Step 6 is not optional. Consumers reference the reusable CI workflows as
+`...@v1` (the CI equivalent of their `^1.0` Composer constraint), so a
+release that skips it ships pipeline changes that no project actually
+runs — the workflows keep executing the previous release's code, silently.
+Drop the step only when cutting `v2`, which gets its own moving tag.
 
 No `version` field in `composer.json` — Composer reads the git tag.
+
+(The `-alpha` suffix in earlier revisions of this section belonged to the
+`0.x` line; the project has been on stable semver since `v1.0.0`.)
 
 ### Alpha-line versioning
 

@@ -17,9 +17,9 @@ Across `Proclaim`, `lib_cwmscripture`, `CWMScriptureLinks`, and `plg_task_cwmscr
 |---|---|---|
 | **CLI tools** | `cwm-release`, `cwm-bump`, `cwm-build`, `cwm-package`, `cwm-sync-configs`, `cwm-sync-languages`, `cwm-ars-publish`, `cwm-changelog`, `cwm-article`, `cwm-init`, `cwm-setup`, `cwm-link`, `cwm-link-check`, `cwm-lint-deprecations`, `cwm-clean`, `cwm-verify`, `cwm-joomla-install`, `cwm-joomla-latest`, `cwm-joomla-cms-deps` | `bin/` |
 | **Scripts** | Generic 9-step release pipeline, multi-manifest version bumper, config syncer | `scripts/` |
-| **PHP library** | `ProjectConfig`, `ManifestReader`, `PackageBuilder`, `Packager`, `VersionTracker`, `TokenSubstituter`, `LinkResolver`, `Linker`, `PropertiesReader`, `ExtensionVerifier` | `src/` (PSR-4 `CWM\BuildTools\`) |
-| **Reusable GH Actions** | `joomla-package-ci.yml` (called via `workflow_call`) | `.github/workflows/` |
-| **Synced config templates** | `.gitignore` block, `build.properties.tmpl`, `cwm-build.config.json.tmpl`, `eslint.config.base.mjs`, `rollup.config.js`, `build-css.js`, `build-assets.js`, `vendor-check.js`, `vendor-update.js`, `versions.json.tmpl`, per-extension-type `profiles/` | `templates/` |
+| **PHP library** | `ProjectConfig`, `ManifestReader`, `PackageBuilder`, `Packager`, `ArsPublisher`, `VersionTracker`, `TokenSubstituter`, `LinkResolver`, `Linker`, `PropertiesReader`, `ExtensionVerifier` | `src/` (PSR-4 `CWM\BuildTools\`) |
+| **Reusable GH Actions** | `joomla-package-ci.yml`, `joomla-library-ci.yml` (called via `workflow_call`) | `.github/workflows/` |
+| **Synced config templates** | `.gitignore` block, `.editorconfig`, `.php-cs-fixer.base.php`, `phpunit.xml.tmpl`, `build.properties.tmpl`, `cwm-build.config.json.tmpl`, `eslint.config.base.mjs`, `rollup.config.js`, `build-css.js`, `build-assets.js`, `vendor-check.js`, `vendor-update.js`, `versions.json.tmpl`, per-extension-type `profiles/` | `templates/` |
 
 ## Distribution
 
@@ -58,23 +58,37 @@ alias) avoids the silent override.
 Drop a `cwm-build.config.json` at the project root describing the extension layout (see `examples/`). Then:
 
 ```bash
-composer release -- 1.2.0      # full pipeline: bump → build → tag → GH release → ARS publish
-composer bump-version -- 1.2.0 # version bump only (NOT 'bump' — that's a built-in Composer command)
-composer package               # build zip(s) only
-composer sync-configs          # refresh managed config blocks
+composer release -- 1.2.0            # full pipeline: bump → build → tag → GH release → ARS publish
+composer release -- 1.2.0 --dry-run  # print the plan, change nothing
+composer bump-version -- 1.2.0       # version bump only (NOT 'bump' — that's a built-in Composer command)
+composer package                     # build zip(s) only
+composer sync-configs                # refresh managed config blocks
 ```
 
-Reusable CI:
+`--dry-run` walks all nine steps and writes nothing — no bump, build, commit,
+tag, push, GitHub release, ARS publish or announcement. The read-only checks
+still run, so it will tell you the version is malformed, the artifact glob
+would pick up a stale zip, or the branch has diverged from origin, before any
+of it is irreversible.
+
+Reusable CI — `joomla-package-ci.yml` for a package of several extensions,
+`joomla-library-ci.yml` for a repository that is one library:
 
 ```yaml
 # .github/workflows/ci.yml in your project
 jobs:
   ci:
-    uses: Joomla-Bible-Study/cwm-build-tools/.github/workflows/joomla-package-ci.yml@v1.0.0
+    uses: Joomla-Bible-Study/cwm-build-tools/.github/workflows/joomla-package-ci.yml@v1
     with:
       php-version: '8.3'
       node-version: '24'
 ```
+
+`v1` is a moving tag, re-pointed at each release — the CI equivalent of the
+`^1.0` Composer constraint above. Pipeline fixes arrive without editing
+anything; only a breaking change to the workflow inputs moves you to `@v2`.
+Pin an exact tag (`@v1.9.1`) if a project needs a pipeline that cannot change
+under it.
 
 ## Design principles
 
@@ -290,54 +304,6 @@ between bump and build, so the released zip carries correct tags.
 - Files without the token aren't touched — no spurious mtime bumps.
 - Matches the convention used throughout `joomla-cms` for `@since` tags
   on in-flight code.
-
-## Roadmap
-
-### Phase 1 — Release pipeline (mostly done)
-- [x] Repo skeleton
-- [x] `scripts/release.sh` (parameterized 9-step pipeline)
-- [x] `scripts/bump.php` (config-driven multi-manifest bumper)
-- [x] `scripts/ars-publish.sh` (ARS publish via JSON API + 1Password auth)
-- [x] `scripts/generate-changelog-entry.sh` (markdown → Joomla changelog XML)
-- [x] Wire CWMScriptureLinks as first consumer — since joined by Proclaim,
-      `lib_cwmscripture`, and CWMLivingWord
-- [ ] Port `src/Release/ArsPublisher.php` so PHP callers don't shell out —
-      still a stub that throws; `scripts/ars-publish.sh` is the live path
-- [ ] `release.sh --dry-run` for testable end-to-end runs — `cwm-changelog`,
-      `cwm-sync-configs`, and `cwm-article` have one; `cwm-release` does not
-
-### Phase 1b — Local dev environment (done in 0.4.0-alpha)
-- [x] `cwm-setup` interactive wizard + `build.properties` schema
-- [x] `cwm-link` / `cwm-link-check` / `cwm-clean` (relative-path symlinks)
-- [x] `cwm-verify` (drift report + `--fix` reconciliation)
-- [x] `cwm-joomla-install` / `cwm-joomla-latest`
-- [x] Legacy Proclaim flat `build.properties` compatibility
-
-### Phase 2 — Reusable CI workflow
-- [x] `joomla-package-ci.yml` (workflow_call) — written, but unchanged since
-      the initial scaffold and not yet called by any project, so treat it as
-      unproven until the migration below lands
-- [ ] `joomla-library-ci.yml`
-- [ ] Migrate one project's `ci.yml` to use it — all four consumers still
-      hand-roll their own
-
-### Phase 3 — Config sync
-- [x] `cwm-sync-configs` with managed-block strategy (`.gitignore`)
-- [x] `cwm-init` to scaffold new projects
-- [ ] Sync handlers for `.editorconfig`, `.php-cs-fixer.dist.php`
-- [ ] Templates: `.editorconfig`, `.php-cs-fixer.base.php`, `phpunit.xml`
-
-### Phase 4 — Generic builder (done)
-- [x] `src/Build/PackageBuilder.php` capable of replacing project-specific `build-package.php`s
-- [x] Migrate at least two projects onto it — Proclaim, CWMScriptureLinks,
-      `lib_cwmscripture`, and CWMLivingWord all build via `cwm-package` /
-      `cwm-build`; no project-specific `build-package.php` remains
-
-### Testing (done)
-- [x] `tests/` + `phpunit.xml` — 337 tests / 835 assertions, plus Python and
-      shell suites, run on PHP 8.3 and 8.4 by `.github/workflows/tests.yml`
-- [x] Unit tests for `PropertiesReader` (incl. comment-stripping regression),
-      `LinkResolver`, `Linker::relativePath`, `ExtensionVerifier::expectedExtensions`
 
 ## License
 

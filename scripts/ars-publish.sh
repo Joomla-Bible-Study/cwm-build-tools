@@ -147,7 +147,6 @@ ARS_ENVIRONMENTS="${ARS_ENVIRONMENTS:-null}"
 # they can be tested — see #52.
 ALIAS_PREFIX=$(cwm_ars_alias_prefix "$EXT_NAME" "$ALIAS_PREFIX")
 
-API_BASE="${SITE_URL%/}/api/index.php/v1/ars"
 TAG=$(cwm_tag_for_version "$VERSION")
 ALIAS=$(cwm_ars_release_alias "$ALIAS_PREFIX" "$VERSION")
 ZIP_NAME=$(basename "$ZIP_PATH")
@@ -226,155 +225,47 @@ else
     RELEASE_NOTES=$(gh release view "$TAG" --repo "${GH_OWNER}/${GH_REPO}" --json body --jq '.body' 2>/dev/null || echo "")
 fi
 
+# No JSON encoding step here any more: the notes travel to the publisher as
+# plain text in the environment, and the payload is assembled with
+# json_encode on the PHP side.
 NOTES_HTML=$(printf '%s' "$RELEASE_NOTES" | php "${SCRIPT_DIR}/render-notes.php")
-NOTES_JSON=$(printf '%s' "$NOTES_HTML" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
 
-# --- Check if ARS release already exists ---
+# --- Upsert the release and its download item ---
 #
-# ARS reads bare query parameters, not JSON:API `filter[...]` syntax — see
-# component/api/src/Controller/ReleasesController.php, which maps the input key
-# `category_id` onto `filter.category_id`. Sent as `filter[category_id]` it
-# arrives as a PHP array named `filter`, the lookup returns null, and the filter
-# is silently not applied.
+# Both upserts happen in PHP (src/Release/ArsPublisher.php) rather than here.
+# They are create-or-update decisions against a live public download page and
+# they report success either way: a lookup that wrongly misses publishes a
+# second release for a version that already exists (#37), and a lookup that
+# wrongly hits PATCHes over a different one. That is logic which has to be
+# exercised by tests instead of by releasing something, and a curl pipeline
+# cannot be.
 #
-# That mattered because the response is also capped at 20 rows by default: this
-# read was matching the wanted version against an arbitrary 20-row window of
-# every release on the site, in an order that is not id, version or date. A miss
-# takes the create branch below and publishes a *second* release for a version
-# that already exists, reporting success either way.
+# The API quirks those lookups have to respect — bare query parameters rather
+# than JSON:API `filter[...]`, `page[limit]` to raise the 20-row default, a
+# flat JSON body, the vnd.api+json Accept header — are documented against the
+# release-system source in ArsPublisher's class docblock.
 #
-# `page[limit]` is the parameter that raises the cap; `list[limit]` is ignored.
-echo "Checking for existing ARS release..."
-EXISTING=$(curl -s \
-    -H "X-Joomla-Token: ${TOKEN}" \
-    -H "Accept: application/vnd.api+json" \
-    "${API_BASE}/releases?category_id=${ARS_CATEGORY_ID}&search=${VERSION}&page%5Blimit%5D=200")
+# Values go over the environment, not argv: the token would otherwise be
+# visible to every user on the machine through `ps`.
+echo "Publishing release and download item..."
 
-# The exact-version match lives in lib/ars.sh so it can be tested — see #52.
-EXISTING_ID=$(echo "$EXISTING" | cwm_ars_find_release_id "$VERSION")
-
-if [ -n "$EXISTING_ID" ]; then
-    echo "ARS release already exists (ID: ${EXISTING_ID}). Updating..."
-    RELEASE_ID="$EXISTING_ID"
-
-    curl -s -X PATCH \
-        -H "X-Joomla-Token: ${TOKEN}" \
-        -H "Accept: application/vnd.api+json" \
-        -H "Content-Type: application/json" \
-        -d "{
-            \"id\": ${RELEASE_ID},
-            \"category_id\": ${ARS_CATEGORY_ID},
-            \"version\": \"${VERSION}\",
-            \"alias\": \"${ALIAS}\",
-            \"maturity\": \"${ARS_MATURITY}\",
-            \"notes\": ${NOTES_JSON},
-            \"created\": \"${RELEASE_DATE}\",
-            \"published\": 1
-        }" \
-        "${API_BASE}/releases/${RELEASE_ID}" > /dev/null
-
-    echo "Release updated."
-else
-    echo "Creating new ARS release..."
-    RESPONSE=$(curl -s -X POST \
-        -H "X-Joomla-Token: ${TOKEN}" \
-        -H "Accept: application/vnd.api+json" \
-        -H "Content-Type: application/json" \
-        -d "{
-            \"category_id\": ${ARS_CATEGORY_ID},
-            \"version\": \"${VERSION}\",
-            \"alias\": \"${ALIAS}\",
-            \"maturity\": \"${ARS_MATURITY}\",
-            \"notes\": ${NOTES_JSON},
-            \"created\": \"${RELEASE_DATE}\",
-            \"published\": 1,
-            \"access\": 1,
-            \"show_unauth_links\": 0,
-            \"redirect_unauth\": \"\",
-            \"language\": \"*\"
-        }" \
-        "${API_BASE}/releases")
-
-    RELEASE_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['attributes']['id'])" 2>/dev/null || echo "")
-
-    if [ -z "$RELEASE_ID" ]; then
-        echo "Error: Failed to create ARS release."
-        echo "$RESPONSE" | python3 -m json.tool 2>/dev/null || echo "$RESPONSE"
-        exit 1
-    fi
-
-    echo "Release created (ID: ${RELEASE_ID})."
-fi
-
-# --- Create or update download item ---
-echo "Adding download item..."
-
-# Same correction as the release lookup above: ItemsController maps the bare
-# input key `release_id`. Sent as `filter[release_id]` this returned 20 rows
-# spanning 19 different releases, and a miss here creates a duplicate download
-# item on the release.
-EXISTING_ITEM=$(curl -s \
-    -H "X-Joomla-Token: ${TOKEN}" \
-    -H "Accept: application/vnd.api+json" \
-    "${API_BASE}/items?release_id=${RELEASE_ID}&page%5Blimit%5D=200")
-
-# Basename match in lib/ars.sh, same reason.
-EXISTING_ITEM_ID=$(echo "$EXISTING_ITEM" | cwm_ars_find_item_id "$ZIP_NAME")
-
-DESCRIPTION_TEXT="${ITEM_DESCRIPTION:-$EXT_NAME}"
-DESCRIPTION_JSON=$(printf '%s' "$DESCRIPTION_TEXT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
-
-ITEM_PAYLOAD="{
-    \"release_id\": ${RELEASE_ID},
-    \"title\": \"${ZIP_NAME%.zip}\",
-    \"alias\": \"${ZIP_NAME%.zip}\",
-    \"description\": ${DESCRIPTION_JSON},
-    \"type\": \"link\",
-    \"url\": \"${GITHUB_DOWNLOAD_URL}\",
-    \"updatestream\": ${ARS_UPDATE_STREAM_ID},
-    \"md5\": \"${MD5}\",
-    \"sha1\": \"${SHA1}\",
-    \"sha256\": \"${SHA256}\",
-    \"sha384\": \"${SHA384}\",
-    \"sha512\": \"${SHA512}\",
-    \"filesize\": ${FILESIZE},
-    \"published\": 1,
-    \"access\": 1,
-    \"show_unauth_links\": 0,
-    \"redirect_unauth\": \"\",
-    \"language\": \"*\",
-    \"environments\": ${ARS_ENVIRONMENTS}
-}"
-
-if [ -n "$EXISTING_ITEM_ID" ]; then
-    echo "Item already exists (ID: ${EXISTING_ITEM_ID}). Updating..."
-    curl -s -X PATCH \
-        -H "X-Joomla-Token: ${TOKEN}" \
-        -H "Accept: application/vnd.api+json" \
-        -H "Content-Type: application/json" \
-        -d "$ITEM_PAYLOAD" \
-        "${API_BASE}/items/${EXISTING_ITEM_ID}" > /dev/null
-    echo "Item updated."
-else
-    ITEM_RESPONSE=$(curl -s -X POST \
-        -H "X-Joomla-Token: ${TOKEN}" \
-        -H "Accept: application/vnd.api+json" \
-        -H "Content-Type: application/json" \
-        -d "$ITEM_PAYLOAD" \
-        "${API_BASE}/items")
-
-    ITEM_ID=$(echo "$ITEM_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['attributes']['id'])" 2>/dev/null || echo "")
-
-    if [ -z "$ITEM_ID" ]; then
-        echo "Error: Failed to create download item."
-        echo "$ITEM_RESPONSE" | python3 -m json.tool 2>/dev/null || echo "$ITEM_RESPONSE"
-        exit 1
-    fi
-
-    echo "Download item created (ID: ${ITEM_ID})."
-fi
+CWM_ARS_TOKEN="$TOKEN" \
+CWM_ARS_VERSION="$VERSION" \
+CWM_ARS_ALIAS="$ALIAS" \
+CWM_ARS_MATURITY="$ARS_MATURITY" \
+CWM_ARS_NOTES_HTML="$NOTES_HTML" \
+CWM_ARS_RELEASE_DATE="$RELEASE_DATE" \
+CWM_ARS_ZIP_NAME="$ZIP_NAME" \
+CWM_ARS_DOWNLOAD_URL="$GITHUB_DOWNLOAD_URL" \
+CWM_ARS_ITEM_DESCRIPTION="${ITEM_DESCRIPTION:-$EXT_NAME}" \
+CWM_ARS_FILESIZE="$FILESIZE" \
+CWM_ARS_MD5="$MD5" \
+CWM_ARS_SHA1="$SHA1" \
+CWM_ARS_SHA256="$SHA256" \
+CWM_ARS_SHA384="$SHA384" \
+CWM_ARS_SHA512="$SHA512" \
+    php "${SCRIPT_DIR}/ars-publish-api.php"
 
 echo ""
 echo "Done! ${EXT_NAME} ${VERSION} published to ARS."
-echo "  ARS Release: ${SITE_URL}/index.php?option=com_ars&view=items&release_id=${RELEASE_ID}"
 echo "  GitHub:      https://github.com/${GH_OWNER}/${GH_REPO}/releases/tag/${TAG}"

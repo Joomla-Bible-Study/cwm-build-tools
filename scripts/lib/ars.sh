@@ -49,73 +49,15 @@ cwm_ars_release_alias() {
     printf '%s-%s\n' "$1" "$2" | tr '.' '-'
 }
 
-# Find the ARS release id for an exact version in a releases response.
-#
-# The API-side filters are advisory at best (`search` substring-matches, so
-# 10.3.1 also matches 10.3.10), which is why the match on the exact version
-# string happens here, client-side.
-#
-# Arguments:
-#   $1  version to match exactly
-#
-# Input:
-#   The JSON body of GET /releases on stdin.
-#
-# Outputs:
-#   The release id on stdout, or nothing when no release has that version.
-#   Malformed JSON also outputs nothing: the caller treats "not found" as
-#   "create", which is the safe reading of a response it cannot parse —
-#   an update PATCHed at a guessed id would land on the wrong release.
-cwm_ars_find_release_id() {
-    python3 -c "
-import json, sys
-
-version = sys.argv[1]
-try:
-    d = json.load(sys.stdin)
-except ValueError:
-    sys.exit(0)
-for r in d.get('data', []):
-    if r.get('attributes', {}).get('version') == version:
-        print(r['attributes']['id'])
-        break
-" "$1" 2>/dev/null || true
-}
-
-# Find the ARS download-item id whose URL points at a zip name, in an
-# items response.
-#
-# Items point at GitHub download URLs; the basename is the stable part,
-# the path carries the tag and can be rewritten. The match is on the
-# exact basename, not a suffix — endswith("pkg_x-1.0.zip") would also
-# claim "other-pkg_x-1.0.zip", the same shape of near-miss the artifact
-# selection in lib/artifacts.sh refuses.
-#
-# Arguments:
-#   $1  zip file name, e.g. pkg_proclaim-10.3.6.zip
-#
-# Input:
-#   The JSON body of GET /items on stdin.
-#
-# Outputs:
-#   The item id on stdout, or nothing when no item matches. Malformed
-#   JSON also outputs nothing, for the same reason as the release lookup.
-cwm_ars_find_item_id() {
-    python3 -c "
-import json, sys
-
-zip_name = sys.argv[1]
-try:
-    d = json.load(sys.stdin)
-except ValueError:
-    sys.exit(0)
-for i in d.get('data', []):
-    url = i.get('attributes', {}).get('url', '')
-    if url.rsplit('/', 1)[-1] == zip_name:
-        print(i['attributes']['id'])
-        break
-" "$1" 2>/dev/null || true
-}
+# The release and download-item lookups that used to live here now live in
+# src/Release/ArsPublisher.php. They are create-or-update decisions against a
+# live download page — a miss ships a duplicate release, a false hit PATCHes
+# over a different one — and PHP is where they can be exercised against canned
+# API responses without publishing anything. See tests/Release/ArsPublisherTest.php,
+# which carries the same cases this file's tests did (the 10.3.1 vs 10.3.10
+# substring near-miss, the other-pkg_x basename near-miss, unparseable bodies)
+# plus the ones the shell could not express: a 403 from the ARS 7.5.0
+# authorisation hardening must not read as "no such release".
 
 # Validate the configured ars.environments value.
 #

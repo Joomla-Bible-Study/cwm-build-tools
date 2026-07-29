@@ -21,6 +21,20 @@
 #   release.sh 1.2.3                # release specific version
 #   release.sh 1.2.3-beta1          # pre-release
 #   release.sh                      # prompts for version
+#   release.sh 1.2.3 --dry-run      # print the plan, change nothing
+#
+# Dry run:
+#   --dry-run (-n) walks the whole pipeline and writes nothing: no manifest
+#   bump, no build, no commit, tag, push, GitHub release, ARS publish or
+#   announcement article. Every mutating command is printed instead of run.
+#
+#   The read-only checks still happen, because they are most of what can be
+#   wrong: the version is validated, the config is read, the artifact glob is
+#   resolved against what is already on disk, and divergence from origin is
+#   reported. The two pre-conditions a real run refuses to start without — the
+#   right branch and a clean tree — are reported as warnings rather than
+#   errors, since wanting to know what a release *would* do before tidying up
+#   is the normal reason to ask.
 #
 # Prerequisites:
 #   - Clean working tree, on the configured release branch (default: main)
@@ -38,7 +52,19 @@ source "${SCRIPT_DIR}/lib/artifacts.sh"
 source "${SCRIPT_DIR}/lib/version.sh"
 # shellcheck source=lib/notes.sh
 source "${SCRIPT_DIR}/lib/notes.sh"
+# shellcheck source=lib/dryrun.sh
+source "${SCRIPT_DIR}/lib/dryrun.sh"
 PROJECT_ROOT="$(pwd)"
+
+# --- Parse flags ---
+#
+# The flag is pulled out wherever it appears, so `release.sh --dry-run 1.2.3`
+# and `release.sh 1.2.3 --dry-run` both work; what remains is the positional
+# version argument the rest of the script already expects. Parsing and the
+# command wrapper live in lib/dryrun.sh so they can be tested.
+cwm_parse_dry_run "$@"
+DRY_RUN="$CWM_DRY_RUN"
+set -- "${CWM_ARGS[@]+"${CWM_ARGS[@]}"}"
 
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"
 
@@ -61,16 +87,37 @@ PKG_NAME=$(read_config "extension.name")
 PKG_MANIFEST=$(read_config "manifests.package")
 
 # --- Pre-checks ---
+#
+# Under --dry-run these are reported rather than enforced. Both describe the
+# state of the tree rather than the correctness of the release, and wanting to
+# see what a release would do before tidying up is the ordinary reason to ask
+# for a dry run in the first place.
+if [ "$DRY_RUN" = "1" ]; then
+    echo "=== DRY RUN — no files, commits, tags, releases or publishes will be made ==="
+    echo ""
+fi
+
 BRANCH=$(git branch --show-current)
 if [ "$BRANCH" != "$RELEASE_BRANCH" ]; then
-    echo "Error: Must be on $RELEASE_BRANCH branch (currently on '$BRANCH')."
-    echo "Switch with: git checkout $RELEASE_BRANCH && git pull"
-    exit 1
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  [dry-run] WARNING: on '$BRANCH', not the release branch '$RELEASE_BRANCH'."
+        echo "            A real run would stop here."
+    else
+        echo "Error: Must be on $RELEASE_BRANCH branch (currently on '$BRANCH')."
+        echo "Switch with: git checkout $RELEASE_BRANCH && git pull"
+        exit 1
+    fi
 fi
 
 if [ -n "$(git status --porcelain)" ]; then
-    echo "Error: Working tree is not clean. Commit or stash changes first."
-    exit 1
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  [dry-run] WARNING: working tree is not clean. A real run would stop here."
+        echo "            It matters beyond tidiness: step 4 commits with 'git add -A',"
+        echo "            and relies on this check having proved the tree was empty first."
+    else
+        echo "Error: Working tree is not clean. Commit or stash changes first."
+        exit 1
+    fi
 fi
 
 # --- Pre-flight: sync with origin ---
@@ -79,21 +126,44 @@ fi
 # than recorded" failure mode where the package silently embeds an unintended
 # snapshot. Both happened during the Proclaim 10.3.2 release pass (issue #6).
 echo "[pre-flight] Fetching origin..."
+# Fetching only updates remote-tracking refs, so it runs even under --dry-run:
+# without it there is nothing current to compare against, and reporting
+# divergence is one of the more useful things a dry run can tell you.
 git fetch origin --prune --tags
 
-echo "[pre-flight] Pulling ${RELEASE_BRANCH} (fast-forward only)..."
-if ! git pull --ff-only origin "$RELEASE_BRANCH"; then
-    echo ""
-    echo "Error: Local ${RELEASE_BRANCH} has diverged from origin/${RELEASE_BRANCH}."
-    echo "Resolve manually before running release."
-    echo "  Inspect: git status && git log @{u}.."
-    echo "  Rebase:  git pull --rebase origin ${RELEASE_BRANCH}"
-    exit 1
-fi
+if [ "$DRY_RUN" = "1" ]; then
+    # Report what a fast-forward pull would do, without moving anything.
+    echo "[pre-flight] Comparing ${RELEASE_BRANCH} with origin (no pull under --dry-run)..."
+    BEHIND=$(git rev-list --count "HEAD..origin/${RELEASE_BRANCH}" 2>/dev/null || echo "?")
+    AHEAD=$(git rev-list --count "origin/${RELEASE_BRANCH}..HEAD" 2>/dev/null || echo "?")
 
-# `submodule update` is a no-op when no submodules are configured.
-echo "[pre-flight] Syncing submodules to recorded pointers..."
-git submodule update --init --recursive
+    if [ "$BEHIND" = "0" ] && [ "$AHEAD" = "0" ]; then
+        echo "  In sync with origin/${RELEASE_BRANCH}."
+    elif [ "$AHEAD" != "0" ] && [ "$BEHIND" != "0" ]; then
+        echo "  WARNING: diverged from origin/${RELEASE_BRANCH} (${AHEAD} ahead, ${BEHIND} behind)."
+        echo "           A real run would stop here."
+    elif [ "$BEHIND" != "0" ]; then
+        echo "  ${BEHIND} commit(s) behind origin/${RELEASE_BRANCH}; a real run would fast-forward."
+    else
+        echo "  ${AHEAD} unpushed commit(s) on ${RELEASE_BRANCH}."
+    fi
+
+    cwm_skip_in_dry_run "git submodule update (would move submodule working trees)"
+else
+    echo "[pre-flight] Pulling ${RELEASE_BRANCH} (fast-forward only)..."
+    if ! git pull --ff-only origin "$RELEASE_BRANCH"; then
+        echo ""
+        echo "Error: Local ${RELEASE_BRANCH} has diverged from origin/${RELEASE_BRANCH}."
+        echo "Resolve manually before running release."
+        echo "  Inspect: git status && git log @{u}.."
+        echo "  Rebase:  git pull --rebase origin ${RELEASE_BRANCH}"
+        exit 1
+    fi
+
+    # `submodule update` is a no-op when no submodules are configured.
+    echo "[pre-flight] Syncing submodules to recorded pointers..."
+    git submodule update --init --recursive
+fi
 
 # Warn (don't block) when a submodule pointer isn't at a tagged release commit.
 # Shipping an untagged snapshot is sometimes intentional, but it should be a
@@ -136,7 +206,7 @@ echo ""
 
 # --- Step 1: Version bump ---
 echo "[1/9] Bumping version to ${VERSION}..."
-php "${TOOLS_DIR}/scripts/bump.php" -v "$VERSION"
+cwm_mutate php "${TOOLS_DIR}/scripts/bump.php" -v "$VERSION"
 echo ""
 
 # --- Step 2: Substitute __DEPLOY_VERSION__ placeholder ---
@@ -146,7 +216,7 @@ echo ""
 # predict the release number. Substitution runs BEFORE the build so the
 # packaged zip carries the real version, not the placeholder.
 echo "[2/9] Substituting __DEPLOY_VERSION__ placeholder..."
-php "${TOOLS_DIR}/scripts/substitute-tokens.php" -v "$VERSION"
+cwm_mutate php "${TOOLS_DIR}/scripts/substitute-tokens.php" -v "$VERSION"
 echo ""
 
 # --- Step 3: Build ---
@@ -156,7 +226,7 @@ if [ -z "$BUILD_CMD" ]; then
     echo "Error: build.command not set in cwm-build.config.json"
     exit 1
 fi
-bash -c "$BUILD_CMD"
+cwm_mutate bash -c "$BUILD_CMD"
 
 OUTPUT_GLOB=$(read_config "build.outputGlob")
 if [ -z "$OUTPUT_GLOB" ]; then
@@ -170,10 +240,23 @@ fi
 # wrong once already: cwm-release took the first glob match, and bash sorts
 # lexically, so Proclaim 10.3.3 published pkg_proclaim-10.3.2.zip to GitHub and
 # ARS while reporting success.
-ARTIFACT="$(cwm_select_artifact_for_version "$VERSION" "$OUTPUT_GLOB")" || exit 1
-ARTIFACTS=( "$ARTIFACT" )
-
-echo "  Built: ${ARTIFACTS[*]}"
+if [ "$DRY_RUN" = "1" ]; then
+    # No build ran, so the artifact for this version normally will not exist.
+    # Still worth attempting: the selection is exactly the step that shipped
+    # the wrong zip once, and running it against whatever is already on disk
+    # shows which file a real run would pick up — including a stale one left
+    # over from a previous release, which is the failure mode #51 describes.
+    if ARTIFACT="$(cwm_select_artifact_for_version "$VERSION" "$OUTPUT_GLOB" 2>/dev/null)"; then
+        echo "  Would publish (already on disk): ${ARTIFACT}"
+    else
+        echo "  Would publish: the ${OUTPUT_GLOB} entry matching *-${VERSION}.zip (not built yet)."
+    fi
+    ARTIFACTS=( "${ARTIFACT:-<unbuilt>}" )
+else
+    ARTIFACT="$(cwm_select_artifact_for_version "$VERSION" "$OUTPUT_GLOB")" || exit 1
+    ARTIFACTS=( "$ARTIFACT" )
+    echo "  Built: ${ARTIFACTS[*]}"
+fi
 echo ""
 
 # --- Step 4: Commit and push ---
@@ -182,7 +265,7 @@ echo "[4/9] Committing version bump..."
 # bump and build steps may dirty several manifests and rebuild the zip; the
 # release branch was clean before step 1 (pre-check), so anything modified or
 # added here is part of the release.
-git add -u
+cwm_mutate git add -u
 # Pull in any new files the build step generated (e.g. a fresh changelog
 # stub, regenerated build artifacts that live in tracked directories).
 #
@@ -199,9 +282,9 @@ if [ -n "$UNTRACKED" ]; then
     echo "  New files being committed with the version bump:"
     printf '    %s\n' $UNTRACKED
 fi
-git add -A
-git commit -m "chore: bump version to ${VERSION}"
-git push
+cwm_mutate git add -A
+cwm_mutate git commit -m "chore: bump version to ${VERSION}"
+cwm_mutate git push
 echo ""
 
 # --- Step 5: GitHub release ---
@@ -246,7 +329,7 @@ if [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
 fi
 
 # shellcheck disable=SC2086
-gh release create "$TAG" "${ARTIFACTS[@]}" \
+cwm_mutate gh release create "$TAG" "${ARTIFACTS[@]}" \
     $GH_REPO_ARG \
     --target "$RELEASE_BRANCH" \
     --title "${TAG}" \
@@ -259,7 +342,7 @@ echo ""
 echo "[6/9] Updating changelog..."
 CHANGELOG_FILE=$(read_config "changelog.file")
 if [ -n "$CHANGELOG_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
-    bash "${TOOLS_DIR}/scripts/generate-changelog-entry.sh" "$VERSION"
+    cwm_mutate bash "${TOOLS_DIR}/scripts/generate-changelog-entry.sh" "$VERSION"
     # Stage the changelog and nothing else. This used to be `git add -A` behind
     # a `git diff --quiet` guard, and those two disagree: the guard inspects
     # only tracked files, while the action staged everything, untracked
@@ -271,7 +354,15 @@ if [ -n "$CHANGELOG_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
     # The guard is `git status --porcelain`, not `git diff --quiet`: the latter
     # reports no change for a file that is new and untracked, so a changelog
     # created rather than edited would be silently skipped.
-    if [ -n "$(git status --porcelain -- "$CHANGELOG_FILE")" ]; then
+    # Under --dry-run the generator never ran, so there is nothing staged to
+    # detect; the commands are described unconditionally instead.
+    if [ "$DRY_RUN" = "1" ]; then
+        cwm_mutate git add -- "$CHANGELOG_FILE"
+        cwm_mutate git commit -m "chore: add changelog entry for ${VERSION}"
+        cwm_mutate git push
+        cwm_mutate git tag -af "$TAG" -m "$TAG"
+        cwm_mutate git push origin "$TAG" --force
+    elif [ -n "$(git status --porcelain -- "$CHANGELOG_FILE")" ]; then
         git add -- "$CHANGELOG_FILE"
         git commit -m "chore: add changelog entry for ${VERSION}"
         git push
@@ -290,7 +381,7 @@ ARS_ENDPOINT=$(read_config "ars.endpoint")
 if [ -n "$ARS_ENDPOINT" ]; then
     # The GitHub release now carries the hand-written notes plus the generated
     # list, so ARS reads them back from there and both pages agree.
-    bash "${TOOLS_DIR}/scripts/ars-publish.sh" -v "$VERSION" -f "${ARTIFACTS[0]}"
+    cwm_mutate bash "${TOOLS_DIR}/scripts/ars-publish.sh" -v "$VERSION" -f "${ARTIFACTS[0]}"
 else
     echo "  Skipped: no ars.endpoint configured."
 fi
@@ -306,6 +397,16 @@ VERSIONS_FILE=$(php "${TOOLS_DIR}/scripts/resolve-tracking.php" versionsJson)
 
 if [ -z "$VERSIONS_FILE" ]; then
     echo "  Skipped: no versionTracking.versionsJson configured."
+elif [ "$DRY_RUN" = "1" ]; then
+    # Described rather than wrapped in mutate: this branch stashes and checks
+    # out another branch, and a half-applied version of that is worse than not
+    # simulating it at all.
+    if [ -n "$DEV_BRANCH" ]; then
+        cwm_skip_in_dry_run "stash, checkout ${DEV_BRANCH}, update ${VERSIONS_FILE}, commit, push, checkout ${RELEASE_BRANCH}, stash pop"
+    else
+        cwm_skip_in_dry_run "update ${VERSIONS_FILE} on ${RELEASE_BRANCH}, then commit and push it"
+    fi
+    echo "  Would set current.version=${VERSION}, recompute next.{patch,minor,major}, refresh _updated."
 elif [ -n "$DEV_BRANCH" ]; then
     # Project uses separate dev branch (versions.json lives there, not on release branch)
     #
@@ -347,7 +448,7 @@ BULLETS_FILE="${BULLETS_DIR}/release-bullets-${VERSION}.txt"
 ARTICLE_CMD=$(read_config "announcement.command")
 
 if [ -n "$ARTICLE_CMD" ] && [ -f "$BULLETS_FILE" ]; then
-    bash -c "$ARTICLE_CMD '$VERSION' '$BULLETS_FILE'"
+    cwm_mutate bash -c "$ARTICLE_CMD '$VERSION' '$BULLETS_FILE'"
 elif [ -n "$ARTICLE_CMD" ]; then
     echo "  Skipped: ${BULLETS_FILE} not found."
     echo "  Create it (one bullet per line) and run when ready."
@@ -356,7 +457,12 @@ else
 fi
 echo ""
 
-echo "=== Release ${VERSION} complete! ==="
-if [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
-    echo "  GitHub: https://github.com/${GH_OWNER}/${GH_REPO}/releases/tag/${TAG}"
+if [ "$DRY_RUN" = "1" ]; then
+    echo "=== DRY RUN complete — nothing was changed ==="
+    echo "  Re-run without --dry-run to release ${VERSION}."
+else
+    echo "=== Release ${VERSION} complete! ==="
+    if [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
+        echo "  GitHub: https://github.com/${GH_OWNER}/${GH_REPO}/releases/tag/${TAG}"
+    fi
 fi

@@ -14,6 +14,11 @@ name: Joomla Package CI (reusable)
 #       with:
 #         php-version: '8.3'
 #         node-version: '24'
+#
+# `v1` is a moving tag re-pointed at each release, so consumers pick up
+# pipeline fixes without editing anything; only a breaking change to the input
+# surface forces them to move to `@v2`. Pin to an exact tag (`@v1.9.1`) instead
+# if a project needs a pipeline that cannot change under it.
 
 on:
   workflow_call:
@@ -119,13 +124,24 @@ jobs:
         if: ${{ inputs.lib-path != '' }}
         env:
           LIB_PATH: ${{ inputs.lib-path }}
+        # Produces the sub-library zip that the outer build consumes as a
+        # prebuilt include. `composer build:package` is checked first because
+        # the libraries have moved their packaging onto cwm-build and deleted
+        # build/build-package.php; looking only for that file silently skipped
+        # the step and left the outer build to fail on a missing include.
         run: |
           cd "$LIB_PATH"
           composer install --no-interaction --prefer-dist
           npm ci
           npm run build
-          if [ -f build/build-package.php ]; then
+          if composer run-script --list 2>/dev/null | grep -qE '^\s+build:package'; then
+            composer build:package
+          elif [ -f build/build-package.php ]; then
             php build/build-package.php
+          else
+            echo "No sub-library packaging step found in $LIB_PATH"
+            echo "Expected a 'build:package' composer script or build/build-package.php."
+            exit 1
           fi
 
       - name: Build package
@@ -136,6 +152,9 @@ jobs:
       - name: Verify package built
         env:
           PKG_GLOB: ${{ inputs.package-glob }}
+        # The listing is for log visibility only — verification that the
+        # expected inner entries are present belongs in the build itself, so
+        # it fails fast rather than at the end of CI.
         run: |
           shopt -s nullglob
           ARTIFACTS=( $PKG_GLOB )
@@ -145,6 +164,10 @@ jobs:
             exit 1
           fi
           echo "Built: ${ARTIFACTS[*]}"
+          for artifact in "${ARTIFACTS[@]}"; do
+            echo "Contents of ${artifact}:"
+            unzip -l "$artifact"
+          done
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v7

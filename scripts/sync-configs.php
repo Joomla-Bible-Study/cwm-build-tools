@@ -7,15 +7,23 @@
  * delimited block(s) into the project's matching files. Lines outside the
  * markers are never touched.
  *
- * Currently handles:
+ * Handles:
  *   - .gitignore (managed block + extension-paths block)
+ *   - build.dist.properties (full replace from the canonical template)
+ *   - .editorconfig (full replace, but only of a copy this tool wrote —
+ *     see the managed-file header in src/Config/ManagedFile.php)
+ *   - .php-cs-fixer.dist.php (regenerates the require-base wrapper, unless
+ *     the consumer has customised it)
+ *   - phpunit.xml (created once from the boilerplate, never overwritten —
+ *     the testsuite layout is project shape, not shared policy)
  *   - eslint.config.mjs (writes a starter wrapper that extends the shared
  *     base when no config exists; leaves an existing config alone but
  *     prints a hint when it doesn't yet import the shared base).
  *
- * Future:
- *   - .editorconfig (full replace)
- *   - .php-cs-fixer.dist.php (regenerates the require-base wrapper)
+ * The recurring rule across all of them: a file the consumer wrote is never
+ * silently replaced. Either the tool can prove it wrote the file (a managed
+ * header, or a wrapper still in its generated shape) or it prints a hint and
+ * leaves the file alone.
  *
  * Usage:
  *   php sync-configs.php             # apply
@@ -28,6 +36,8 @@ require_once __DIR__ . '/../src/Config/ProfileResolver.php';
 require_once __DIR__ . '/../src/Config/DistPropertiesInspector.php';
 require_once __DIR__ . '/../src/Config/GitignorePaths.php';
 require_once __DIR__ . '/../src/Config/ManagedBlock.php';
+require_once __DIR__ . '/../src/Config/ManagedFile.php';
+require_once __DIR__ . '/../src/Config/PhpCsFixerWrapper.php';
 
 $projectRoot = getcwd();
 $toolsRoot   = realpath(__DIR__ . '/..');
@@ -45,6 +55,9 @@ if (!is_array($projectConfig)) {
 
 syncGitignore($projectRoot, $templates, $projectConfig, $dryRun);
 syncBuildDistProperties($projectRoot, $templates, $dryRun);
+syncEditorConfig($projectRoot, $templates, $dryRun);
+syncPhpCsFixer($projectRoot, $dryRun);
+syncPhpunit($projectRoot, $templates, $dryRun);
 syncEslint($projectRoot, $templates, $projectConfig, $dryRun);
 checkProfileHints($projectConfig, $toolsRoot);
 
@@ -307,6 +320,149 @@ function syncBuildDistProperties(string $projectRoot, string $templates, bool $d
 }
 
 
+
+/**
+ * Sync the project's .editorconfig from the shared template.
+ *
+ * Full replace, with one precondition: the existing file must carry the
+ * managed-file header, proving a previous sync wrote it. A consumer that
+ * predates this handler has a hand-written .editorconfig — Proclaim and
+ * CWMScriptureLinks both do — and replacing it would change the indent
+ * settings under every open editor in the project without being asked.
+ *
+ * That is also why the shared template matches the settings those two
+ * already had (PHP at four spaces) rather than joomla-cms core's tabs:
+ * adopting the template should be a no-op for the projects adopting it.
+ */
+function syncEditorConfig(string $projectRoot, string $templates, bool $dryRun): void
+{
+    $source = $templates . '/.editorconfig';
+    $target = $projectRoot . '/.editorconfig';
+
+    if (!is_file($source)) {
+        echo ".editorconfig: cwm-build-tools template missing at {$source} — skipped\n";
+
+        return;
+    }
+
+    $newContent = \CWM\BuildTools\Config\ManagedFile::stamp((string) file_get_contents($source));
+    $existing   = is_file($target) ? (string) file_get_contents($target) : '';
+
+    if ($existing === $newContent) {
+        echo ".editorconfig: up to date\n";
+
+        return;
+    }
+
+    if ($existing !== '' && !\CWM\BuildTools\Config\ManagedFile::isManaged($existing)) {
+        echo ".editorconfig: locally owned (no managed header) — leaving in place.\n";
+        echo "  To adopt the shared one, delete .editorconfig and run this again.\n";
+        echo "  Diff it first if the project has deliberate settings:\n";
+        echo "    diff .editorconfig {$source}\n";
+
+        return;
+    }
+
+    if ($dryRun) {
+        echo '.editorconfig: would ' . ($existing === '' ? 'create' : 'update') . " (dry-run)\n";
+
+        return;
+    }
+
+    file_put_contents($target, $newContent);
+    echo '.editorconfig: ' . ($existing === '' ? 'created' : 'updated') . " from template\n";
+}
+
+/**
+ * Sync the project's .php-cs-fixer.dist.php wrapper.
+ *
+ * The wrapper is regenerated rather than copied, because the require path
+ * embeds the consumer's vendor-dir. Regeneration stops as soon as the file
+ * stops being a bare `return require` — at that point it holds project
+ * decisions (an extra exclude, a rule override) and rewriting it would
+ * silently drop them.
+ *
+ * A file that doesn't reference the shared base at all is left alone with
+ * a migration hint, matching how syncEslint treats a bespoke eslint config.
+ */
+function syncPhpCsFixer(string $projectRoot, bool $dryRun): void
+{
+    $target    = $projectRoot . '/.php-cs-fixer.dist.php';
+    $vendorDir = vendorDirFromComposer($projectRoot);
+
+    $wrapper     = \CWM\BuildTools\Config\PhpCsFixerWrapper::render($vendorDir);
+    $requirePath = \CWM\BuildTools\Config\PhpCsFixerWrapper::requirePath($vendorDir);
+
+    $existing = is_file($target) ? (string) file_get_contents($target) : '';
+
+    if ($existing === $wrapper) {
+        echo ".php-cs-fixer.dist.php: up to date\n";
+
+        return;
+    }
+
+    if ($existing !== '' && !\CWM\BuildTools\Config\PhpCsFixerWrapper::extendsSharedBase($existing)) {
+        echo ".php-cs-fixer.dist.php: not extending the shared base — leaving in place.\n";
+        echo "  To migrate, replace the rule set with:\n";
+        echo "    return require __DIR__ . '/{$requirePath}';\n";
+
+        return;
+    }
+
+    if ($existing !== '' && !\CWM\BuildTools\Config\PhpCsFixerWrapper::isGenerated($existing)) {
+        echo ".php-cs-fixer.dist.php: customised wrapper — leaving in place.\n";
+        echo "  It extends the shared base and adds project overrides, so the sync\n";
+        echo "  won't rewrite it. Check the require path still reads:\n";
+        echo "    __DIR__ . '/{$requirePath}'\n";
+
+        return;
+    }
+
+    if ($dryRun) {
+        echo '.php-cs-fixer.dist.php: would ' . ($existing === '' ? 'create' : 'update') . " wrapper (dry-run)\n";
+
+        return;
+    }
+
+    file_put_contents($target, $wrapper);
+    echo '.php-cs-fixer.dist.php: ' . ($existing === '' ? 'created' : 'updated') . " wrapper\n";
+}
+
+/**
+ * Seed the project's phpunit.xml from the boilerplate, once.
+ *
+ * Unlike the other handlers this never updates an existing file. The parts
+ * worth sharing are the strict-mode flags, and they only matter at the
+ * moment a project starts testing; everything else in the file — which
+ * directories hold the suites, which hold the source — is the project's
+ * own shape, and a "refresh" would overwrite it with a guess.
+ */
+function syncPhpunit(string $projectRoot, string $templates, bool $dryRun): void
+{
+    $source = $templates . '/phpunit.xml.tmpl';
+    $target = $projectRoot . '/phpunit.xml';
+
+    if (!is_file($source)) {
+        echo "phpunit.xml: cwm-build-tools template missing at {$source} — skipped\n";
+
+        return;
+    }
+
+    if (is_file($target) || is_file($projectRoot . '/phpunit.xml.dist')) {
+        echo "phpunit.xml: present — left alone (testsuite layout is project-owned)\n";
+
+        return;
+    }
+
+    if ($dryRun) {
+        echo "phpunit.xml: would create from boilerplate (dry-run)\n";
+
+        return;
+    }
+
+    file_put_contents($target, (string) file_get_contents($source));
+    echo "phpunit.xml: created from boilerplate — point <directory> at the project's source\n";
+}
 
 /**
  * Read composer.json `config.vendor-dir` so the eslint import path matches

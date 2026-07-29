@@ -1,0 +1,205 @@
+name: Joomla Library CI (reusable)
+
+# Reusable workflow for a Joomla *library* extension — lib_cwmscripture and
+# anything else whose repository is one extension rather than a package of
+# several.
+#
+# How this differs from joomla-package-ci.yml, which is the reason it is a
+# separate file rather than another flag on that one:
+#
+#   - npm dependencies are installed and the asset build runs BEFORE the PHP
+#     checks. A library's media/ JS and CSS are built from the shared rollup
+#     and build-css templates that live in vendor/cwm/build-tools, so the
+#     build cannot run until composer install has put them there — but the
+#     packaged zip is wrong if it runs after packaging.
+#   - There is no sub-library step. A library has no members to build first.
+#   - The produced artifact is lib_*.zip, and building it is optional: plenty
+#     of library CI runs only need lint and tests.
+#
+# Inputs are passed via workflow_call. User-supplied strings are never
+# interpolated into a run: block — they go through env: and are quoted there,
+# so a value containing shell metacharacters cannot become a command.
+#
+# Consuming projects call this via:
+#   jobs:
+#     ci:
+#       uses: Joomla-Bible-Study/cwm-build-tools/.github/workflows/joomla-library-ci.yml@v1
+#       with:
+#         php-version: '8.3'
+#         node-version: '24'
+#
+# `v1` is a moving tag re-pointed at each release, so consumers pick up
+# pipeline fixes without editing anything; only a breaking change to the input
+# surface forces them to move to `@v2`. Pin to an exact tag (`@v1.9.1`) instead
+# if a project needs a pipeline that cannot change under it.
+
+on:
+  workflow_call:
+    inputs:
+      php-version:
+        description: 'PHP version to use'
+        required: false
+        type: string
+        default: '8.3'
+      node-version:
+        description: 'Node version to use'
+        required: false
+        type: string
+        default: '24'
+      submodules:
+        description: 'Whether to checkout git submodules (true/false/recursive)'
+        required: false
+        type: string
+        default: 'false'
+      npm-build:
+        description: 'Whether to run npm ci and the npm build script for media assets'
+        required: false
+        type: boolean
+        default: true
+      npm-build-command:
+        description: 'npm script that builds the media assets'
+        required: false
+        type: string
+        default: 'npm run build'
+      lint-paths:
+        description: 'Space-separated directories to php -l, for projects without a composer lint:syntax script'
+        required: false
+        type: string
+        default: 'src tests'
+      run-tests:
+        description: 'Whether to run composer test'
+        required: false
+        type: boolean
+        default: true
+      run-lint:
+        description: 'Whether to run composer lint (PHP CS Fixer)'
+        required: false
+        type: boolean
+        default: true
+      build-command:
+        description: 'Composer script that builds the library zip; empty to skip packaging'
+        required: false
+        type: string
+        default: ''
+      package-glob:
+        description: 'Glob matching the produced library zip'
+        required: false
+        type: string
+        default: 'build/dist/lib_*.zip'
+
+env:
+  NODE_OPTIONS: --disable-warning=DEP0040
+
+jobs:
+  ci:
+    name: PHP Lint, Tests, Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          submodules: ${{ inputs.submodules }}
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          extensions: mbstring, json, xml, zip, curl
+          coverage: none
+          tools: composer:v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+          cache-dependency-path: |
+            **/package-lock.json
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Install npm dependencies
+        if: ${{ inputs.npm-build }}
+        run: npm ci
+
+      - name: Build minified assets
+        # After composer install: the rollup and build-css templates this
+        # depends on are shipped inside vendor/cwm/build-tools.
+        if: ${{ inputs.npm-build }}
+        env:
+          NPM_BUILD_CMD: ${{ inputs.npm-build-command }}
+        run: bash -c "$NPM_BUILD_CMD"
+
+      - name: Check PHP syntax
+        if: ${{ inputs.run-lint }}
+        env:
+          LINT_PATHS: ${{ inputs.lint-paths }}
+        # Prefers the project's own composer script when it has one, so a
+        # project that has defined its exclusions keeps them; otherwise falls
+        # back to linting the configured directories. Only existing paths are
+        # passed to find, which would otherwise exit non-zero on a library
+        # with no tests/ directory.
+        run: |
+          if composer run-script --list 2>/dev/null | grep -qE '^\s+lint:syntax'; then
+            composer lint:syntax
+            exit 0
+          fi
+          EXISTING=()
+          for path in $LINT_PATHS; do
+            [ -d "$path" ] && EXISTING+=( "$path" )
+          done
+          if [ "${#EXISTING[@]}" -eq 0 ]; then
+            echo "None of the configured lint paths exist: $LINT_PATHS"
+            exit 1
+          fi
+          find "${EXISTING[@]}" -type f -name '*.php' -print0 \
+            | xargs -0 -n 1 -P 8 php -l > /dev/null
+
+      - name: Run PHP CS Fixer (dry-run)
+        if: ${{ inputs.run-lint }}
+        run: composer lint
+
+      - name: Run PHPUnit
+        if: ${{ inputs.run-tests }}
+        run: composer test
+
+      - name: Build library package
+        if: ${{ inputs.build-command != '' }}
+        env:
+          BUILD_CMD: ${{ inputs.build-command }}
+        run: bash -c "$BUILD_CMD"
+
+      - name: Verify package built
+        if: ${{ inputs.build-command != '' }}
+        env:
+          PKG_GLOB: ${{ inputs.package-glob }}
+        run: |
+          shopt -s nullglob
+          ARTIFACTS=( $PKG_GLOB )
+          shopt -u nullglob
+          if [ "${#ARTIFACTS[@]}" -eq 0 ]; then
+            echo "No library zip found matching $PKG_GLOB"
+            exit 1
+          fi
+          echo "Built: ${ARTIFACTS[*]}"
+
+      - name: Upload library artifact
+        if: ${{ inputs.build-command != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: library
+          path: ${{ inputs.package-glob }}
+          retention-days: 7

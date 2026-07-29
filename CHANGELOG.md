@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`cwm-release --dry-run`.** Walks all nine steps and writes nothing: no
+  bump, build, commit, tag, push, GitHub release, ARS publish or announcement
+  article. The read-only checks still run, so a malformed version, a stale zip
+  the artifact glob would pick up, or divergence from origin all surface before
+  anything is irreversible. The branch and clean-tree pre-conditions are
+  reported as warnings rather than errors, since inspecting a release before
+  tidying up is the normal reason to ask. Parsing and the command wrapper live
+  in `scripts/lib/dryrun.sh` where the shell suite exercises them — the case
+  that matters being that a described command really does not run.
+
+- **`joomla-library-ci.yml`**, a reusable workflow for repositories that are a
+  single library rather than a package. It installs npm dependencies and builds
+  the media assets *after* `composer install` (the shared rollup and build-css
+  templates live in `vendor/cwm/build-tools`) and *before* packaging, which is
+  the ordering `lib_cwmscripture` needs and the package workflow does not
+  provide.
+
+- **`.editorconfig`, `.php-cs-fixer.base.php` and `phpunit.xml` templates**,
+  with `cwm-sync-configs` handlers for the first two — the entries that had sat
+  under a `Future:` heading in `sync-configs.php`. Neither handler will
+  overwrite a file the consumer owns: `.editorconfig` is replaced only when it
+  carries the managed-file header this tool stamps, and `.php-cs-fixer.dist.php`
+  only while it is still the generated one-line wrapper. A wrapper that has
+  grown a `setRules` or an `exclude` holds project decisions and is left alone.
+  The shared `.editorconfig` matches the four-space PHP the CWM extensions
+  already used, so adopting it is a no-op rather than a reformat.
+
+### Changed
+
+- **`src/Release/ArsPublisher.php` is a real implementation, and
+  `ars-publish.sh` now delegates to it.** It was a stub that threw, and the
+  publish logic lived in a curl pipeline that could only be exercised by
+  publishing something. The create-or-update decisions — which ship a duplicate
+  release when a lookup wrongly misses (#37), or PATCH over a different one
+  when it wrongly hits — now run in PHP against canned responses in
+  `tests/Release/ArsPublisherTest.php`. The shell keeps the work that is
+  genuinely shell work: config, 1Password, `gh`, and rendering the notes. The
+  two lookups it used to own are gone rather than left behind as a second
+  implementation.
+
+  Vetted against akeeba/release-system 7.5.0 (`development`; `main` is still
+  the Joomla 3 layout and has no `component/api`). Three findings changed the
+  code:
+
+  - **A 403 is no longer read as "no such release".** 7.5.0 added
+    `AssertApiAccess`: every list and read requires `core.manage` on com_ars,
+    and create/edit are gated per-category. A token that published fine against
+    7.4.x can start returning 403 after the site upgrades, and treating that as
+    an empty result set would publish a duplicate. Any non-2xx read is now a
+    hard error, and 401/403 says which permissions to check.
+  - **`maturity` is validated before sending.** `ReleaseTable::check()` rewrites
+    anything outside alpha/beta/rc/stable to `beta` silently, and Joomla then
+    hides the update from sites that have not opted into pre-release updates.
+  - **Release notes must be HTML.** ARS renders the field verbatim; Proclaim
+    10.3.6's download page shipped with literal `##` and `**` and the changelog
+    on one line. Obvious unrendered Markdown is now refused with a pointer to
+    `scripts/render-notes.php`.
+
+- **The sub-library step in `joomla-package-ci.yml` prefers
+  `composer build:package`.** It only looked for `build/build-package.php`,
+  which the libraries deleted when they moved packaging onto `cwm-build` — so
+  the step silently did nothing and left the outer build to fail on a missing
+  include. A project with neither is now an error rather than a skip.
+
+### Fixed
+
+- **The documented workflow reference `@v1` never resolved.** Both reusable
+  workflows advertised it and no such tag existed, so any project that followed
+  the README would have failed to start CI at all. `v1` is now a real moving
+  tag, re-pointed at each release, which is the CI equivalent of the `^1.0`
+  Composer constraint consumers already use — and re-pointing it is now step 6
+  of the release flow in CLAUDE.md. Skipping that step leaves every consumer
+  running the previous release's pipeline silently, so it is not optional.
+  (The README's `@v1.0.0` did resolve, but to a year-old pipeline.)
+
 ## [1.9.1] - 2026-07-27
 
 ### Fixed
