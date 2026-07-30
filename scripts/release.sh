@@ -283,7 +283,23 @@ if [ -n "$UNTRACKED" ]; then
     printf '    %s\n' $UNTRACKED
 fi
 cwm_mutate git add -A
-cwm_mutate git commit -m "chore: bump version to ${VERSION}"
+
+# The bump does not always produce a diff. Bumping first, running the release
+# gate against that build, and only then releasing is a sound workflow — and it
+# leaves the tree already at the target version, so `git commit` exits non-zero
+# with "nothing to commit" and takes the whole release down with it under
+# `set -e`: after the build has run, before anything is tagged.
+#
+# Staged changes are committed exactly as before; an already-bumped tree simply
+# carries on to the tag.
+if [ "${CWM_DRY_RUN:-0}" = "1" ]; then
+    cwm_mutate git commit -m "chore: bump version to ${VERSION}"
+elif git diff --cached --quiet; then
+    echo "  Version already at ${VERSION} — nothing to commit, continuing."
+else
+    git commit -m "chore: bump version to ${VERSION}"
+fi
+
 cwm_mutate git push
 echo ""
 
