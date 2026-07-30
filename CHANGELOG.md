@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`versionTracking.sourceFiles` — cwm-bump rewrites version literals held in
+  source.** For a hardcoded constant shipping beside the manifest
+  (`public const VERSION = '1.2.3';`) that nothing in the toolchain wrote, so it
+  drifted. lib_cwmscripture's `LibraryVersion::VERSION` sat a release behind its
+  manifest while `satisfies()` and `needsUpgrade()` read it, telling downstream
+  extensions the library was older than it was
+  (Joomla-Bible-Study/lib_cwmscripture#15).
+
+  Configured as literal lines with a `{version}` placeholder rather than regexes,
+  so an author pastes the line they can see and cannot accidentally turn `$` or
+  `(` into syntax. The placeholder accepts pre-release and build suffixes and is
+  anchored to digits, so version-shaped text on unmatched lines — `@since` tags,
+  unrelated constants — is untouched.
+
+  A pattern that matches nothing throws instead of warning, as do a missing file,
+  a missing placeholder and a malformed entry: a rewrite that silently does
+  nothing is how the drift happens, so it has to stop the bump.
+
 ## [1.12.0] - 2026-07-30
 
 ### Added

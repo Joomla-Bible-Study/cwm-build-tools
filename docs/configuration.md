@@ -28,7 +28,51 @@ cwm-init` rather than authoring by hand. Minimal examples live in
 | `github` | `{ owner, repo, releaseBranch }` for release + changelog. |
 | `changelog` | `{ file, url }` — the Joomla changelog XML path and its raw URL. |
 | `announcement` | `{ command, bulletsDir }` for the release announcement article. |
-| `versionTracking` | Override layer, deep-merged on top of the profile. `versionsJson`, `packageJson`, `substituteTokens.paths[]`. **Lists replace wholesale.** |
+| `versionTracking` | Override layer, deep-merged on top of the profile. `versionsJson`, `packageJson`, `substituteTokens.paths[]`, `sourceFiles[]`. **Lists replace wholesale.** See [source-file version literals](#versiontrackingsourcefiles--version-literals-in-source) below. |
+
+### `versionTracking.sourceFiles` — version literals in source
+
+For a version hardcoded in code that ships beside the manifest — the shape
+`public const VERSION = '1.2.3';` — which nothing else in the toolchain writes,
+so it drifts. `cwm-bump` rewrites it along with the manifest:
+
+```json
+"versionTracking": {
+    "sourceFiles": [
+        { "path": "src/LibraryVersion.php",
+          "pattern": "public const VERSION = '{version}';" }
+    ]
+}
+```
+
+Why this exists: lib_cwmscripture's `LibraryVersion::VERSION` sat at 1.1.3 while
+its manifest said 1.1.4, and `satisfies()` / `needsUpgrade()` read that constant —
+so downstream extensions gating on a minimum library version were answered from a
+stale number and could refuse a library that was new enough.
+
+**Patterns are literals, not regexes.** The whole string is quoted and only
+`{version}` becomes a capture, so you paste the line as it appears in the file
+and `$`, `(` or `.` match themselves. That also keeps a pattern reviewable by
+someone who does not write regex.
+
+`{version}` matches a semver-ish token including pre-release and build suffixes
+(`1.2.3`, `1.2.3-beta1`, `1.2.3-dev`), anchored to digits so a pattern cannot
+drift onto arbitrary text. A version-shaped literal on a line the pattern does
+not match — an `@since` tag, an unrelated constant — is left alone.
+
+Unlike the JSON trackers, problems here are **fatal rather than warnings**:
+
+| Situation | Result |
+|---|---|
+| Pattern matches nothing | throws, naming the file and pattern |
+| `path` missing on disk | throws |
+| `pattern` has no `{version}` | throws |
+| Entry missing `path` or `pattern` | throws |
+| File already at the target version | no-op, reported as `(no change)` |
+
+That is deliberate. A rewrite that silently does nothing is precisely how the
+version drifted in the first place, so a misconfigured entry has to stop the
+bump rather than let a stale literal ship.
 | `assets` | Source-tree asset staging (`images`, `vendorMediaSource`, `packages[]`). Source paths, not install paths. |
 | `dev` | Optional dev-link overrides — `deriveLinks`, `links[]`, `internalLinks[]`, `cwmSiblings`. |
 | `gitignore` | `{ outputPaths[], mediaPaths[] }` feeding the managed `.gitignore` block. |

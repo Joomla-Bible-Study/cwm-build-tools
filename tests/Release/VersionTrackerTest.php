@@ -198,6 +198,181 @@ final class VersionTrackerTest extends TestCase
     /**
      * @param array{versionsJson?: string, packageJson?: string} $config
      */
+    // -----------------------------------------------------------------
+    // sourceFiles — version literals held in source
+    // -----------------------------------------------------------------
+
+    #[Test]
+    public function source_files_rewrites_a_version_constant(): void
+    {
+        $this->seedSourceFile("    public const VERSION = '1.1.7';\n");
+
+        $touched = $this->runQuiet(fn () => $this->tracker([
+            'sourceFiles' => [
+                ['path' => 'src/LibraryVersion.php', 'pattern' => "public const VERSION = '{version}';"],
+            ],
+        ])->updateForBump('1.2.0'));
+
+        self::assertCount(1, $touched);
+        self::assertStringContainsString("public const VERSION = '1.2.0';", $this->readSourceFile());
+    }
+
+    #[Test]
+    public function source_files_leaves_the_rest_of_the_file_alone(): void
+    {
+        $this->seedSourceFile(
+            "    /** @since 1.0.0 */\n"
+            . "    public const VERSION = '1.1.7';\n"
+            . "    public const OTHER = '1.1.7';\n"
+        );
+
+        $this->runQuiet(fn () => $this->tracker([
+            'sourceFiles' => [
+                ['path' => 'src/LibraryVersion.php', 'pattern' => "public const VERSION = '{version}';"],
+            ],
+        ])->updateForBump('1.2.0'));
+
+        $after = $this->readSourceFile();
+
+        self::assertStringContainsString("public const VERSION = '1.2.0';", $after);
+        // A version-shaped literal elsewhere on an unmatched line must survive:
+        // the pattern is a whole line, not a bare version search-and-replace.
+        self::assertStringContainsString("public const OTHER = '1.1.7';", $after);
+        self::assertStringContainsString('@since 1.0.0', $after);
+    }
+
+    #[Test]
+    public function source_files_accepts_prerelease_versions(): void
+    {
+        $this->seedSourceFile("    public const VERSION = '1.1.7-beta2';\n");
+
+        $this->runQuiet(fn () => $this->tracker([
+            'sourceFiles' => [
+                ['path' => 'src/LibraryVersion.php', 'pattern' => "public const VERSION = '{version}';"],
+            ],
+        ])->updateForBump('1.2.0-rc1'));
+
+        self::assertStringContainsString("public const VERSION = '1.2.0-rc1';", $this->readSourceFile());
+    }
+
+    #[Test]
+    public function source_files_treats_the_pattern_as_a_literal_not_a_regex(): void
+    {
+        // Parentheses and $ would be syntax in a regex; here they must match
+        // themselves, so an author can paste the line they see.
+        $this->seedSourceFile("    \$this->set('version', '1.1.7'); // (pinned)\n");
+
+        $this->runQuiet(fn () => $this->tracker([
+            'sourceFiles' => [
+                ['path' => 'src/LibraryVersion.php', 'pattern' => "\$this->set('version', '{version}'); // (pinned)"],
+            ],
+        ])->updateForBump('1.2.0'));
+
+        self::assertStringContainsString("\$this->set('version', '1.2.0'); // (pinned)", $this->readSourceFile());
+    }
+
+    #[Test]
+    public function source_files_is_idempotent_when_already_current(): void
+    {
+        $this->seedSourceFile("    public const VERSION = '1.2.0';\n");
+
+        $touched = $this->runQuiet(fn () => $this->tracker([
+            'sourceFiles' => [
+                ['path' => 'src/LibraryVersion.php', 'pattern' => "public const VERSION = '{version}';"],
+            ],
+        ])->updateForBump('1.2.0'));
+
+        self::assertSame([], $touched, 'An already-current file should not be reported as rewritten.');
+    }
+
+    /**
+     * The whole point of the feature: a rewrite that quietly does nothing is how
+     * a version drifts in the first place, so a non-matching pattern is fatal
+     * rather than a warning.
+     */
+    #[Test]
+    public function source_files_throws_when_the_pattern_matches_nothing(): void
+    {
+        $this->seedSourceFile("    public const VERSION = '1.1.7';\n");
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/did not match anything/');
+
+        $this->runQuiet(fn () => $this->tracker([
+            'sourceFiles' => [
+                ['path' => 'src/LibraryVersion.php', 'pattern' => "public const RELEASE = '{version}';"],
+            ],
+        ])->updateForBump('1.2.0'));
+    }
+
+    #[Test]
+    public function source_files_throws_on_a_missing_file(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/path not found/');
+
+        $this->runQuiet(fn () => $this->tracker([
+            'sourceFiles' => [
+                ['path' => 'src/Nope.php', 'pattern' => "public const VERSION = '{version}';"],
+            ],
+        ])->updateForBump('1.2.0'));
+    }
+
+    #[Test]
+    public function source_files_throws_when_the_placeholder_is_missing(): void
+    {
+        $this->seedSourceFile("    public const VERSION = '1.1.7';\n");
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/\{version\} placeholder/');
+
+        $this->runQuiet(fn () => $this->tracker([
+            'sourceFiles' => [
+                ['path' => 'src/LibraryVersion.php', 'pattern' => 'public const VERSION'],
+            ],
+        ])->updateForBump('1.2.0'));
+    }
+
+    #[Test]
+    public function source_files_throws_on_a_malformed_entry(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/`path` and `pattern`/');
+
+        $this->runQuiet(fn () => $this->tracker([
+            'sourceFiles' => [['path' => 'src/LibraryVersion.php']],
+        ])->updateForBump('1.2.0'));
+    }
+
+    #[Test]
+    public function source_files_absent_from_config_is_a_no_op(): void
+    {
+        $this->seedVersionsJson();
+
+        $touched = $this->runQuiet(fn () => $this->tracker([
+            'versionsJson' => 'build/versions.json',
+        ])->updateForBump('1.2.0'));
+
+        self::assertCount(1, $touched, 'Only versions.json should be touched.');
+    }
+
+    private function seedSourceFile(string $body): void
+    {
+        if (!is_dir($this->tmpDir . '/src')) {
+            mkdir($this->tmpDir . '/src', 0o777, true);
+        }
+
+        file_put_contents(
+            $this->tmpDir . '/src/LibraryVersion.php',
+            "<?php\n\nclass LibraryVersion\n{\n" . $body . "}\n"
+        );
+    }
+
+    private function readSourceFile(): string
+    {
+        return (string) file_get_contents($this->tmpDir . '/src/LibraryVersion.php');
+    }
+
     private function tracker(array $config): VersionTracker
     {
         return new VersionTracker($this->tmpDir, $config);
