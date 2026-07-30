@@ -27,6 +27,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -199,26 +200,6 @@ if [ ! -f "$CHANGELOG_PATH" ]; then
 fi
 
 export CHANGELOG_ENTRY="$ENTRY"
-python3 - "$CHANGELOG_PATH" <<'INSERT_SCRIPT'
-import os, sys
-
-changelog_file = sys.argv[1]
-entry = os.environ.get('CHANGELOG_ENTRY', '')
-
-with open(changelog_file, 'r') as f:
-    content = f.read()
-
-marker = '<changelogs>'
-pos = content.find(marker)
-if pos == -1:
-    print("Error: Could not find <changelogs> tag in changelog file.", file=sys.stderr)
-    sys.exit(1)
-
-insert_pos = content.index('\n', pos) + 1
-new_content = content[:insert_pos] + '\n' + entry + '\n' + content[insert_pos:]
-
-with open(changelog_file, 'w') as f:
-    f.write(new_content)
-INSERT_SCRIPT
+python3 "${SCRIPT_DIR}/changelog-insert.py" "$CHANGELOG_PATH"
 
 echo "Changelog entry for ${VERSION} added to $(basename "$CHANGELOG_PATH")."
