@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.13.2] - 2026-07-30
+
+### Fixed
+
+- **`cwm-release` no longer dies when the version bump produces no diff.** Step 4
+  ran `git commit` unconditionally; on a tree already at the target version that
+  exits non-zero with "nothing to commit", and `set -e` took the whole release
+  down — after the build had run, before anything was tagged, with no sign in the
+  output that it was fatal.
+
+  Not an edge case: bumping first, running the release gate against that exact
+  build, and only then releasing leaves the version already bumped every time.
+
+  Staged changes are committed exactly as before; an already-bumped tree says so
+  and carries on to the tag. Dry-run output is unchanged.
+
 ## [1.13.1] - 2026-07-30
 
 ### Fixed
