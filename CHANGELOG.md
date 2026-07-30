@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-07-30
+
+### Fixed
+
+- **`cwm-changelog` no longer inserts entries inside the changelog's header
+  comment.** Placement was `content.find('<changelogs>')`, which matches the
+  first occurrence anywhere in the file — and these changelog files carry a
+  header comment explaining what the root element is, so the first occurrence
+  was usually inside that comment.
+
+  Two failure modes, both silent, because the script reported success either way
+  and a changelog that will not parse looks to Joomla exactly like one that is
+  empty:
+
+  - The entry is swallowed by the comment. The file still parses; the release
+    simply has no changelog entry.
+  - The entry's own version-banner comment lines close the enclosing comment at
+    their first terminator, and the rest of the document becomes garbage. This
+    is what `generate-changelog-entry.sh` emits, so it is the common case.
+
+  Occurrences inside XML comments are now skipped. A root carrying attributes,
+  and a root on the final line with no trailing newline, are handled too.
+
+  Placement moved out of the inline heredoc into `scripts/changelog-insert.py`
+  so the rule is covered by `tests/python`, alongside the existing
+  sync-languages tests (Joomla-Bible-Study/CWMLivingWord#88).
+
 ## [1.13.0] - 2026-07-30
 
 ### Added
