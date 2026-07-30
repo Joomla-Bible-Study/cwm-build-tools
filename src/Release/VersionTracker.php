@@ -18,17 +18,25 @@ namespace CWM\BuildTools\Release;
  *
  * The class is intentionally narrow:
  *   - updateForBump:    write the dev-side fields (active_development, package.json)
+ *                       and any configured source-file version literals
  *   - updateForRelease: write the post-release fields (current, next.*, _updated)
  *
  * Each method touches only files explicitly listed in the project's
  * `versionTracking` block. Absent block → no-op. Missing file on disk →
  * stderr warning + skip (same posture as bump.php's missing-manifest path).
  * Malformed JSON → throw (caller exits non-zero).
+ *
+ * `sourceFiles` is the exception to the skip-and-warn posture: a pattern that
+ * matches nothing throws. A version literal living in source is invisible until
+ * a consumer reads it and gets a stale answer — lib_cwmscripture's
+ * LibraryVersion::VERSION sat a release behind while satisfies() told downstream
+ * extensions the library was too old — so a rewrite that silently does nothing is
+ * the exact failure this feature exists to remove.
  */
 final class VersionTracker
 {
     /**
-     * @param  array{versionsJson?: string, packageJson?: string} $config
+     * @param  array{versionsJson?: string, packageJson?: string, sourceFiles?: list<array{path: string, pattern: string}>} $config
      *         The `versionTracking` block from cwm-build.config.json.
      */
     public function __construct(
@@ -61,6 +69,10 @@ final class VersionTracker
             }
         }
 
+        foreach ($this->rewriteSourceFiles($version) as $path) {
+            $touched[] = $path;
+        }
+
         return $touched;
     }
 
@@ -85,6 +97,127 @@ final class VersionTracker
         }
 
         return $touched;
+    }
+
+    /**
+     * Rewrite version literals held in source files.
+     *
+     * For hardcoded constants that ship alongside the manifest — the shape
+     * `public const VERSION = '1.2.3';` — which nothing else in the toolchain
+     * writes, so they drift.
+     *
+     * Configured as literal lines with a `{version}` placeholder rather than
+     * regexes:
+     *
+     *     "sourceFiles": [
+     *         { "path": "src/LibraryVersion.php",
+     *           "pattern": "public const VERSION = '{version}';" }
+     *     ]
+     *
+     * The pattern is escaped and only the placeholder becomes a capture, so an
+     * author writes the line they can see in the file and cannot accidentally
+     * turn `$` or `(` into syntax. It also means a pattern is readable in review
+     * by someone who does not write regex.
+     *
+     * @return list<string> Files rewritten.
+     *
+     * @throws \RuntimeException When a configured pattern matches nothing, or
+     *                          matches a version this rewrite cannot pin down.
+     */
+    private function rewriteSourceFiles(string $version): array
+    {
+        $entries = $this->config['sourceFiles'] ?? [];
+
+        if (!is_array($entries) || $entries === []) {
+            return [];
+        }
+
+        $touched = [];
+
+        foreach ($entries as $i => $entry) {
+            if (!is_array($entry) || !isset($entry['path'], $entry['pattern'])) {
+                throw new \RuntimeException(
+                    "versionTracking.sourceFiles[$i] must be an object with `path` and `pattern`"
+                );
+            }
+
+            $relative = (string) $entry['path'];
+            $pattern  = (string) $entry['pattern'];
+            $absolute = $this->projectRoot . '/' . $relative;
+
+            if (!is_file($absolute)) {
+                // Unlike the JSON trackers this is fatal: the file is named
+                // explicitly, so its absence is a broken config, and skipping
+                // would leave a stale version shipping.
+                throw new \RuntimeException(
+                    "versionTracking.sourceFiles[$i] path not found: $relative"
+                );
+            }
+
+            if (!str_contains($pattern, '{version}')) {
+                throw new \RuntimeException(
+                    "versionTracking.sourceFiles[$i] pattern must contain the {version} placeholder"
+                );
+            }
+
+            $contents = (string) file_get_contents($absolute);
+            $regex    = $this->patternToRegex($pattern);
+
+            if (preg_match_all($regex, $contents, $matches) === 0) {
+                throw new \RuntimeException(
+                    "versionTracking.sourceFiles[$i]: pattern did not match anything in $relative\n"
+                    . "  pattern: $pattern\n"
+                    . '  Nothing was rewritten. Check the literal against the file — a pattern that '
+                    . 'silently matches nothing is how a version drifts in the first place.'
+                );
+            }
+
+            $replacement = str_replace('{version}', $version, $pattern);
+            $updated     = preg_replace($regex, $this->escapeReplacement($replacement), $contents);
+
+            if ($updated === null) {
+                throw new \RuntimeException("versionTracking.sourceFiles[$i]: rewrite failed for $relative");
+            }
+
+            if ($updated === $contents) {
+                echo "  $relative (no change)\n";
+
+                continue;
+            }
+
+            file_put_contents($absolute, $updated);
+            echo "  $relative → version=$version\n";
+            $touched[] = $absolute;
+        }
+
+        return $touched;
+    }
+
+    /**
+     * Turn a literal pattern into a regex: everything quoted, `{version}`
+     * standing in for a semver-ish token.
+     *
+     * The token deliberately accepts pre-release and build suffixes
+     * (`1.2.3-beta1`, `1.2.3-dev`) because bump.php accepts them, and stays
+     * anchored to digits so a pattern cannot drift onto arbitrary text.
+     */
+    private function patternToRegex(string $pattern): string
+    {
+        $parts = array_map(
+            static fn (string $part): string => preg_quote($part, '/'),
+            explode('{version}', $pattern)
+        );
+
+        return '/' . implode('\\d+\\.\\d+\\.\\d+[0-9A-Za-z.\\-+]*', $parts) . '/';
+    }
+
+    /**
+     * Escape a literal replacement so `$1`-style sequences in the pattern are
+     * not read as backreferences by preg_replace.
+     */
+    private function escapeReplacement(string $replacement): string
+    {
+        return str_replace(['\\', '$'], ['\\\\', '\\$'], $replacement);
     }
 
     /**
