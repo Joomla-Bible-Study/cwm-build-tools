@@ -51,7 +51,51 @@ Consumed by `cwm-build` / `cwm-package`.
 | `vendorPrune` | Strip composer metadata/docs from `vendor/` subtrees. |
 | `preBuild` | `{ mode: "ensure-minified", dirs[] }` or `{ mode: "run", command }` (e.g. `npm run build`). Runs before zipping. |
 | `verifyAssets` | `true` to fail the build if a `joomla.asset.json`-referenced file is missing. See the [JS guide](javascript-and-joomladialog.md#72-buildverifyassets-fail-loudly-if-an-asset-didnt-build). |
+| `verifyMediaSources[]` | `{ source, output }` directory pairs. Fails the build when a file in `output` has no matching source in `source` — i.e. build output that outlived its source. See below. |
 | `versionPrompt` | `{ enabled, timeout }` for the interactive 3-way version prompt. |
+
+#### `verifyMediaSources` — catch build output that outlived its source
+
+`verifyAssets` catches an asset the manifest references that the build never
+produced. This catches the opposite: a file in `media/` that no source can
+reproduce.
+
+```json
+"verifyMediaSources": [
+    { "source": "build/media_source/js",  "output": "media/lib_cwmscripture/js" },
+    { "source": "build/media_source/css", "output": "media/lib_cwmscripture/css" }
+]
+```
+
+Why it exists: minified output is gitignored, so when a source file is renamed or
+deleted, its old output is not removed by any checkout, branch switch or pull. It
+just sits in `media/`, and the packager ships whatever is there. lib_cwmscripture
+shipped `translations-manager.min.js` (plus `.gz` and `.map`) in every release for
+months after the source became `bible-translations.es6.js` — the published v1.1.6
+zip had 90 files where a fresh build of the same tag had 87. Nothing referenced
+them, so there was no error to notice.
+
+The cost of that is not cosmetic: the release artifact stops being a function of
+the source and becomes a function of the source *plus that machine's build
+history*, so two developers on the same tag produce different packages. Fixing it
+after publication also invalidates the checksums the update server recorded at
+publish time.
+
+Matching rules:
+
+- `foo.min.js`, `foo.min.js.gz`, `foo.min.js.map` and `foo.js` all trace back to
+  `foo` — satisfied by `foo.es6.js`, `foo.esm.js` or `foo.js` in the source dir.
+- Files that are not `.js` / `.mjs` / `.css` (or a `.map` / `.gz` of one) are
+  ignored: `joomla.asset.json`, `index.html`, licence files.
+- Only the top level of each `output` dir is checked. Subdirectories are usually
+  copied third-party payloads whose layout has no relationship to `media_source`,
+  and flagging those would just teach people to switch the check off.
+- A pair whose `output` dir does not exist is skipped; a missing `source` dir is
+  an error, since that is a config typo.
+
+Opt-in per project: a tree that keeps hand-maintained files in the same directory
+as build output would fail, so point the pairs at the directories your build
+actually owns.
 
 ### The `security` block
 

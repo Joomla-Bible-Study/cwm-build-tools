@@ -680,6 +680,173 @@ final class PackageBuilderTest extends TestCase
     /**
      * @return array<string, mixed>
      */
+    // ---------------------------------------------------------------------
+    // verifyMediaSources — build output that outlived its source
+    // ---------------------------------------------------------------------
+
+    /**
+     * The lib_cwmscripture case: translations-manager.es6.js was replaced by
+     * bible-translations.es6.js, but the minified output is gitignored, so it
+     * survived every checkout and shipped in releases for months.
+     */
+    #[Test]
+    public function failsWhenBuiltMediaHasNoSource(): void
+    {
+        $this->seedMediaParityFixture();
+
+        // Output whose source is gone — plus the derived files that travel with it.
+        $this->writeFile('media/lib_cwmscripture/js/translations-manager.min.js', 'stale');
+        $this->writeFile('media/lib_cwmscripture/js/translations-manager.min.js.gz', 'stale');
+        $this->writeFile('media/lib_cwmscripture/js/translations-manager.min.js.map', '{}');
+
+        $builder = new PackageBuilder($this->mediaParityConfig(), $this->tmpDir);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/translations-manager\.min\.js/');
+
+        $builder->build();
+    }
+
+    #[Test]
+    public function reportsEveryOrphanNotJustTheFirst(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->writeFile('media/lib_cwmscripture/js/gone.min.js', 'stale');
+        $this->writeFile('media/lib_cwmscripture/css/also-gone.min.css', 'stale');
+
+        $builder = new PackageBuilder($this->mediaParityConfig(), $this->tmpDir);
+
+        try {
+            $builder->build();
+            $this->fail('Expected the orphan check to fail the build.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('gone.min.js', $e->getMessage());
+            $this->assertStringContainsString('also-gone.min.css', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function acceptsEveryDerivedFormOfALiveSource(): void
+    {
+        $this->seedMediaParityFixture();
+
+        // All of these trace back to foo.es6.js / foo.css.
+        $this->writeFile('media/lib_cwmscripture/js/foo.min.js.gz', 'x');
+        $this->writeFile('media/lib_cwmscripture/js/foo.min.js.map', '{}');
+        $this->writeFile('media/lib_cwmscripture/css/foo.min.css.map', '{}');
+
+        // Not build products, so they need no source.
+        $this->writeFile('media/lib_cwmscripture/js/joomla.asset.json', '{}');
+        $this->writeFile('media/lib_cwmscripture/js/index.html', '');
+        $this->writeFile('media/lib_cwmscripture/css/LICENSE.txt', '');
+
+        $builder = new PackageBuilder($this->mediaParityConfig(), $this->tmpDir);
+
+        $this->expectOutputRegex('/Building lib_cwmscripture-1\.2\.0\.zip/');
+
+        $this->assertFileExists($builder->build());
+    }
+
+    #[Test]
+    public function ignoresSubdirectoriesOfTheOutputDirectory(): void
+    {
+        $this->seedMediaParityFixture();
+
+        // A copied third-party payload: no relationship to media_source, and
+        // flagging it would teach people to switch the check off.
+        $this->writeFile('media/lib_cwmscripture/js/vendor/chart.js/chart.min.js', 'x');
+
+        $builder = new PackageBuilder($this->mediaParityConfig(), $this->tmpDir);
+
+        $this->expectOutputRegex('/Building lib_cwmscripture-1\.2\.0\.zip/');
+
+        $this->assertFileExists($builder->build());
+    }
+
+    #[Test]
+    public function skipsPairsWhoseOutputDirectoryIsAbsent(): void
+    {
+        $this->seedMediaParityFixture();
+
+        $config = BuildConfig::fromArray(array_merge($this->libConfigArray(), [
+            'preBuild'           => null,
+            'verifyMediaSources' => [
+                ['source' => 'build/media_source/js', 'output' => 'media/lib_cwmscripture/js'],
+                ['source' => 'build/media_source/js', 'output' => 'media/not-built-here'],
+            ],
+        ]));
+
+        $builder = new PackageBuilder($config, $this->tmpDir);
+
+        $this->expectOutputRegex('/Building lib_cwmscripture-1\.2\.0\.zip/');
+
+        $this->assertFileExists($builder->build());
+    }
+
+    #[Test]
+    public function failsLoudlyWhenTheConfiguredSourceDirectoryIsMissing(): void
+    {
+        $this->seedMediaParityFixture();
+
+        $config = BuildConfig::fromArray(array_merge($this->libConfigArray(), [
+            'preBuild'           => null,
+            'verifyMediaSources' => [
+                ['source' => 'build/media_source/typo', 'output' => 'media/lib_cwmscripture/js'],
+            ],
+        ]));
+
+        $builder = new PackageBuilder($config, $this->tmpDir);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/source directory not found: build\/media_source\/typo/');
+
+        $builder->build();
+    }
+
+    #[Test]
+    public function rejectsMalformedVerifyMediaSourcesConfig(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/`source` and `output`/');
+
+        BuildConfig::fromArray(array_merge($this->libConfigArray(), [
+            'verifyMediaSources' => [['source' => 'build/media_source/js']],
+        ]));
+    }
+
+    /**
+     * A minimal project with one live JS source and one live CSS source, plus the
+     * manifest and the outputs a real build would leave behind.
+     */
+    private function seedMediaParityFixture(): void
+    {
+        $this->writeManifest('cwmscripture.xml', '1.2.0');
+        $this->writeFile('script.php', '<?php // install hook');
+        $this->writeFile('src/Service/Foo.php', '<?php // foo');
+        $this->writeFile('sql/install.mysql.utf8.sql', '-- DDL');
+        $this->writeFile('language/en-GB/en-GB.lib_cwmscripture.ini', '');
+
+        $this->writeFile('build/media_source/js/foo.es6.js', 'export default 1;');
+        $this->writeFile('build/media_source/css/foo.css', '.foo{}');
+
+        $this->writeFile('media/lib_cwmscripture/js/foo.js', 'console.log(1);');
+        $this->writeFile('media/lib_cwmscripture/js/foo.min.js', 'console.log(1)');
+        $this->writeFile('media/lib_cwmscripture/css/foo.css', '.foo{}');
+        $this->writeFile('media/lib_cwmscripture/css/foo.min.css', '.foo{}');
+    }
+
+    private function mediaParityConfig(): BuildConfig
+    {
+        // preBuild off: ensure-minified would fire first and mask what is under test.
+        return BuildConfig::fromArray(array_merge($this->libConfigArray(), [
+            'preBuild'           => null,
+            'verifyMediaSources' => [
+                ['source' => 'build/media_source/js',  'output' => 'media/lib_cwmscripture/js'],
+                ['source' => 'build/media_source/css', 'output' => 'media/lib_cwmscripture/css'],
+            ],
+        ]));
+    }
+
     private function libConfigArray(): array
     {
         return [

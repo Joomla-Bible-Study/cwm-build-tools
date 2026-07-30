@@ -81,6 +81,10 @@ final class PackageBuilder
             $this->verifyAssetReferences();
         }
 
+        if ($this->config->verifyMediaSources !== []) {
+            $this->verifyMediaSourceParity();
+        }
+
         $outputDir = $this->resolve($this->config->outputDir);
 
         if (!is_dir($outputDir) && !mkdir($outputDir, 0o777, true) && !is_dir($outputDir)) {
@@ -328,6 +332,122 @@ final class PackageBuilder
             );
             exit(1);
         }
+    }
+
+    /**
+     * Fail when a built media file has no source to have been built from.
+     *
+     * `verifyAssets` catches the opposite problem — an asset the manifest
+     * references that the build never produced. This catches output that outlives
+     * its source, which is invisible for as long as nothing loads it.
+     *
+     * It has happened: lib_cwmscripture shipped
+     * `media/lib_cwmscripture/js/translations-manager.min.js` (plus `.gz` and
+     * `.map`) in every release for months after `translations-manager.es6.js` was
+     * replaced by `bible-translations.es6.js`. Minified output is gitignored, so no
+     * checkout, branch switch or pull ever removed it, and the packager ships
+     * whatever sits in `media/`. The published v1.1.6 asset had 90 files where a
+     * fresh build of the same tag had 87 — the release artifact was a function of
+     * the source *plus that machine's build history*.
+     *
+     * Nothing referenced those files, so there was no error to notice. Re-publishing
+     * a corrected artifact later is not free either: it invalidates the checksums
+     * the update server recorded at publish time.
+     *
+     * Only the top level of each output directory is checked. Subdirectories are
+     * usually third-party payloads (a copied vendor library) whose layout has no
+     * relationship to `media_source`, and flagging those would train people to
+     * disable the check.
+     *
+     * @throws \RuntimeException When an orphaned build artifact is found.
+     */
+    private function verifyMediaSourceParity(): void
+    {
+        $orphans = [];
+
+        foreach ($this->config->verifyMediaSources as $pair) {
+            $outputDir = $this->resolve($pair['output']);
+            $sourceDir = $this->resolve($pair['source']);
+
+            if (!is_dir($outputDir)) {
+                continue;
+            }
+
+            if (!is_dir($sourceDir)) {
+                throw new \RuntimeException(
+                    "build.verifyMediaSources: source directory not found: {$pair['source']}"
+                );
+            }
+
+            $sourceBases = [];
+
+            foreach ((array) scandir($sourceDir) as $entry) {
+                if (!is_file($sourceDir . '/' . $entry)) {
+                    continue;
+                }
+
+                $sourceBases[self::sourceBaseName($entry)] = true;
+            }
+
+            foreach ((array) scandir($outputDir) as $entry) {
+                if (!is_file($outputDir . '/' . $entry)) {
+                    continue;
+                }
+
+                $base = self::outputBaseName($entry);
+
+                // null = not a build product (joomla.asset.json, index.html, a
+                // licence file). Those are shipped as-is and have no source.
+                if ($base === null || isset($sourceBases[$base])) {
+                    continue;
+                }
+
+                $orphans[] = $pair['output'] . '/' . $entry;
+            }
+        }
+
+        if ($orphans === []) {
+            return;
+        }
+
+        throw new \RuntimeException(
+            "Media verification failed — built files with no corresponding source:\n  - "
+            . implode("\n  - ", $orphans)
+            . "\n\nTheir source was removed or renamed, but the build output survived because it is\n"
+            . "gitignored. Packaging them makes the release artifact depend on this machine's build\n"
+            . "history rather than on the source tree. Delete them (`git clean -Xfd <media dir>`)\n"
+            . "and rebuild, or add the source back if the removal was a mistake."
+        );
+    }
+
+    /**
+     * Base name of a source file: `foo.es6.js` -> `foo`, `foo.scss` -> `foo`.
+     */
+    private static function sourceBaseName(string $filename): string
+    {
+        $base = preg_replace('/\.[^.]+$/', '', $filename) ?? $filename;
+
+        // Strip the ES-module marker so foo.es6.js and foo.js agree on `foo`.
+        return preg_replace('/\.(es6|esm)$/i', '', $base) ?? $base;
+    }
+
+    /**
+     * Base name of a build product, or null when the file is not one.
+     *
+     * `foo.min.js.gz` / `foo.min.js.map` / `foo.min.js` / `foo.js` -> `foo`
+     */
+    private static function outputBaseName(string $filename): ?string
+    {
+        $name = preg_replace('/\.gz$/i', '', $filename) ?? $filename;
+        $name = preg_replace('/\.map$/i', '', $name) ?? $name;
+
+        if (!preg_match('/\.(js|mjs|css)$/i', $name)) {
+            return null;
+        }
+
+        $name = preg_replace('/\.[^.]+$/', '', $name) ?? $name;
+
+        return preg_replace('/\.min$/i', '', $name) ?? $name;
     }
 
     /**
