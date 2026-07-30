@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`build.verifyMediaSources` — fail the build on output that outlived its
+  source.** `verifyAssets` catches an asset the manifest references that the
+  build never produced; this catches the inverse, a file in `media/` no source
+  can reproduce. Configured as `{ source, output }` directory pairs, opt-in per
+  project.
+
+  lib_cwmscripture shipped `media/lib_cwmscripture/js/translations-manager.min.js`
+  (plus its `.gz` and `.map`) in every release for months after the source was
+  renamed to `bible-translations.es6.js`. Minified output is gitignored, so no
+  checkout, branch switch or pull ever removed it, and the packager ships whatever
+  is in `media/`. The published v1.1.6 zip contained 90 files where a fresh build
+  of the same tag produced 87.
+
+  Nothing referenced the stale files, so there was no error to notice — it
+  surfaced only by comparing the published asset against a build from another
+  checkout. The real damage is that the release artifact stops being a function of
+  the source and becomes a function of the source *plus that machine's build
+  history*: two developers on the same tag produce different packages, and the
+  library inside `pkg_proclaim` differed from the published library of the same
+  version. Re-publishing a corrected artifact then invalidates the checksums the
+  update server recorded at publish time.
+
+  Matching handles every derived form (`.min`, `.map`, `.gz`, `.es6`/`.esm`
+  sources), ignores non-build files such as `joomla.asset.json` and `index.html`,
+  and checks only the top level of each output dir — subdirectories are usually
+  copied third-party payloads whose layout has no relationship to `media_source`.
+
 ## [1.11.0] - 2026-07-29
 
 ### Added

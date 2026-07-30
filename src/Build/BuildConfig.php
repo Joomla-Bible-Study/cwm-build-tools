@@ -37,6 +37,7 @@ final class BuildConfig
      * @param list<string>                          $includeRootExtensions  When set with `includeRoots`, allows root-level files with these extensions through the include filter.
      * @param array{mode: string, dirs?: list<string>, command?: string}|null $preBuild Optional pre-build hook.
      * @param array{enabled: bool, timeout: int}|null $versionPrompt Optional 3-way version prompt (manifest / date-stamped / custom). Only fires when interactive AND no `--version` override is given.
+     * @param list<array{source: string, output: string}> $verifyMediaSources Source/output directory pairs; every built file in `output` must trace back to a source in `source`.
      */
     public function __construct(
         public readonly string $outputDir,
@@ -54,6 +55,7 @@ final class BuildConfig
         public readonly array $includeRootExtensions = [],
         public readonly ?array $versionPrompt = null,
         public readonly bool $verifyAssets = false,
+        public readonly array $verifyMediaSources = [],
     ) {
     }
 
@@ -172,7 +174,48 @@ final class BuildConfig
             includeRootExtensions: $includeRootExtensions,
             versionPrompt:         $versionPrompt,
             verifyAssets:          isset($cfg['verifyAssets']) ? (bool) $cfg['verifyAssets'] : false,
+            verifyMediaSources:    self::mediaSourcePairs($cfg),
         );
+    }
+
+    /**
+     * Validate `verifyMediaSources`: a list of {source, output} directory pairs.
+     *
+     * @param  array<string, mixed> $cfg
+     * @return list<array{source: string, output: string}>
+     */
+    private static function mediaSourcePairs(array $cfg): array
+    {
+        if (!isset($cfg['verifyMediaSources'])) {
+            return [];
+        }
+
+        if (!is_array($cfg['verifyMediaSources'])) {
+            throw new \InvalidArgumentException('build.verifyMediaSources must be an array of {source, output} objects');
+        }
+
+        $pairs = [];
+
+        foreach ($cfg['verifyMediaSources'] as $i => $pair) {
+            if (!is_array($pair) || !isset($pair['source'], $pair['output'])) {
+                throw new \InvalidArgumentException(
+                    "build.verifyMediaSources[$i] must be an object with `source` and `output`"
+                );
+            }
+
+            $source = (string) $pair['source'];
+            $output = (string) $pair['output'];
+
+            if (trim($source) === '' || trim($output) === '') {
+                throw new \InvalidArgumentException(
+                    "build.verifyMediaSources[$i] `source` and `output` must be non-empty"
+                );
+            }
+
+            $pairs[] = ['source' => $source, 'output' => $output];
+        }
+
+        return $pairs;
     }
 
     /**
