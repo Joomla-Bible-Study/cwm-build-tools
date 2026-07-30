@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-07-30
+
 ### Added
 
 - **`versionTracking.sourceFiles` — cwm-bump rewrites version literals held in
