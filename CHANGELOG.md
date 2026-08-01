@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`cwm-release` gates on `composer test:release` when a project defines it.**
+  Every release-blocking defect this tool has shipped — an uninstallable
+  package, a migration missing an index, a webservices plugin 500ing on every
+  request — looked structurally correct and failed only once actually
+  executed. `test:release` is that execution, and it previously ran only when
+  someone remembered to run it by hand. It's now a pre-flight step: present in
+  a project's `composer.json`, it runs before anything is bumped, built, or
+  published, and a failure stops the release. Absent, the release runs exactly
+  as before — this doesn't require every CWM project to have a test harness.
+  `--skip-tests` releases anyway; `--dry-run` still runs the gate for real,
+  since it verifies rather than writes.
+
 ## [1.13.2] - 2026-07-30
 
 ### Fixed

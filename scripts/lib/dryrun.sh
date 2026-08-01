@@ -12,27 +12,31 @@
 # the wrapper is a single choke point, and its behaviour is pinned by tests
 # rather than by reading the call sites.
 
-# Split --dry-run/-n out of the argument list.
+# Split release.sh's top-level flags out of the argument list.
 #
-# Sets CWM_DRY_RUN to 1 or 0 and CWM_ARGS to the remaining positional
-# arguments, so a caller can accept the flag before or after the version:
-# both `release.sh --dry-run 1.2.3` and `release.sh 1.2.3 --dry-run` work.
+# Both flags are stripped in the same pass so a caller can put either one
+# anywhere relative to the version: `release.sh --dry-run 1.2.3`,
+# `release.sh 1.2.3 --skip-tests`, and combinations of both all work.
 #
 # Arguments:
 #   The caller's "$@".
 #
 # Sets:
-#   CWM_DRY_RUN  1 when the flag was present, else 0.
-#   CWM_ARGS     Array of the non-flag arguments (may be empty).
+#   CWM_DRY_RUN    1 when --dry-run/-n was present, else 0.
+#   CWM_SKIP_TESTS 1 when --skip-tests was present, else 0.
+#   CWM_ARGS       Array of the non-flag arguments (may be empty).
 cwm_parse_dry_run() {
     CWM_DRY_RUN=0
+    CWM_SKIP_TESTS=0
     CWM_ARGS=()
 
     local arg
     for arg in "$@"; do
+        # shellcheck disable=SC2034  # CWM_SKIP_TESTS is read by release.sh, not this file
         case "$arg" in
-            --dry-run|-n) CWM_DRY_RUN=1 ;;
-            *)            CWM_ARGS+=("$arg") ;;
+            --dry-run|-n)  CWM_DRY_RUN=1 ;;
+            --skip-tests)  CWM_SKIP_TESTS=1 ;;
+            *)             CWM_ARGS+=("$arg") ;;
         esac
     done
 }

@@ -44,6 +44,19 @@ assert_equals "0" "${#CWM_ARGS[@]}" "no positional arguments remain"
 cwm_parse_dry_run 1.2.3-beta1
 assert_equals "1.2.3-beta1" "${CWM_ARGS[*]}" "a pre-release version passes through"
 
+# --- --skip-tests, parsed in the same pass -----------------------------------
+cwm_parse_dry_run 1.2.3
+assert_equals "0" "$CWM_SKIP_TESTS" "no flag means the gate runs"
+
+cwm_parse_dry_run 1.2.3 --skip-tests
+assert_equals "1" "$CWM_SKIP_TESTS" "--skip-tests after the version is found"
+assert_equals "1.2.3" "${CWM_ARGS[*]}" "and is removed from the arguments"
+
+cwm_parse_dry_run --skip-tests --dry-run 1.2.3
+assert_equals "1" "$CWM_SKIP_TESTS" "both flags are recognised together..."
+assert_equals "1" "$CWM_DRY_RUN" "...regardless of order..."
+assert_equals "1.2.3" "${CWM_ARGS[*]}" "...leaving only the version behind"
+
 # --- The wrapper actually withholds the command ------------------------------
 CWM_DRY_RUN=1
 rm -f "${WORK}/evidence"
