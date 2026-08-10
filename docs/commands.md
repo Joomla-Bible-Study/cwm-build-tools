@@ -56,6 +56,7 @@ The full release flow is documented in [Releasing](releasing.md).
 | `cwm-ars-list` | List ARS categories, update streams, and releases. |
 | `cwm-ars-create-stream` | Create a new ARS Update Stream under a category. |
 | `cwm-ars-publish` | Push a built artifact to Akeeba Release System. |
+| `cwm-ars-reorder` | Space out a category's `ordering` so the newest release stays the latest, with room to publish into. Plans by default; `--apply` writes. |
 
 ARS endpoint, category, and stream IDs come from the `ars` block in
 `cwm-build.config.json`; the API token is read from 1Password (`tokenItem` /

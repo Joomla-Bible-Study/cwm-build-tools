@@ -45,6 +45,7 @@
         "bin/cwm-sync-languages",
         "bin/cwm-ars-publish",
         "bin/cwm-ars-list",
+        "bin/cwm-ars-reorder",
         "bin/cwm-ars-create-stream",
         "bin/cwm-changelog",
         "bin/cwm-article",
