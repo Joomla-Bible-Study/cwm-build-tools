@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-08-10
+
 ### Added
 
 - **`cwm-release` gates on `composer test:release` when a project defines it.**
@@ -20,6 +22,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   as before — this doesn't require every CWM project to have a test harness.
   `--skip-tests` releases anyway; `--dry-run` still runs the gate for real,
   since it verifies rather than writes.
+
+### Fixed
+
+- **A published release now actually becomes the latest release on the download
+  site.** ARS decides "latest" by the *lowest* `ordering` in a category — an
+  anti-join in `ReleasesModel::getListQuery()` that never looks at version
+  numbers or dates. Nothing here set that field, and ARS assigns nothing useful
+  on its own: the column is `bigint unsigned NOT NULL` with no DEFAULT and
+  `ReleaseTable::check()` only turns null into 0. So every release we published
+  landed on 0, they all tied for the minimum, and the Latest Releases page showed
+  whichever row the database happened to return last.
+  christianwebministries.org served Proclaim 10.3.1 from May until August while
+  10.5.7 was out, across all four of its categories. Update streams were correct
+  throughout, so Joomla's updater never noticed and neither did we.
+
+  Creating a release now places it one below the category minimum. That makes it
+  the unique minimum and touches no other record — bumping the previous holder
+  out of the way would mean PATCHing a live release with its whole record
+  (re-running `check()` over its notes), and would also fling it to the bottom
+  of the public category listing, which is ordered by this same column.
+
+  Updating a release now sends back the ordering it already has. Omitting the key
+  was not neutral: `release.xml` declares `ordering` with `default="0"` and the
+  form fills defaults for absent fields, so re-publishing a version to correct
+  its notes quietly dragged it to the front of its category. That is the likelier
+  explanation for how everything ended up at 0 in the first place.
+
+  Two cases refuse rather than guess: a category already pinned at 0 (the column
+  is unsigned, so there is no room below it) and a category read that comes back
+  a full page and may be truncated. Both say what to do. A caller-supplied
+  `ordering` is still respected.
 
 ## [1.13.2] - 2026-07-30
 
