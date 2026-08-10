@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-08-10
+
+### Added
+
+- **`cwm-ars-reorder` spaces out an ARS category's `ordering`, so publishing
+  keeps working.** v1.14.0 made a new release land one below its category's
+  minimum, which is what ARS reads as "latest". The column is unsigned, so 0 is
+  the floor: a category numbered contiguously from 1 has exactly *one* publish
+  of headroom before the next one stops with the no-room error.
+
+  Contiguous-from-1 is exactly what the manual fix leaves behind — dragging a
+  release to the top in the ARS backend goes through Joomla's `saveOrderAjax`,
+  which renumbers 1..N with no gaps. The four CWM categories renumbered by hand
+  would each have published once and then wedged, with the refusal firing
+  mid-release.
+
+  This renumbers a category newest-first in strides (100 by default): the newest
+  release holds the minimum ARS looks for, the public category listing — ordered
+  by the same column — runs newest to oldest, and there are `stride - 1`
+  publishes of room underneath. Sorting is by `created` rather than version
+  string, because version strings do not sort (10.3.10 against 10.3.2).
+
+  It plans and writes nothing by default; `--apply` performs the renumbering and
+  only touches releases whose ordering actually changes. Each write is a PATCH
+  carrying the whole record, since a partial one blanks fields to their form
+  defaults — which also means the API's inability to return a release's tags
+  applies here, as it already did to publishing. ARS gained tags in 7.4 and CWM
+  has never set any.
+
+  The no-room error from 1.14.0 now names this command instead of describing the
+  drag that recreates the problem.
+
 ## [1.14.0] - 2026-08-10
 
 ### Added
