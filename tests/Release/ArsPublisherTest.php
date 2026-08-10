@@ -168,6 +168,99 @@ final class ArsPublisherTest extends TestCase
     }
 
     #[Test]
+    public function reorder_numbers_newest_first_in_strides(): void
+    {
+        // Newest gets the lowest ordering because that is what ARS reads as
+        // "latest"; the gaps are what later publishes are placed into.
+        $http = new FakeTransport([
+            self::releaseList([
+                ['id' => 1, 'version' => '1.0.0', 'ordering' => 0, 'created' => '2026-01-01 00:00:00'],
+                ['id' => 2, 'version' => '1.2.0', 'ordering' => 0, 'created' => '2026-03-01 00:00:00'],
+                ['id' => 3, 'version' => '1.1.0', 'ordering' => 0, 'created' => '2026-02-01 00:00:00'],
+            ]),
+        ]);
+
+        $result = self::publisher($http)->reorderCategory(7);
+
+        self::assertSame(
+            [
+                ['id' => 2, 'version' => '1.2.0', 'from' => 0, 'to' => 100],
+                ['id' => 3, 'version' => '1.1.0', 'from' => 0, 'to' => 200],
+                ['id' => 1, 'version' => '1.0.0', 'from' => 0, 'to' => 300],
+            ],
+            $result['changes']
+        );
+    }
+
+    #[Test]
+    public function reorder_plans_without_writing_unless_applied(): void
+    {
+        $http = new FakeTransport([
+            self::releaseList([
+                ['id' => 1, 'version' => '1.0.0', 'ordering' => 0, 'created' => '2026-01-01 00:00:00'],
+            ]),
+        ]);
+
+        $result = self::publisher($http)->reorderCategory(7);
+
+        self::assertFalse($result['applied']);
+        // The read, and nothing else.
+        self::assertCount(1, $http->calls);
+    }
+
+    #[Test]
+    public function reorder_writes_a_full_record_when_applied(): void
+    {
+        // A partial PATCH blanks whatever it omits to the form default, so the
+        // renumber has to send the release back whole with ordering swapped.
+        $http = new FakeTransport([
+            self::releaseList([
+                ['id' => 9, 'version' => '2.0.0', 'ordering' => 4, 'created' => '2026-01-01 00:00:00', 'notes' => '<p>x</p>'],
+            ]),
+            self::ok(['data' => ['attributes' => ['id' => 9]]]),
+        ]);
+
+        self::publisher($http)->reorderCategory(7, 100, true);
+
+        self::assertSame('PATCH', $http->calls[1]['method']);
+        self::assertStringContainsString('/releases/9', $http->calls[1]['url']);
+
+        $sent = json_decode((string) $http->calls[1]['body'], true);
+
+        self::assertSame(100, $sent['ordering']);
+        self::assertSame('2.0.0', $sent['version']);
+        self::assertSame('<p>x</p>', $sent['notes']);
+    }
+
+    #[Test]
+    public function reorder_leaves_releases_that_are_already_right_alone(): void
+    {
+        $http = new FakeTransport([
+            self::releaseList([
+                ['id' => 2, 'version' => '1.1.0', 'ordering' => 100, 'created' => '2026-02-01 00:00:00'],
+                ['id' => 1, 'version' => '1.0.0', 'ordering' => 200, 'created' => '2026-01-01 00:00:00'],
+            ]),
+        ]);
+
+        $result = self::publisher($http)->reorderCategory(7, 100, true);
+
+        self::assertSame([], $result['changes']);
+        // No writes: the read is the only call.
+        self::assertCount(1, $http->calls);
+    }
+
+    #[Test]
+    public function reorder_refuses_a_stride_with_no_room_to_publish_into(): void
+    {
+        $http = new FakeTransport([]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/no room to publish into/');
+
+        self::publisher($http)->reorderCategory(7, 1);
+    }
+
+    #[Test]
     public function version_match_is_exact_not_substring(): void
     {
         // ARS `search` substring-matches, so a search for 10.3.1 returns

@@ -210,27 +210,7 @@ final class ArsPublisher
      */
     private function orderingForNewest(int $categoryId): int
     {
-        $query = http_build_query([
-            'category_id' => $categoryId,
-            'page'        => ['limit' => self::PAGE_LIMIT],
-        ]);
-
-        $rows = $this->readList("/releases?{$query}", 'releases');
-
-        // A full page means the list was probably cut off, and a minimum taken
-        // from part of a category is not a minimum. Guessing here would place
-        // the release above a sibling we never saw and quietly reinstate the
-        // bug this method exists to prevent.
-        if (\count($rows) >= self::PAGE_LIMIT) {
-            throw new \RuntimeException(sprintf(
-                'ARS category %d returned the full %d-row page, so this may not be all of it and the lowest '
-                . '`ordering` cannot be established. Refusing to guess: a release ordered above an unseen '
-                . 'sibling would not become the latest, and nothing about the publish would say so. '
-                . 'Raise ArsPublisher::PAGE_LIMIT above the number of releases in the category.',
-                $categoryId,
-                self::PAGE_LIMIT
-            ));
-        }
+        $rows = $this->categoryReleases($categoryId);
 
         $orderings = array_map(
             static fn (array $row): int => (int) (($row['attributes'] ?? [])['ordering'] ?? 0),
@@ -250,15 +230,142 @@ final class ArsPublisher
                 'ARS category %d has a release at ordering 0, so there is no room to place this one below it. '
                 . '`ordering` is unsigned, 0 is the floor, and a tie for the lowest value is exactly the bug '
                 . 'that made the Latest Releases page stick on an old version (cwm-build-tools#77). '
-                . 'Renumber the category once so the newest release has the lowest ordering and nothing sits '
-                . 'at 0 — in the ARS backend: Releases, filter to the category, sort by Ordering, drag the '
-                . 'newest release to the top. Leave a gap by numbering in steps if you publish often. '
-                . 'Then re-run this publish.',
+                . 'Renumber the category once, then re-run this publish: '
+                . '`composer ars-reorder -- --category %d` shows what it would change, and '
+                . '`composer ars-reorder -- --category %d --apply` does it. That spaces the category out so '
+                . 'this does not come back after the next publish, which is what dragging to the top in the '
+                . 'ARS backend would leave you with.',
+                $categoryId,
+                $categoryId,
                 $categoryId
             ));
         }
 
         return $minimum - 1;
+    }
+
+    /**
+     * Renumber a category so the newest release sorts first, with gaps.
+     *
+     * {@see orderingForNewest} places each new release one below the category
+     * minimum, which works until the minimum reaches 0 — `ordering` is
+     * unsigned, so there is no room below that and the publish stops. A
+     * category numbered contiguously from 1 therefore has exactly one publish
+     * of headroom, which is what a drag-to-top in the ARS backend leaves
+     * behind: Joomla's saveOrderAjax renumbers 1..N with no gaps.
+     *
+     * This spaces the category out instead. Releases are numbered newest-first
+     * as `stride`, `2 * stride`, `3 * stride`, so the newest is the minimum ARS
+     * looks for, the public category listing (ordered by this same column) runs
+     * newest to oldest, and there are `stride - 1` publishes of room underneath
+     * before anyone has to think about this again.
+     *
+     * Ordering by `created` rather than by version string is deliberate: version
+     * strings do not sort (10.3.10 vs 10.3.2), and a release's date is what the
+     * download page shows anyway.
+     *
+     * ## What a write here costs
+     *
+     * Only releases whose ordering actually changes are written, and each write
+     * is a PATCH carrying that release's whole record — a partial PATCH would
+     * blank fields to their form defaults (see the `ordering` note on this
+     * class). So `check()` re-runs on those releases, which re-filters their
+     * notes through Joomla's InputFilter. That is idempotent on already-filtered
+     * HTML, but it is a write to a live download page and the reason `$apply`
+     * defaults to false.
+     *
+     * Note the record sent back is what the API returns, and the API does not
+     * expose a release's tags. A release that has tags may lose them. ARS gained
+     * tags in 7.4 and CWM has never set any, so this is a caveat rather than a
+     * known loss — check before running it against a category that uses them.
+     *
+     * @param  int  $categoryId Category to renumber.
+     * @param  int  $stride     Gap between releases. 100 gives 99 publishes of room.
+     * @param  bool $apply      false plans without writing anything.
+     *
+     * @return array{stride: int, applied: bool, changes: list<array{id: int, version: string, from: int, to: int}>}
+     */
+    public function reorderCategory(int $categoryId, int $stride = 100, bool $apply = false): array
+    {
+        if ($stride < 2) {
+            throw new \InvalidArgumentException(
+                "A stride of {$stride} leaves no room to publish into. Use at least 2, and prefer 100 or more "
+                . 'unless the category is nearly dormant — each publish consumes one step.'
+            );
+        }
+
+        $rows = $this->categoryReleases($categoryId);
+
+        usort($rows, static function (array $a, array $b): int {
+            $aa = $a['attributes'] ?? [];
+            $ba = $b['attributes'] ?? [];
+
+            // Newest first. `created` is an ARS datetime string; fall back to
+            // the id, which is monotonic, when it is missing or unparseable.
+            $at = strtotime((string) ($aa['created'] ?? '')) ?: 0;
+            $bt = strtotime((string) ($ba['created'] ?? '')) ?: 0;
+
+            return $bt <=> $at ?: ((int) ($ba['id'] ?? 0) <=> (int) ($aa['id'] ?? 0));
+        });
+
+        $changes = [];
+
+        foreach (array_values($rows) as $index => $row) {
+            $attributes = $row['attributes'] ?? [];
+            $target     = ($index + 1) * $stride;
+            $current    = (int) ($attributes['ordering'] ?? 0);
+
+            if ($current === $target) {
+                continue;
+            }
+
+            $changes[] = [
+                'id'      => (int) ($attributes['id'] ?? 0),
+                'version' => (string) ($attributes['version'] ?? '?'),
+                'from'    => $current,
+                'to'      => $target,
+            ];
+
+            if ($apply) {
+                $attributes['ordering'] = $target;
+
+                $this->send('PATCH', '/releases/' . (int) $attributes['id'], $attributes);
+            }
+        }
+
+        return ['stride' => $stride, 'applied' => $apply, 'changes' => $changes];
+    }
+
+    /**
+     * Every release in a category, refusing a read that may be truncated.
+     *
+     * A minimum — or a renumbering — taken from part of a category is worse
+     * than no answer: it would place a release above a sibling that was never
+     * seen, and the publish would report success.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function categoryReleases(int $categoryId): array
+    {
+        $query = http_build_query([
+            'category_id' => $categoryId,
+            'page'        => ['limit' => self::PAGE_LIMIT],
+        ]);
+
+        $rows = $this->readList("/releases?{$query}", 'releases');
+
+        if (\count($rows) >= self::PAGE_LIMIT) {
+            throw new \RuntimeException(sprintf(
+                'ARS category %d returned the full %d-row page, so this may not be all of it and the lowest '
+                . '`ordering` cannot be established. Refusing to guess: a release ordered above an unseen '
+                . 'sibling would not become the latest, and nothing about the publish would say so. '
+                . 'Raise ArsPublisher::PAGE_LIMIT above the number of releases in the category.',
+                $categoryId,
+                self::PAGE_LIMIT
+            ));
+        }
+
+        return $rows;
     }
 
     /**
