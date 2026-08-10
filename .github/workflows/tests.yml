@@ -33,10 +33,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 8.3 is the composer.json floor; 8.4 is what the maintainers actually
-        # run day to day, and a release that only works on one of them should
+        # 8.3 is the composer.json floor; 8.4 and 8.5 are what the maintainers
+        # actually run, and a release that only works on one of them should
         # fail here rather than at a consumer.
-        php: ['8.3', '8.4']
+        #
+        # 8.5 is in the matrix because leaving it out made CI greener than
+        # reality: the machine that cuts releases runs 8.5, so the version that
+        # actually publishes was the one version nothing verified.
+        #
+        # It does not, on its own, catch the deprecation in #80. That fires in
+        # StreamTransport, which the suite deliberately does not exercise —
+        # ArsPublisher is tested through FakeTransport so publishing decisions
+        # can be checked without the network. Catching #80 needs coverage of
+        # StreamTransport as well as this matrix entry.
+        php: ['8.3', '8.4', '8.5']
 
     steps:
       - uses: actions/checkout@v4
