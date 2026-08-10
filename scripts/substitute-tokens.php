@@ -52,6 +52,13 @@ if (!is_array($substituteConfig)) {
     exit(0);
 }
 
+// The install script ships but lives in build/, which no project lists under
+// `paths` — so it was the one shipped file never substituted (#75).
+$substituteConfig['paths'] = CWM\BuildTools\Release\TokenSubstituter::pathsWithInstaller(
+    $substituteConfig,
+    $config
+);
+
 $substituter = new CWM\BuildTools\Release\TokenSubstituter($projectRoot, $substituteConfig);
 
 try {

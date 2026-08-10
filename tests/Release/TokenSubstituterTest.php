@@ -226,4 +226,41 @@ final class TokenSubstituterTest extends TestCase
 
         @rmdir($dir);
     }
+
+    public function testInstallerIsFoldedIntoThePaths(): void
+    {
+        // The shape that shipped __DEPLOY_VERSION__ for every release: build/ is
+        // deliberately absent from paths, and the installer lives there.
+        $paths = TokenSubstituter::pathsWithInstaller(
+            ['paths' => ['admin/', 'site/']],
+            ['package' => ['installer' => 'build/script.install.php']],
+        );
+
+        $this->assertSame(['admin/', 'site/', 'build/script.install.php'], $paths);
+    }
+
+    public function testBuildScriptFileIsAlsoFoldedIn(): void
+    {
+        $paths = TokenSubstituter::pathsWithInstaller(
+            ['paths' => ['src/']],
+            ['build' => ['scriptFile' => 'script.php']],
+        );
+
+        $this->assertSame(['src/', 'script.php'], $paths);
+    }
+
+    public function testInstallerIsNotAddedTwiceWhenAlreadyListed(): void
+    {
+        $paths = TokenSubstituter::pathsWithInstaller(
+            ['paths' => ['build/script.install.php']],
+            ['package' => ['installer' => 'build/script.install.php']],
+        );
+
+        $this->assertSame(['build/script.install.php'], $paths);
+    }
+
+    public function testNoInstallerConfiguredLeavesPathsAlone(): void
+    {
+        $this->assertSame(['admin/'], TokenSubstituter::pathsWithInstaller(['paths' => ['admin/']], []));
+    }
 }
