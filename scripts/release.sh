@@ -370,9 +370,12 @@ echo ""
 # --- Step 5: GitHub release ---
 echo "[5/9] Creating GitHub release ${TAG}..."
 
-# `HEAD` is the bump commit we just pushed; `git describe` from there finds the
-# previous reachable tag, which is what we want for the changelog "since" base.
-PREV_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
+# The changelog base is "since the last thing anyone could install", so
+# pre-release tags are skipped. `git describe` answers with the nearest tag,
+# which straight after a release candidate is the candidate — and the range
+# then holds only the version bump, producing an entry with nothing in it
+# while the real description sits under a tag no site was offered (#74).
+PREV_TAG=$(cwm_latest_stable_tag "$(git tag --merged HEAD --sort=v:refname 2>/dev/null || echo "")")
 if [ -n "$PREV_TAG" ] && [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
     NOTES=$(gh api "repos/${GH_OWNER}/${GH_REPO}/releases/generate-notes" \
         -f tag_name="$TAG" -f target_commitish="$RELEASE_BRANCH" -f previous_tag_name="$PREV_TAG" \

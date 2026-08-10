@@ -188,6 +188,21 @@ if [ -z "$ENTRY" ]; then
     exit 1
 fi
 
+# An entry with no <item> is well-formed and says nothing. It happens when the
+# range the notes were generated from contains only chores — most often when the
+# previous tag was a release candidate, so everything worth describing sits under
+# a version no site was offered (#74). Releasing around it is a decision, not an
+# error, but it should be a decision someone makes rather than one that happens.
+ITEM_COUNT=$(printf '%s' "$ENTRY" | grep -c '<item>' || true)
+
+if [ "$ITEM_COUNT" -eq 0 ]; then
+    echo "WARNING: the ${VERSION} entry has no items — the release notes for this" >&2
+    echo "         range described nothing user-facing. If the previous tag was a" >&2
+    echo "         pre-release, the description you want is probably under it." >&2
+    echo "         Write the entry by hand before releasing; this script skips a" >&2
+    echo "         version already present in the file." >&2
+fi
+
 if [ "$DRY_RUN" = true ]; then
     echo "$ENTRY"
     exit 0
