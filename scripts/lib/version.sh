@@ -61,6 +61,46 @@ cwm_is_prerelease() {
     [[ "$1" == *-* ]]
 }
 
+# Pick the newest stable tag from a list, ignoring pre-releases.
+#
+# The changelog and the generated release notes are built from the range
+# "previous tag → this tag". `git describe` answers with the nearest tag, which
+# after a release candidate is the candidate itself — so cutting 1.1.10 straight
+# after 1.1.10-rc1 produced a range containing only the version bump, and an
+# entry with nothing in it. The description of what changed sat under the rc,
+# which no site was ever offered (#74).
+#
+# What a reader wants is "since the last thing anyone could install", so
+# pre-release tags are skipped. If every tag is a pre-release — a project that
+# has only ever shipped betas — the newest of those is returned rather than
+# nothing, because an approximate base still beats no notes at all.
+#
+# Arguments:
+#   $1  newline-separated tags, newest last (as `git tag --sort=v:refname` gives)
+#
+# Outputs:
+#   The chosen tag, or nothing when the list is empty.
+cwm_latest_stable_tag() {
+    local tags="$1"
+    local tag newest_stable='' newest_any=''
+
+    while IFS= read -r tag; do
+        [ -n "$tag" ] || continue
+        newest_any="$tag"
+
+        # Compare the version, not the tag, so a leading v is not read as a suffix.
+        if ! cwm_is_prerelease "${tag#v}"; then
+            newest_stable="$tag"
+        fi
+    done <<< "$tags"
+
+    if [ -n "$newest_stable" ]; then
+        printf '%s\n' "$newest_stable"
+    elif [ -n "$newest_any" ]; then
+        printf '%s\n' "$newest_any"
+    fi
+}
+
 # The `gh release create` flag for a version: "--prerelease" or nothing.
 #
 # Arguments:

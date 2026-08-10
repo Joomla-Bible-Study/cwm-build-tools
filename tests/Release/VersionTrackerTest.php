@@ -449,4 +449,65 @@ final class VersionTrackerTest extends TestCase
 
         @rmdir($dir);
     }
+
+    public function testBumpCarriesTheVersionIntoPackageLock(): void
+    {
+        // The drift that stopped a later release: package.json moves every bump,
+        // the lock never did, and npm rewrites it on the next install (#76).
+        $root = $this->makeProject([
+            'package.json'      => ['name' => 'x', 'version' => '1.1.8'],
+            'package-lock.json' => [
+                'name'            => 'x',
+                'version'         => '1.1.8',
+                'lockfileVersion' => 3,
+                'packages'        => ['' => ['name' => 'x', 'version' => '1.1.8']],
+            ],
+        ]);
+
+        $this->runQuiet(fn () => (new VersionTracker($root, ['packageJson' => 'package.json']))->updateForBump('1.1.10'));
+
+        $lock = json_decode((string) file_get_contents($root . '/package-lock.json'), true);
+        $this->assertSame('1.1.10', $lock['version'], 'the top-level version');
+        $this->assertSame('1.1.10', $lock['packages']['']['version'], 'and the root package entry');
+        $this->assertSame(3, $lock['lockfileVersion'], 'the lock format is left alone');
+    }
+
+    public function testLockfileVersion1HasNoPackagesBlockToWrite(): void
+    {
+        $root = $this->makeProject([
+            'package.json'      => ['name' => 'x', 'version' => '1.0.0'],
+            'package-lock.json' => ['name' => 'x', 'version' => '1.0.0', 'lockfileVersion' => 1],
+        ]);
+
+        $this->runQuiet(fn () => (new VersionTracker($root, ['packageJson' => 'package.json']))->updateForBump('1.1.0'));
+
+        $lock = json_decode((string) file_get_contents($root . '/package-lock.json'), true);
+        $this->assertSame('1.1.0', $lock['version']);
+        $this->assertArrayNotHasKey('packages', $lock, 'no packages block is invented');
+    }
+
+    public function testMissingLockIsNotAnError(): void
+    {
+        $root = $this->makeProject(['package.json' => ['name' => 'x', 'version' => '1.0.0']]);
+
+        $touched = $this->runQuiet(fn () => (new VersionTracker($root, ['packageJson' => 'package.json']))->updateForBump('1.1.0'));
+
+        $this->assertNotEmpty($touched);
+        $this->assertFileDoesNotExist($root . '/package-lock.json');
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $files
+     */
+    private function makeProject(array $files): string
+    {
+        $root = sys_get_temp_dir() . '/cwm-vt-' . bin2hex(random_bytes(4));
+        mkdir($root, 0777, true);
+
+        foreach ($files as $name => $data) {
+            file_put_contents($root . '/' . $name, json_encode($data, JSON_PRETTY_PRINT) . "\n");
+        }
+
+        return $root;
+    }
 }
