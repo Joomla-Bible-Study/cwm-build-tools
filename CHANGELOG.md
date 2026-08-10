@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-08-10
+
+### Fixed
+
+- **`cwm-release` rejects unknown options instead of ignoring them.** A mistyped
+  `--dry-runn` was filed as a positional argument and ignored, so a preview
+  became a real publish — that is how pkg_cwmscripture 1.2.2 shipped, with no
+  error, no warning, and output that read like a normal run. Any flag-shaped
+  argument that is not recognised is now an error naming it. `--help` and `-h`
+  are recognised rather than treated as a version, and a bare `--` is accepted
+  and ignored. (#73)
+
+- **The changelog entry is based on the last *stable* tag, not a release
+  candidate.** `git describe` answers with the nearest tag, so cutting 1.1.10
+  straight after 1.1.10-rc1 produced an entry covering rc1..1.1.10 — the version
+  bump and nothing else — while the description of what actually changed sat
+  under an rc no site was ever offered. An entry that comes out empty for
+  legitimate reasons now warns and names the likely cause rather than passing
+  silently. (#74)
+
+- **The install script is token-substituted.** The file named by
+  `package.installer` is shipped source — it is the manifest's `<scriptfile>`
+  and Joomla runs it on every install — but it lives in `build/`, which no
+  project lists under `substituteTokens.paths` because the rest of that
+  directory is tooling that must not be rewritten. So the one file in there that
+  genuinely ships was the one never substituted: pkg_proclaim-10.5.7.zip carries
+  three literal `__DEPLOY_VERSION__` tags in its docblocks. (#75)
+
+- **`package-lock.json` carries the new version.** Nothing wrote it, so it
+  drifted release after release — at lib_cwmscripture v1.1.10 the manifest said
+  1.1.10 and the lock said 1.1.8. The cost is not untidiness: npm rewrites the
+  field on the next `npm install`, which shows up as an unexplained modification
+  in a clean tree and stops the *next* release at the "working tree is not
+  clean" pre-check. That is what aborted the pkg_cwmscripture 1.2.2 run. Only
+  the two version fields are touched. (#76)
+
+- **No more PHP 8.5 deprecation on every ARS request.** PHP 8.5 deprecated
+  `$http_response_header` in the same release that added
+  `http_get_last_response_headers()`, and `StreamTransport` is the only HTTP
+  path in the toolkit, so the notice printed once per request — 42 times during
+  a single `cwm-ars-reorder --apply`, interleaved with the output. The function
+  is used where available, with the variable as the fallback below 8.5, since
+  `composer.json` still requires ^8.3. (#80)
+
+### Changed
+
+- **CI runs the suite on PHP 8.5** as well as 8.3 and 8.4. The machine that cuts
+  releases runs 8.5, so the version that actually publishes was the one version
+  nothing verified. `StreamTransport` also gained its first tests, against a
+  local `php -S` fixture server — a 4xx keeping its body, a redirect chain
+  reporting the status it ended on, and an unreachable server raising rather
+  than returning a status. (#81, #83)
+
 ## [1.15.0] - 2026-08-10
 
 ### Added
