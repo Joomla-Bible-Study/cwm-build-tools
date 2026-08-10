@@ -38,7 +38,49 @@ assert_equals "1" "$CWM_DRY_RUN" "-n is accepted as the short form"
 # CWM_ARGS must be empty rather than carrying the flag through.
 cwm_parse_dry_run --dry-run
 assert_equals "1" "$CWM_DRY_RUN" "the flag alone is recognised"
+
 assert_equals "0" "${#CWM_ARGS[@]}" "no positional arguments remain"
+
+# --- Unrecognised options ----------------------------------------------------
+#
+# The case this exists for: a mistyped --dry-run used to be filed as a
+# positional and ignored, so a run the operator believed was a preview
+# published for real (pkg_cwmscripture 1.2.2, issue #73).
+if cwm_parse_dry_run 1.2.3 --dry-runn; then
+    assert_equals "non-zero" "0" "a mistyped --dry-run must not be accepted"
+else
+    assert_equals "--dry-runn" "$CWM_BAD_FLAG" "the offending option is reported back"
+fi
+
+if cwm_parse_dry_run --nope; then
+    assert_equals "non-zero" "0" "an unknown long option is rejected"
+else
+    assert_equals "--nope" "$CWM_BAD_FLAG" "and named"
+fi
+
+if cwm_parse_dry_run -x 1.2.3; then
+    assert_equals "non-zero" "0" "an unknown short option is rejected"
+else
+    assert_equals "-x" "$CWM_BAD_FLAG" "and named"
+fi
+
+# A version is never flag-shaped, so it is still treated as a positional and
+# left to the semver check, which gives a better message than this parser could.
+cwm_parse_dry_run 1.2.3rc
+assert_equals "1.2.3rc" "${CWM_ARGS[*]}" "a malformed version is still a positional"
+
+# --help must not be mistaken for a version to release.
+cwm_parse_dry_run --help
+assert_equals "1" "$CWM_HELP" "--help is recognised"
+assert_equals "" "${CWM_ARGS[*]:-}" "and does not become the version"
+
+cwm_parse_dry_run -h
+assert_equals "1" "$CWM_HELP" "-h is the short form"
+
+# A bare -- is a conventional separator, not an unknown option.
+cwm_parse_dry_run -- 1.2.3
+assert_equals "1.2.3" "${CWM_ARGS[*]}" "a bare -- separator is ignored"
+
 
 # A version that merely looks flag-ish is not swallowed.
 cwm_parse_dry_run 1.2.3-beta1

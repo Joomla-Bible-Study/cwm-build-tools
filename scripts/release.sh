@@ -77,7 +77,33 @@ PROJECT_ROOT="$(pwd)"
 # and `release.sh 1.2.3 --dry-run --skip-tests` both work; what remains is the
 # positional version argument the rest of the script already expects. Parsing
 # and the command wrapper live in lib/dryrun.sh so they can be tested.
-cwm_parse_dry_run "$@"
+usage() {
+    cat <<'USAGE'
+cwm-release — full release pipeline for a CWM Joomla extension.
+
+Usage:
+  composer release -- <version> [--dry-run|-n] [--skip-tests]
+  composer release                  # prompts for the version
+
+Options:
+  -n, --dry-run     Print every mutating command instead of running it.
+  --skip-tests      Skip the composer test:release gate.
+  -h, --help        Show this and exit.
+USAGE
+}
+
+if ! cwm_parse_dry_run "$@"; then
+    echo "Error: unknown option '${CWM_BAD_FLAG}'." >&2
+    echo >&2
+    usage >&2
+    exit 1
+fi
+
+if [ "$CWM_HELP" = "1" ]; then
+    usage
+    exit 0
+fi
+
 DRY_RUN="$CWM_DRY_RUN"
 SKIP_TESTS="$CWM_SKIP_TESTS"
 set -- "${CWM_ARGS[@]+"${CWM_ARGS[@]}"}"
