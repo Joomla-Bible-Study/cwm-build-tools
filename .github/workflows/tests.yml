@@ -68,7 +68,7 @@ jobs:
           python-version: '3.x'
 
       - name: Cache Composer packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/composer
           key: composer-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
