@@ -142,10 +142,28 @@ final class TokenSubstituter
             new \RecursiveCallbackFilterIterator(
                 new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
                 static function (\SplFileInfo $current): bool {
-                    if ($current->isDir() && in_array($current->getFilename(), self::ALWAYS_SKIP, true)) {
+                    if (!$current->isDir()) {
+                        return true;
+                    }
+
+                    if (in_array($current->getFilename(), self::ALWAYS_SKIP, true)) {
                         return false;
                     }
-                    return true;
+
+                    // A git submodule is another repository's source, with its own
+                    // version and its own release that substitutes its own token.
+                    // Writing this project's version into it produces @since tags
+                    // for a version that extension never had — Proclaim 10.4.1
+                    // stamped 10.4.1 into a plugin whose own version was 1.1.5 —
+                    // and leaves the submodule dirty, so the wrong values can be
+                    // committed there by accident later.
+                    //
+                    // Detected by the presence of a `.git` entry rather than by
+                    // parsing .gitmodules: a submodule checkout carries a `.git`
+                    // *file* pointing at the parent's modules dir, and ALWAYS_SKIP
+                    // only matches directories. Also catches a plain nested clone,
+                    // which is the same hazard without being declared anywhere.
+                    return !file_exists($current->getPathname() . '/.git');
                 },
             ),
         );

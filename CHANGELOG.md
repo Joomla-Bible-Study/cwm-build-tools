@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`substituteTokens` no longer writes into git submodules.** A submodule
+  checkout carries a `.git` *file* rather than a directory, so the walk's
+  `ALWAYS_SKIP` list never recognised it as foreign code — and any configured path
+  containing a submodule got this project's version stamped into another
+  repository's source.
+
+  Observed on Proclaim 10.4.1: its `plugins/` path contains the CWMScriptureLinks
+  submodule, so the release wrote `@since 10.4.1` into a plugin whose own version
+  was 1.1.5, and left that repository dirty so the wrong values could be committed
+  there later by accident. CWMScriptureLinks had the same latent fault — its
+  `libraries/` path contains the lib_cwmscripture submodule.
+
+  Nested repositories are now skipped, detected by a `.git` entry rather than by
+  parsing `.gitmodules`, so a plain nested clone is covered too. The project's own
+  root is unaffected: only directories *inside* the walk are tested.
+
 ## [1.15.1] - 2026-08-10
 
 ### Fixed

@@ -23,6 +23,72 @@ final class TokenSubstituterTest extends TestCase
         $this->rrmdir($this->tmpDir);
     }
 
+    // -----------------------------------------------------------------
+    // nested repositories — submodules own their own version
+    // -----------------------------------------------------------------
+
+    /**
+     * Proclaim 10.4.1 stamped `@since 10.4.1` into a plugin whose own version was
+     * 1.1.5, because its `plugins/` path contains a submodule. The submodule was
+     * left dirty too, so the wrong values could be committed to that repository
+     * later by accident.
+     */
+    #[Test]
+    public function skips_a_submodule_checkout(): void
+    {
+        $this->seedFile('plugins/mine/Plugin.php', "<?php\n/** @since  __DEPLOY_VERSION__ */\n");
+        $this->seedFile('plugins/theirs/Plugin.php', "<?php\n/** @since  __DEPLOY_VERSION__ */\n");
+
+        // A submodule checkout carries a `.git` FILE pointing at the parent's
+        // modules directory — not a directory, which is why the existing
+        // ALWAYS_SKIP list never caught it.
+        file_put_contents(
+            $this->tmpDir . '/plugins/theirs/.git',
+            "gitdir: ../../.git/modules/plugins/theirs\n"
+        );
+
+        $touched = $this->runQuiet(fn () => $this->substituter(['paths' => ['plugins/']])->substitute('10.4.1'));
+
+        self::assertCount(1, $touched, 'Only our own plugin should be rewritten.');
+        self::assertStringContainsString('@since  10.4.1', $this->read('plugins/mine/Plugin.php'));
+        self::assertStringContainsString(
+            '__DEPLOY_VERSION__',
+            $this->read('plugins/theirs/Plugin.php'),
+            "A submodule's placeholder is its own release's business."
+        );
+    }
+
+    #[Test]
+    public function skips_a_plain_nested_clone(): void
+    {
+        $this->seedFile('libraries/ours/File.php', "<?php\n/** @since  __DEPLOY_VERSION__ */\n");
+        $this->seedFile('libraries/nested/File.php', "<?php\n/** @since  __DEPLOY_VERSION__ */\n");
+
+        // Same hazard as a submodule, undeclared: a clone sitting inside the tree
+        // has a `.git` directory. ALWAYS_SKIP would drop the `.git` dir itself but
+        // still walk into the clone's source.
+        mkdir($this->tmpDir . '/libraries/nested/.git', 0o777, true);
+
+        $touched = $this->runQuiet(fn () => $this->substituter(['paths' => ['libraries/']])->substitute('10.4.1'));
+
+        self::assertCount(1, $touched);
+        self::assertStringContainsString('__DEPLOY_VERSION__', $this->read('libraries/nested/File.php'));
+    }
+
+    #[Test]
+    public function still_substitutes_when_the_project_root_itself_is_a_repository(): void
+    {
+        // The guard must not fire on the project being released: its own root has
+        // a .git, and skipping it would make the whole feature a no-op.
+        mkdir($this->tmpDir . '/.git', 0o777, true);
+        $this->seedFile('src/Model.php', "<?php\n/** @since  __DEPLOY_VERSION__ */\n");
+
+        $touched = $this->runQuiet(fn () => $this->substituter(['paths' => ['src/']])->substitute('1.2.3'));
+
+        self::assertCount(1, $touched, 'A repository root is not a nested repository.');
+        self::assertStringContainsString('@since  1.2.3', $this->read('src/Model.php'));
+    }
+
     #[Test]
     public function replaces_default_token_in_php_files_under_configured_paths(): void
     {
