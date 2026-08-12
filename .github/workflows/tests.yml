@@ -63,7 +63,7 @@ jobs:
         # scripts/sync-languages.py is tested by tests/python. Runners ship a
         # Python, but pinning it keeps the Python half of `composer test` from
         # depending on whatever the image happens to provide.
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.x'
 
