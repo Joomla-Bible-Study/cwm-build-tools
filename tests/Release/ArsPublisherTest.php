@@ -43,13 +43,221 @@ final class ArsPublisherTest extends TestCase
     {
         $http = new FakeTransport([
             self::releaseList([]),
+            self::releaseList([['id' => 5, 'version' => '1.1.0', 'ordering' => 3]]),
             self::ok(['data' => ['attributes' => ['id' => 77]]]),
         ]);
 
         $result = self::publisher($http)->upsertRelease(self::release('1.2.0'));
 
         self::assertSame(['id' => 77, 'created' => true], $result);
-        self::assertSame('POST', $http->calls[1]['method']);
+        self::assertSame('POST', $http->calls[2]['method']);
+    }
+
+    #[Test]
+    public function a_new_release_is_ordered_below_the_category_minimum(): void
+    {
+        // ARS reads "latest" as the lowest ordering in the category, so the
+        // new release has to land under every sibling or the Latest Releases
+        // page keeps showing the old one.
+        $http = new FakeTransport([
+            self::releaseList([]),
+            self::releaseList([
+                ['id' => 5, 'version' => '1.0.0', 'ordering' => 9],
+                ['id' => 6, 'version' => '1.1.0', 'ordering' => 4],
+            ]),
+            self::ok(['data' => ['attributes' => ['id' => 77]]]),
+        ]);
+
+        self::publisher($http)->upsertRelease(self::release('1.2.0'));
+
+        $sent = json_decode((string) $http->calls[2]['body'], true);
+
+        self::assertSame(3, $sent['ordering']);
+    }
+
+    #[Test]
+    public function a_new_release_in_an_empty_category_leaves_room_below_itself(): void
+    {
+        // Starting at 0 would work once and then wedge: the next release has
+        // nowhere lower to go, because ordering is unsigned.
+        $http = new FakeTransport([
+            self::releaseList([]),
+            self::releaseList([]),
+            self::ok(['data' => ['attributes' => ['id' => 77]]]),
+        ]);
+
+        self::publisher($http)->upsertRelease(self::release('1.2.0'));
+
+        $sent = json_decode((string) $http->calls[2]['body'], true);
+
+        self::assertSame(1, $sent['ordering']);
+    }
+
+    #[Test]
+    public function a_category_already_pinned_at_zero_is_refused_not_tied(): void
+    {
+        // Publishing a second release at 0 is the actual bug: they tie for the
+        // minimum and ARS shows whichever row the database returns last.
+        $http = new FakeTransport([
+            self::releaseList([]),
+            self::releaseList([['id' => 5, 'version' => '1.1.0', 'ordering' => 0]]),
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/ordering 0.*no room/s');
+
+        self::publisher($http)->upsertRelease(self::release('1.2.0'));
+    }
+
+    #[Test]
+    public function a_truncated_category_read_is_refused_not_guessed_at(): void
+    {
+        // A minimum taken from part of a category is not a minimum. Placing
+        // the release above an unseen sibling would leave it not-latest, and
+        // the publish would report success anyway.
+        $full = array_map(
+            static fn (int $n): array => ['id' => $n, 'version' => "0.0.{$n}", 'ordering' => $n + 1],
+            range(1, 200)
+        );
+
+        $http = new FakeTransport([
+            self::releaseList([]),
+            self::releaseList($full),
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/full 200-row page/');
+
+        self::publisher($http)->upsertRelease(self::release('1.2.0'));
+    }
+
+    #[Test]
+    public function updating_a_release_keeps_the_ordering_it_already_has(): void
+    {
+        // release.xml gives ordering default="0" and the form fills defaults
+        // for absent fields, so omitting it on a PATCH is not "leave alone" —
+        // it drags that release to the front of its category. Re-publishing
+        // 10.3.1 to fix its notes must not make it the latest release.
+        $http = new FakeTransport([
+            self::releaseList([['id' => 42, 'version' => '1.2.0', 'ordering' => 12]]),
+            self::ok(['data' => ['attributes' => ['id' => 42]]]),
+        ]);
+
+        self::publisher($http)->upsertRelease(self::release('1.2.0'));
+
+        $sent = json_decode((string) $http->calls[1]['body'], true);
+
+        self::assertSame('PATCH', $http->calls[1]['method']);
+        self::assertSame(12, $sent['ordering']);
+    }
+
+    #[Test]
+    public function an_explicit_ordering_from_the_caller_is_respected(): void
+    {
+        $http = new FakeTransport([
+            self::releaseList([]),
+            self::ok(['data' => ['attributes' => ['id' => 77]]]),
+        ]);
+
+        self::publisher($http)->upsertRelease(self::release('1.2.0', ['ordering' => 42]));
+
+        // No category read: the caller decided, so there is nothing to look up.
+        $sent = json_decode((string) $http->calls[1]['body'], true);
+
+        self::assertSame(42, $sent['ordering']);
+    }
+
+    #[Test]
+    public function reorder_numbers_newest_first_in_strides(): void
+    {
+        // Newest gets the lowest ordering because that is what ARS reads as
+        // "latest"; the gaps are what later publishes are placed into.
+        $http = new FakeTransport([
+            self::releaseList([
+                ['id' => 1, 'version' => '1.0.0', 'ordering' => 0, 'created' => '2026-01-01 00:00:00'],
+                ['id' => 2, 'version' => '1.2.0', 'ordering' => 0, 'created' => '2026-03-01 00:00:00'],
+                ['id' => 3, 'version' => '1.1.0', 'ordering' => 0, 'created' => '2026-02-01 00:00:00'],
+            ]),
+        ]);
+
+        $result = self::publisher($http)->reorderCategory(7);
+
+        self::assertSame(
+            [
+                ['id' => 2, 'version' => '1.2.0', 'from' => 0, 'to' => 100],
+                ['id' => 3, 'version' => '1.1.0', 'from' => 0, 'to' => 200],
+                ['id' => 1, 'version' => '1.0.0', 'from' => 0, 'to' => 300],
+            ],
+            $result['changes']
+        );
+    }
+
+    #[Test]
+    public function reorder_plans_without_writing_unless_applied(): void
+    {
+        $http = new FakeTransport([
+            self::releaseList([
+                ['id' => 1, 'version' => '1.0.0', 'ordering' => 0, 'created' => '2026-01-01 00:00:00'],
+            ]),
+        ]);
+
+        $result = self::publisher($http)->reorderCategory(7);
+
+        self::assertFalse($result['applied']);
+        // The read, and nothing else.
+        self::assertCount(1, $http->calls);
+    }
+
+    #[Test]
+    public function reorder_writes_a_full_record_when_applied(): void
+    {
+        // A partial PATCH blanks whatever it omits to the form default, so the
+        // renumber has to send the release back whole with ordering swapped.
+        $http = new FakeTransport([
+            self::releaseList([
+                ['id' => 9, 'version' => '2.0.0', 'ordering' => 4, 'created' => '2026-01-01 00:00:00', 'notes' => '<p>x</p>'],
+            ]),
+            self::ok(['data' => ['attributes' => ['id' => 9]]]),
+        ]);
+
+        self::publisher($http)->reorderCategory(7, 100, true);
+
+        self::assertSame('PATCH', $http->calls[1]['method']);
+        self::assertStringContainsString('/releases/9', $http->calls[1]['url']);
+
+        $sent = json_decode((string) $http->calls[1]['body'], true);
+
+        self::assertSame(100, $sent['ordering']);
+        self::assertSame('2.0.0', $sent['version']);
+        self::assertSame('<p>x</p>', $sent['notes']);
+    }
+
+    #[Test]
+    public function reorder_leaves_releases_that_are_already_right_alone(): void
+    {
+        $http = new FakeTransport([
+            self::releaseList([
+                ['id' => 2, 'version' => '1.1.0', 'ordering' => 100, 'created' => '2026-02-01 00:00:00'],
+                ['id' => 1, 'version' => '1.0.0', 'ordering' => 200, 'created' => '2026-01-01 00:00:00'],
+            ]),
+        ]);
+
+        $result = self::publisher($http)->reorderCategory(7, 100, true);
+
+        self::assertSame([], $result['changes']);
+        // No writes: the read is the only call.
+        self::assertCount(1, $http->calls);
+    }
+
+    #[Test]
+    public function reorder_refuses_a_stride_with_no_room_to_publish_into(): void
+    {
+        $http = new FakeTransport([]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/no room to publish into/');
+
+        self::publisher($http)->reorderCategory(7, 1);
     }
 
     #[Test]
@@ -77,7 +285,11 @@ final class ArsPublisherTest extends TestCase
         // Sent as filter[category_id] it arrives as a PHP array named
         // `filter`, the filter is silently not applied, and the match runs
         // against an arbitrary window of every release on the site.
-        $http = new FakeTransport([self::releaseList([]), self::ok(['data' => ['attributes' => ['id' => 1]]])]);
+        $http = new FakeTransport([
+            self::releaseList([]),
+            self::releaseList([['id' => 5, 'version' => '1.1.0', 'ordering' => 3]]),
+            self::ok(['data' => ['attributes' => ['id' => 1]]]),
+        ]);
 
         self::publisher($http)->upsertRelease(self::release('1.2.0'));
 
@@ -127,13 +339,17 @@ final class ArsPublisherTest extends TestCase
     #[Test]
     public function requests_carry_the_token_and_jsonapi_accept_header(): void
     {
-        $http = new FakeTransport([self::releaseList([]), self::ok(['data' => ['attributes' => ['id' => 1]]])]);
+        $http = new FakeTransport([
+            self::releaseList([]),
+            self::releaseList([['id' => 5, 'version' => '1.1.0', 'ordering' => 3]]),
+            self::ok(['data' => ['attributes' => ['id' => 1]]]),
+        ]);
 
         self::publisher($http)->upsertRelease(self::release('1.2.0'));
 
         self::assertSame('secret-token', $http->calls[0]['headers']['X-Joomla-Token']);
         self::assertSame('application/vnd.api+json', $http->calls[0]['headers']['Accept']);
-        self::assertSame('application/json', $http->calls[1]['headers']['Content-Type']);
+        self::assertSame('application/json', $http->calls[2]['headers']['Content-Type']);
     }
 
     #[Test]
@@ -141,11 +357,15 @@ final class ArsPublisherTest extends TestCase
     {
         // AssertApiAccess::getRequestData() json_decodes the raw body and
         // treats its top-level keys as the record fields.
-        $http = new FakeTransport([self::releaseList([]), self::ok(['data' => ['attributes' => ['id' => 1]]])]);
+        $http = new FakeTransport([
+            self::releaseList([]),
+            self::releaseList([['id' => 5, 'version' => '1.1.0', 'ordering' => 3]]),
+            self::ok(['data' => ['attributes' => ['id' => 1]]]),
+        ]);
 
         self::publisher($http)->upsertRelease(self::release('1.2.0'));
 
-        $sent = json_decode((string) $http->calls[1]['body'], true);
+        $sent = json_decode((string) $http->calls[2]['body'], true);
 
         self::assertSame('1.2.0', $sent['version']);
         self::assertSame(7, $sent['category_id']);
@@ -294,6 +514,7 @@ final class ArsPublisherTest extends TestCase
     {
         $http = new FakeTransport([
             self::releaseList([]),
+            self::releaseList([['id' => 5, 'version' => '1.1.0', 'ordering' => 3]]),
             self::ok(['data' => ['attributes' => ['id' => 88]]]),
             self::itemList([]),
             self::ok(['data' => ['attributes' => ['id' => 99]]]),
@@ -308,14 +529,18 @@ final class ArsPublisherTest extends TestCase
             ['releaseId' => 88, 'itemId' => 99, 'releaseCreated' => true, 'itemCreated' => true],
             $result
         );
-        self::assertStringContainsString('release_id=88', $http->calls[2]['url']);
-        self::assertSame(88, json_decode((string) $http->calls[3]['body'], true)['release_id']);
+        self::assertStringContainsString('release_id=88', $http->calls[3]['url']);
+        self::assertSame(88, json_decode((string) $http->calls[4]['body'], true)['release_id']);
     }
 
     #[Test]
     public function a_create_that_returns_no_id_is_an_error(): void
     {
-        $http = new FakeTransport([self::releaseList([]), self::ok(['data' => ['attributes' => []]])]);
+        $http = new FakeTransport([
+            self::releaseList([]),
+            self::releaseList([['id' => 5, 'version' => '1.1.0', 'ordering' => 3]]),
+            self::ok(['data' => ['attributes' => []]]),
+        ]);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/returned no id/');

@@ -25,6 +25,181 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   parsing `.gitmodules`, so a plain nested clone is covered too. The project's own
   root is unaffected: only directories *inside* the walk are tested.
 
+## [1.15.1] - 2026-08-10
+
+### Fixed
+
+- **`cwm-release` rejects unknown options instead of ignoring them.** A mistyped
+  `--dry-runn` was filed as a positional argument and ignored, so a preview
+  became a real publish — that is how pkg_cwmscripture 1.2.2 shipped, with no
+  error, no warning, and output that read like a normal run. Any flag-shaped
+  argument that is not recognised is now an error naming it. `--help` and `-h`
+  are recognised rather than treated as a version, and a bare `--` is accepted
+  and ignored. (#73)
+
+- **The changelog entry is based on the last *stable* tag, not a release
+  candidate.** `git describe` answers with the nearest tag, so cutting 1.1.10
+  straight after 1.1.10-rc1 produced an entry covering rc1..1.1.10 — the version
+  bump and nothing else — while the description of what actually changed sat
+  under an rc no site was ever offered. An entry that comes out empty for
+  legitimate reasons now warns and names the likely cause rather than passing
+  silently. (#74)
+
+- **The install script is token-substituted.** The file named by
+  `package.installer` is shipped source — it is the manifest's `<scriptfile>`
+  and Joomla runs it on every install — but it lives in `build/`, which no
+  project lists under `substituteTokens.paths` because the rest of that
+  directory is tooling that must not be rewritten. So the one file in there that
+  genuinely ships was the one never substituted: pkg_proclaim-10.5.7.zip carries
+  three literal `__DEPLOY_VERSION__` tags in its docblocks. (#75)
+
+- **`package-lock.json` carries the new version.** Nothing wrote it, so it
+  drifted release after release — at lib_cwmscripture v1.1.10 the manifest said
+  1.1.10 and the lock said 1.1.8. The cost is not untidiness: npm rewrites the
+  field on the next `npm install`, which shows up as an unexplained modification
+  in a clean tree and stops the *next* release at the "working tree is not
+  clean" pre-check. That is what aborted the pkg_cwmscripture 1.2.2 run. Only
+  the two version fields are touched. (#76)
+
+- **No more PHP 8.5 deprecation on every ARS request.** PHP 8.5 deprecated
+  `$http_response_header` in the same release that added
+  `http_get_last_response_headers()`, and `StreamTransport` is the only HTTP
+  path in the toolkit, so the notice printed once per request — 42 times during
+  a single `cwm-ars-reorder --apply`, interleaved with the output. The function
+  is used where available, with the variable as the fallback below 8.5, since
+  `composer.json` still requires ^8.3. (#80)
+
+### Changed
+
+- **CI runs the suite on PHP 8.5** as well as 8.3 and 8.4. The machine that cuts
+  releases runs 8.5, so the version that actually publishes was the one version
+  nothing verified. `StreamTransport` also gained its first tests, against a
+  local `php -S` fixture server — a 4xx keeping its body, a redirect chain
+  reporting the status it ended on, and an unreachable server raising rather
+  than returning a status. (#81, #83)
+
+## [1.15.0] - 2026-08-10
+
+### Added
+
+- **`cwm-ars-reorder` spaces out an ARS category's `ordering`, so publishing
+  keeps working.** v1.14.0 made a new release land one below its category's
+  minimum, which is what ARS reads as "latest". The column is unsigned, so 0 is
+  the floor: a category numbered contiguously from 1 has exactly *one* publish
+  of headroom before the next one stops with the no-room error.
+
+  Contiguous-from-1 is exactly what the manual fix leaves behind — dragging a
+  release to the top in the ARS backend goes through Joomla's `saveOrderAjax`,
+  which renumbers 1..N with no gaps. The four CWM categories renumbered by hand
+  would each have published once and then wedged, with the refusal firing
+  mid-release.
+
+  This renumbers a category newest-first in strides (100 by default): the newest
+  release holds the minimum ARS looks for, the public category listing — ordered
+  by the same column — runs newest to oldest, and there are `stride - 1`
+  publishes of room underneath. Sorting is by `created` rather than version
+  string, because version strings do not sort (10.3.10 against 10.3.2).
+
+  It plans and writes nothing by default; `--apply` performs the renumbering and
+  only touches releases whose ordering actually changes. Each write is a PATCH
+  carrying the whole record, since a partial one blanks fields to their form
+  defaults — which also means the API's inability to return a release's tags
+  applies here, as it already did to publishing. ARS gained tags in 7.4 and CWM
+  has never set any.
+
+  The no-room error from 1.14.0 now names this command instead of describing the
+  drag that recreates the problem.
+
+## [1.14.0] - 2026-08-10
+
+### Added
+
+- **`cwm-release` gates on `composer test:release` when a project defines it.**
+  Every release-blocking defect this tool has shipped — an uninstallable
+  package, a migration missing an index, a webservices plugin 500ing on every
+  request — looked structurally correct and failed only once actually
+  executed. `test:release` is that execution, and it previously ran only when
+  someone remembered to run it by hand. It's now a pre-flight step: present in
+  a project's `composer.json`, it runs before anything is bumped, built, or
+  published, and a failure stops the release. Absent, the release runs exactly
+  as before — this doesn't require every CWM project to have a test harness.
+  `--skip-tests` releases anyway; `--dry-run` still runs the gate for real,
+  since it verifies rather than writes.
+
+### Fixed
+
+- **A published release now actually becomes the latest release on the download
+  site.** ARS decides "latest" by the *lowest* `ordering` in a category — an
+  anti-join in `ReleasesModel::getListQuery()` that never looks at version
+  numbers or dates. Nothing here set that field, and ARS assigns nothing useful
+  on its own: the column is `bigint unsigned NOT NULL` with no DEFAULT and
+  `ReleaseTable::check()` only turns null into 0. So every release we published
+  landed on 0, they all tied for the minimum, and the Latest Releases page showed
+  whichever row the database happened to return last.
+  christianwebministries.org served Proclaim 10.3.1 from May until August while
+  10.5.7 was out, across all four of its categories. Update streams were correct
+  throughout, so Joomla's updater never noticed and neither did we.
+
+  Creating a release now places it one below the category minimum. That makes it
+  the unique minimum and touches no other record — bumping the previous holder
+  out of the way would mean PATCHing a live release with its whole record
+  (re-running `check()` over its notes), and would also fling it to the bottom
+  of the public category listing, which is ordered by this same column.
+
+  Updating a release now sends back the ordering it already has. Omitting the key
+  was not neutral: `release.xml` declares `ordering` with `default="0"` and the
+  form fills defaults for absent fields, so re-publishing a version to correct
+  its notes quietly dragged it to the front of its category. That is the likelier
+  explanation for how everything ended up at 0 in the first place.
+
+  Two cases refuse rather than guess: a category already pinned at 0 (the column
+  is unsigned, so there is no room below it) and a category read that comes back
+  a full page and may be truncated. Both say what to do. A caller-supplied
+  `ordering` is still respected.
+
+## [1.13.2] - 2026-07-30
+
+### Fixed
+
+- **`cwm-release` no longer dies when the version bump produces no diff.** Step 4
+  ran `git commit` unconditionally; on a tree already at the target version that
+  exits non-zero with "nothing to commit", and `set -e` took the whole release
+  down — after the build had run, before anything was tagged, with no sign in the
+  output that it was fatal.
+
+  Not an edge case: bumping first, running the release gate against that exact
+  build, and only then releasing leaves the version already bumped every time.
+
+  Staged changes are committed exactly as before; an already-bumped tree says so
+  and carries on to the tag. Dry-run output is unchanged.
+
+## [1.13.1] - 2026-07-30
+
+### Fixed
+
+- **`cwm-changelog` no longer inserts entries inside the changelog's header
+  comment.** Placement was `content.find('<changelogs>')`, which matches the
+  first occurrence anywhere in the file — and these changelog files carry a
+  header comment explaining what the root element is, so the first occurrence
+  was usually inside that comment.
+
+  Two failure modes, both silent, because the script reported success either way
+  and a changelog that will not parse looks to Joomla exactly like one that is
+  empty:
+
+  - The entry is swallowed by the comment. The file still parses; the release
+    simply has no changelog entry.
+  - The entry's own version-banner comment lines close the enclosing comment at
+    their first terminator, and the rest of the document becomes garbage. This
+    is what `generate-changelog-entry.sh` emits, so it is the common case.
+
+  Occurrences inside XML comments are now skipped. A root carrying attributes,
+  and a root on the final line with no trailing newline, are handled too.
+
+  Placement moved out of the inline heredoc into `scripts/changelog-insert.py`
+  so the rule is covered by `tests/python`, alongside the existing
+  sync-languages tests (Joomla-Bible-Study/CWMLivingWord#88).
+
 ## [1.13.0] - 2026-07-30
 
 ### Added

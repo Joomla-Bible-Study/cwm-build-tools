@@ -27,6 +27,13 @@ composer cwm-release
 5. **Finish** — update `versions.json` and push the release commit/tag to
    `github.releaseBranch`.
 
+Before any of that, if the project's `composer.json` defines a `test:release`
+script, `cwm-release` runs it as a pre-flight gate and stops before touching
+anything if it fails. This is opt-in by presence — a project with no
+`test:release` script is released exactly as before. Pass `--skip-tests` to
+release anyway; `--dry-run` still runs the gate for real, since it verifies
+rather than writes.
+
 Always check `--help` for the current flags and any dry-run option:
 
 ```bash

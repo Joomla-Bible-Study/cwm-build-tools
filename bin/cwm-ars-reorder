@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#
+# cwm-ars-reorder — space out an ARS category's `ordering` so the newest
+# release stays the latest release, with room to publish into.
+#
+# ARS reads "latest" as the lowest ordering in a category and cwm-ars-publish
+# places each release one below the current minimum, so a category numbered
+# contiguously from 1 runs out of room after a single publish. This renumbers
+# newest-first in steps.
+#
+# Plans by default and writes nothing; --apply performs the renumbering.
+#
+# Usage from a consuming project:
+#   composer ars-reorder                            # plan, category from config
+#   composer ars-reorder -- --category 1            # plan, explicit category
+#   composer ars-reorder -- --category 1 --apply    # do it
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec bash "${TOOLS_DIR}/scripts/ars-reorder.sh" "$@"

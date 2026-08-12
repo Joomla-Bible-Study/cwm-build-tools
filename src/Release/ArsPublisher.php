@@ -60,6 +60,17 @@ use CWM\BuildTools\Http\HttpTransport;
  *   every real site; Proclaim 10.3.4-10.4.0 all shipped that way (#58).
  *   ItemTable stores the field as a JSON-encoded array, so a JSON array is
  *   what goes on the wire.
+ * - **`ordering`.** ARS reads "latest release" as "lowest `ordering` in the
+ *   category", never as newest version or date, and assigns nothing useful on
+ *   its own — the column has no DEFAULT and ReleaseTable::check() only turns
+ *   null into 0. Publish without setting it and every release ties at 0, so
+ *   the Latest Releases page freezes on whichever row the database returns
+ *   last. It is also the one field where *omitting* it on an update is
+ *   destructive rather than neutral: release.xml declares `default="0"`, the
+ *   form fills defaults for absent fields, so a PATCH that leaves it out drags
+ *   that release to the front of its category. This class therefore always
+ *   sends it — one below the category minimum when creating, unchanged when
+ *   updating. See {@see orderingForNewest} (#77).
  *
  * ## Authorisation, as of ARS 7.5.0
  *
@@ -143,9 +154,18 @@ final class ArsPublisher
         self::assertMaturity((string) ($release['maturity'] ?? 'stable'));
         self::assertRenderedNotes((string) ($release['notes'] ?? ''));
 
-        $existingId = $this->findReleaseId($categoryId, $version);
+        $existing = $this->findRelease($categoryId, $version);
 
-        if ($existingId !== null) {
+        if ($existing !== null) {
+            $existingId = (int) $existing['id'];
+
+            // Preserve the ordering this release already has. Omitting the key
+            // does NOT leave it alone — release.xml declares ordering with
+            // default="0", the form fills the default for absent fields, and
+            // the release silently jumps to 0. Re-publishing a version to fix
+            // its notes would otherwise drag it to the front of its category.
+            $release['ordering'] ??= $existing['ordering'];
+
             // ReleaseTable::check() is a full-record check; PATCHing a subset
             // is how fields get reset to defaults. The caller passes the whole
             // record, and `id` goes with it so the body agrees with the route.
@@ -154,9 +174,198 @@ final class ArsPublisher
             return ['id' => $existingId, 'created' => false];
         }
 
+        $release['ordering'] ??= $this->orderingForNewest($categoryId);
+
         $response = $this->send('POST', '/releases', $release);
 
         return ['id' => $this->idFromWriteResponse($response, 'release'), 'created' => true];
+    }
+
+    /**
+     * The `ordering` value that makes a new release the latest in its category.
+     *
+     * ARS decides "latest" with an anti-join in ReleasesModel::getListQuery()
+     * (`filter.latest`): it keeps the releases with **no published sibling of a
+     * smaller `ordering`**, i.e. the *minimum* ordering in the category. Version
+     * numbers and dates are never consulted. Whatever holds the lowest ordering
+     * is what the Latest Releases page shows, forever, no matter what is
+     * published afterwards.
+     *
+     * ARS itself never assigns a useful value: `#__ars_releases.ordering` is
+     * `bigint unsigned NOT NULL` with no DEFAULT, and ReleaseTable::check() only
+     * does `$this->ordering = $this->ordering ?? 0`. So every release published
+     * without an explicit ordering lands on 0, they all tie for the minimum, the
+     * anti-join returns all of them, and Latest\HtmlView keeps whichever row the
+     * database happened to return last. That is how christianwebministries.org
+     * ended up serving Proclaim 10.3.1 for three months while 10.5.7 was out
+     * (cwm-build-tools#77).
+     *
+     * Going one below the current minimum makes the new release the unique
+     * minimum and touches no other record — which matters, because "just bump
+     * the old one out of the way" would mean PATCHing a live release, and a
+     * PATCH has to carry the whole record (see the ordering note above) so it
+     * re-runs check() over that release's notes. One release, one write.
+     *
+     * @throws \RuntimeException When the category has no room below its minimum.
+     */
+    private function orderingForNewest(int $categoryId): int
+    {
+        $rows = $this->categoryReleases($categoryId);
+
+        $orderings = array_map(
+            static fn (array $row): int => (int) (($row['attributes'] ?? [])['ordering'] ?? 0),
+            $rows
+        );
+
+        // An empty category: start at 1 rather than 0, so the next release has
+        // somewhere to go.
+        if ($orderings === []) {
+            return 1;
+        }
+
+        $minimum = min($orderings);
+
+        if ($minimum <= 0) {
+            throw new \RuntimeException(sprintf(
+                'ARS category %d has a release at ordering 0, so there is no room to place this one below it. '
+                . '`ordering` is unsigned, 0 is the floor, and a tie for the lowest value is exactly the bug '
+                . 'that made the Latest Releases page stick on an old version (cwm-build-tools#77). '
+                . 'Renumber the category once, then re-run this publish: '
+                . '`composer ars-reorder -- --category %d` shows what it would change, and '
+                . '`composer ars-reorder -- --category %d --apply` does it. That spaces the category out so '
+                . 'this does not come back after the next publish, which is what dragging to the top in the '
+                . 'ARS backend would leave you with.',
+                $categoryId,
+                $categoryId,
+                $categoryId
+            ));
+        }
+
+        return $minimum - 1;
+    }
+
+    /**
+     * Renumber a category so the newest release sorts first, with gaps.
+     *
+     * {@see orderingForNewest} places each new release one below the category
+     * minimum, which works until the minimum reaches 0 — `ordering` is
+     * unsigned, so there is no room below that and the publish stops. A
+     * category numbered contiguously from 1 therefore has exactly one publish
+     * of headroom, which is what a drag-to-top in the ARS backend leaves
+     * behind: Joomla's saveOrderAjax renumbers 1..N with no gaps.
+     *
+     * This spaces the category out instead. Releases are numbered newest-first
+     * as `stride`, `2 * stride`, `3 * stride`, so the newest is the minimum ARS
+     * looks for, the public category listing (ordered by this same column) runs
+     * newest to oldest, and there are `stride - 1` publishes of room underneath
+     * before anyone has to think about this again.
+     *
+     * Ordering by `created` rather than by version string is deliberate: version
+     * strings do not sort (10.3.10 vs 10.3.2), and a release's date is what the
+     * download page shows anyway.
+     *
+     * ## What a write here costs
+     *
+     * Only releases whose ordering actually changes are written, and each write
+     * is a PATCH carrying that release's whole record — a partial PATCH would
+     * blank fields to their form defaults (see the `ordering` note on this
+     * class). So `check()` re-runs on those releases, which re-filters their
+     * notes through Joomla's InputFilter. That is idempotent on already-filtered
+     * HTML, but it is a write to a live download page and the reason `$apply`
+     * defaults to false.
+     *
+     * Note the record sent back is what the API returns, and the API does not
+     * expose a release's tags. A release that has tags may lose them. ARS gained
+     * tags in 7.4 and CWM has never set any, so this is a caveat rather than a
+     * known loss — check before running it against a category that uses them.
+     *
+     * @param  int  $categoryId Category to renumber.
+     * @param  int  $stride     Gap between releases. 100 gives 99 publishes of room.
+     * @param  bool $apply      false plans without writing anything.
+     *
+     * @return array{stride: int, applied: bool, changes: list<array{id: int, version: string, from: int, to: int}>}
+     */
+    public function reorderCategory(int $categoryId, int $stride = 100, bool $apply = false): array
+    {
+        if ($stride < 2) {
+            throw new \InvalidArgumentException(
+                "A stride of {$stride} leaves no room to publish into. Use at least 2, and prefer 100 or more "
+                . 'unless the category is nearly dormant — each publish consumes one step.'
+            );
+        }
+
+        $rows = $this->categoryReleases($categoryId);
+
+        usort($rows, static function (array $a, array $b): int {
+            $aa = $a['attributes'] ?? [];
+            $ba = $b['attributes'] ?? [];
+
+            // Newest first. `created` is an ARS datetime string; fall back to
+            // the id, which is monotonic, when it is missing or unparseable.
+            $at = strtotime((string) ($aa['created'] ?? '')) ?: 0;
+            $bt = strtotime((string) ($ba['created'] ?? '')) ?: 0;
+
+            return $bt <=> $at ?: ((int) ($ba['id'] ?? 0) <=> (int) ($aa['id'] ?? 0));
+        });
+
+        $changes = [];
+
+        foreach (array_values($rows) as $index => $row) {
+            $attributes = $row['attributes'] ?? [];
+            $target     = ($index + 1) * $stride;
+            $current    = (int) ($attributes['ordering'] ?? 0);
+
+            if ($current === $target) {
+                continue;
+            }
+
+            $changes[] = [
+                'id'      => (int) ($attributes['id'] ?? 0),
+                'version' => (string) ($attributes['version'] ?? '?'),
+                'from'    => $current,
+                'to'      => $target,
+            ];
+
+            if ($apply) {
+                $attributes['ordering'] = $target;
+
+                $this->send('PATCH', '/releases/' . (int) $attributes['id'], $attributes);
+            }
+        }
+
+        return ['stride' => $stride, 'applied' => $apply, 'changes' => $changes];
+    }
+
+    /**
+     * Every release in a category, refusing a read that may be truncated.
+     *
+     * A minimum — or a renumbering — taken from part of a category is worse
+     * than no answer: it would place a release above a sibling that was never
+     * seen, and the publish would report success.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function categoryReleases(int $categoryId): array
+    {
+        $query = http_build_query([
+            'category_id' => $categoryId,
+            'page'        => ['limit' => self::PAGE_LIMIT],
+        ]);
+
+        $rows = $this->readList("/releases?{$query}", 'releases');
+
+        if (\count($rows) >= self::PAGE_LIMIT) {
+            throw new \RuntimeException(sprintf(
+                'ARS category %d returned the full %d-row page, so this may not be all of it and the lowest '
+                . '`ordering` cannot be established. Refusing to guess: a release ordered above an unseen '
+                . 'sibling would not become the latest, and nothing about the publish would say so. '
+                . 'Raise ArsPublisher::PAGE_LIMIT above the number of releases in the category.',
+                $categoryId,
+                self::PAGE_LIMIT
+            ));
+        }
+
+        return $rows;
     }
 
     /**
@@ -203,6 +412,22 @@ final class ArsPublisher
      */
     public function findReleaseId(int $categoryId, string $version): ?int
     {
+        $release = $this->findRelease($categoryId, $version);
+
+        return $release === null ? null : $release['id'];
+    }
+
+    /**
+     * The id and current ordering of the release with exactly this version.
+     *
+     * `ordering` comes back with the id because the update path has to send it
+     * again to keep it — see the note in {@see upsertRelease}. Reading it here
+     * keeps that to the one lookup the upsert already performs.
+     *
+     * @return array{id: int, ordering: int}|null
+     */
+    public function findRelease(int $categoryId, string $version): ?array
+    {
         $query = http_build_query([
             'category_id' => $categoryId,
             'search'      => $version,
@@ -215,7 +440,10 @@ final class ArsPublisher
             $attributes = $row['attributes'] ?? [];
 
             if (($attributes['version'] ?? null) === $version) {
-                return (int) $attributes['id'];
+                return [
+                    'id'       => (int) $attributes['id'],
+                    'ordering' => (int) ($attributes['ordering'] ?? 0),
+                ];
             }
         }
 

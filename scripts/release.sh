@@ -22,6 +22,7 @@
 #   release.sh 1.2.3-beta1          # pre-release
 #   release.sh                      # prompts for version
 #   release.sh 1.2.3 --dry-run      # print the plan, change nothing
+#   release.sh 1.2.3 --skip-tests   # release without the test:release gate
 #
 # Dry run:
 #   --dry-run (-n) walks the whole pipeline and writes nothing: no manifest
@@ -34,7 +35,19 @@
 #   reported. The two pre-conditions a real run refuses to start without — the
 #   right branch and a clean tree — are reported as warnings rather than
 #   errors, since wanting to know what a release *would* do before tidying up
-#   is the normal reason to ask.
+#   is the normal reason to ask. The test:release gate (below) is a read-only
+#   check by this definition too — it verifies, it doesn't write release
+#   artifacts — so it runs under --dry-run as well.
+#
+# Test gate:
+#   If the project's composer.json defines a `test:release` script, it runs
+#   as a pre-flight step and a failure stops the release before anything is
+#   bumped, built, or published. Projects without that script are unaffected
+#   — the gate is opt-in by presence, not a hard requirement of every CWM
+#   project. Pass --skip-tests to release anyway (an emergency hotfix where
+#   the suite's own environment is the thing broken, say); the flag exists
+#   so that's a deliberate, visible choice rather than a reason to touch this
+#   script. See lib/testgate.sh.
 #
 # Prerequisites:
 #   - Clean working tree, on the configured release branch (default: main)
@@ -54,16 +67,45 @@ source "${SCRIPT_DIR}/lib/version.sh"
 source "${SCRIPT_DIR}/lib/notes.sh"
 # shellcheck source=lib/dryrun.sh
 source "${SCRIPT_DIR}/lib/dryrun.sh"
+# shellcheck source=lib/testgate.sh
+source "${SCRIPT_DIR}/lib/testgate.sh"
 PROJECT_ROOT="$(pwd)"
 
 # --- Parse flags ---
 #
-# The flag is pulled out wherever it appears, so `release.sh --dry-run 1.2.3`
-# and `release.sh 1.2.3 --dry-run` both work; what remains is the positional
-# version argument the rest of the script already expects. Parsing and the
-# command wrapper live in lib/dryrun.sh so they can be tested.
-cwm_parse_dry_run "$@"
+# Flags are pulled out wherever they appear, so `release.sh --dry-run 1.2.3`
+# and `release.sh 1.2.3 --dry-run --skip-tests` both work; what remains is the
+# positional version argument the rest of the script already expects. Parsing
+# and the command wrapper live in lib/dryrun.sh so they can be tested.
+usage() {
+    cat <<'USAGE'
+cwm-release — full release pipeline for a CWM Joomla extension.
+
+Usage:
+  composer release -- <version> [--dry-run|-n] [--skip-tests]
+  composer release                  # prompts for the version
+
+Options:
+  -n, --dry-run     Print every mutating command instead of running it.
+  --skip-tests      Skip the composer test:release gate.
+  -h, --help        Show this and exit.
+USAGE
+}
+
+if ! cwm_parse_dry_run "$@"; then
+    echo "Error: unknown option '${CWM_BAD_FLAG}'." >&2
+    echo >&2
+    usage >&2
+    exit 1
+fi
+
+if [ "$CWM_HELP" = "1" ]; then
+    usage
+    exit 0
+fi
+
 DRY_RUN="$CWM_DRY_RUN"
+SKIP_TESTS="$CWM_SKIP_TESTS"
 set -- "${CWM_ARGS[@]+"${CWM_ARGS[@]}"}"
 
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"
@@ -181,6 +223,28 @@ if [ -f .gitmodules ]; then
 fi
 echo ""
 
+# --- Pre-flight: release gate (composer test:release) ---
+# Verifies the commit about to be released, not the commit that results from
+# bumping/building it — so this runs before step 1, against what's on disk
+# right now. See lib/testgate.sh for why this exists at all.
+if [ "$SKIP_TESTS" = "1" ]; then
+    echo "[pre-flight] Skipping composer test:release (--skip-tests)."
+elif ! cwm_has_test_release_script "${PROJECT_ROOT}/composer.json"; then
+    echo "[pre-flight] No composer test:release script — skipping pre-release verification."
+else
+    echo "[pre-flight] Running composer test:release..."
+    if composer test:release; then
+        echo "  test:release passed."
+    elif [ "$DRY_RUN" = "1" ]; then
+        echo "  WARNING: test:release failed. A real run would stop here."
+    else
+        echo ""
+        echo "Error: composer test:release failed. Fix the failure, or pass --skip-tests to release anyway."
+        exit 1
+    fi
+fi
+echo ""
+
 # --- Get version ---
 if [ -n "${1:-}" ]; then
     VERSION="$1"
@@ -283,16 +347,35 @@ if [ -n "$UNTRACKED" ]; then
     printf '    %s\n' $UNTRACKED
 fi
 cwm_mutate git add -A
-cwm_mutate git commit -m "chore: bump version to ${VERSION}"
+
+# The bump does not always produce a diff. Bumping first, running the release
+# gate against that build, and only then releasing is a sound workflow — and it
+# leaves the tree already at the target version, so `git commit` exits non-zero
+# with "nothing to commit" and takes the whole release down with it under
+# `set -e`: after the build has run, before anything is tagged.
+#
+# Staged changes are committed exactly as before; an already-bumped tree simply
+# carries on to the tag.
+if [ "${CWM_DRY_RUN:-0}" = "1" ]; then
+    cwm_mutate git commit -m "chore: bump version to ${VERSION}"
+elif git diff --cached --quiet; then
+    echo "  Version already at ${VERSION} — nothing to commit, continuing."
+else
+    git commit -m "chore: bump version to ${VERSION}"
+fi
+
 cwm_mutate git push
 echo ""
 
 # --- Step 5: GitHub release ---
 echo "[5/9] Creating GitHub release ${TAG}..."
 
-# `HEAD` is the bump commit we just pushed; `git describe` from there finds the
-# previous reachable tag, which is what we want for the changelog "since" base.
-PREV_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
+# The changelog base is "since the last thing anyone could install", so
+# pre-release tags are skipped. `git describe` answers with the nearest tag,
+# which straight after a release candidate is the candidate — and the range
+# then holds only the version bump, producing an entry with nothing in it
+# while the real description sits under a tag no site was offered (#74).
+PREV_TAG=$(cwm_latest_stable_tag "$(git tag --merged HEAD --sort=v:refname 2>/dev/null || echo "")")
 if [ -n "$PREV_TAG" ] && [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
     NOTES=$(gh api "repos/${GH_OWNER}/${GH_REPO}/releases/generate-notes" \
         -f tag_name="$TAG" -f target_commitish="$RELEASE_BRANCH" -f previous_tag_name="$PREV_TAG" \

@@ -50,6 +50,45 @@ final class TokenSubstituter
     }
 
     /**
+     * Fold the extension's install script into the configured paths.
+     *
+     * The installer named by `package.installer` (or `build.scriptFile`) is
+     * shipped source — it is the manifest's <scriptfile>, and Joomla runs it on
+     * every install. It also lives in `build/`, which no project lists under
+     * `substituteTokens.paths` because the rest of that directory is tooling
+     * that must not be rewritten. So the one file in there that genuinely ships
+     * was the one file never substituted, and every release published it with a
+     * literal __DEPLOY_VERSION__ in its docblocks (#75).
+     *
+     * Derived from configuration the tool already reads, so no project has to
+     * remember to add it, and it cannot over-reach into the rest of build/.
+     *
+     * @param  array{paths?: list<string>} $substituteConfig the versionTracking.substituteTokens block
+     * @param  array<string, mixed>        $config           the whole cwm-build.config.json
+     * @return list<string> paths to walk, installer included, without duplicates
+     */
+    public static function pathsWithInstaller(array $substituteConfig, array $config): array
+    {
+        $paths = array_values(array_filter(
+            $substituteConfig['paths'] ?? [],
+            static fn ($p): bool => \is_string($p) && $p !== '',
+        ));
+
+        $candidates = [
+            $config['package']['installer'] ?? null,
+            $config['build']['scriptFile']  ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (\is_string($candidate) && $candidate !== '' && !\in_array($candidate, $paths, true)) {
+                $paths[] = $candidate;
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
      * Walk configured paths, replace the token with $version in every file
      * matching the extension filter. Files without the token are left
      * untouched (no mtime bump, no needless writes).

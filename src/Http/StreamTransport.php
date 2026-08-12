@@ -51,16 +51,38 @@ final class StreamTransport implements HttpTransport
 
         $context = stream_context_create($options);
 
-        // $http_response_header is populated by the stream wrapper in the
-        // local scope of the call. It is the only way to see the status.
         $responseBody = @file_get_contents($url, false, $context);
 
-        if (!isset($http_response_header)) {
+        /**
+         * The stream wrapper has no return value for the status, so it has to
+         * be read back out of band. How, is version-dependent:
+         *
+         * - PHP 8.5 added http_get_last_response_headers() and deprecated the
+         *   older mechanism in the same release (#80).
+         * - Before that, the wrapper injected $http_response_header into the
+         *   local scope of whichever function called it. That is why this is
+         *   read here rather than in a helper — a helper has its own scope and
+         *   would never see it.
+         *
+         * The ternary short-circuits on 8.5, so the deprecated variable is
+         * never referenced there.
+         *
+         * Both report per-attempt state: a request that never reached the
+         * server leaves null/unset even if an earlier one on the same process
+         * succeeded, so this doubles as the "did we get a response at all" test.
+         *
+         * @var list<string>|null $responseHeaders
+         */
+        $responseHeaders = \function_exists('http_get_last_response_headers')
+            ? http_get_last_response_headers()
+            : ($http_response_header ?? null);
+
+        if ($responseHeaders === null) {
             throw new \RuntimeException("No HTTP response from {$url} (connection, DNS or TLS failure).");
         }
 
         return new HttpResponse(
-            self::statusFrom($http_response_header),
+            self::statusFrom($responseHeaders),
             $responseBody === false ? '' : $responseBody
         );
     }

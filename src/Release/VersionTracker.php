@@ -67,6 +67,12 @@ final class VersionTracker
             if ($this->writePackageJson($packagePath, $version)) {
                 $touched[] = $packagePath;
             }
+
+            if ($lockPath = $this->packageLockBeside($packagePath)) {
+                if ($this->writePackageLock($lockPath, $version)) {
+                    $touched[] = $lockPath;
+                }
+            }
         }
 
         foreach ($this->rewriteSourceFiles($version) as $path) {
@@ -299,6 +305,63 @@ final class VersionTracker
 
         $this->writeJson($path, $data);
         echo "  $path → current=$version, next.patch={$nexts['patch']}\n";
+
+        return true;
+    }
+
+    /**
+     * The package-lock.json sitting beside a package.json, when there is one.
+     *
+     * @return string|null absolute path, or null when the project has no lock
+     */
+    private function packageLockBeside(string $packageJsonPath): ?string
+    {
+        $lock = \dirname($packageJsonPath) . '/package-lock.json';
+
+        return is_file($lock) ? $lock : null;
+    }
+
+    /**
+     * Carry the version into package-lock.json.
+     *
+     * npm records the version in two places in the lock, and nothing here used
+     * to write either — so the lock drifted from package.json release after
+     * release. At the v1.1.10 tag of lib_cwmscripture the manifest said 1.1.10
+     * and the lock still said 1.1.8, two releases behind, having last moved in
+     * an unrelated Dependabot commit (#76).
+     *
+     * The cost is not untidiness. npm rewrites that field the next time anyone
+     * runs `npm install`, which lands as an unexplained modification in a clean
+     * tree and stops the *next* release at the "working tree is not clean"
+     * pre-check — a failure created by an omission several releases earlier, in
+     * a file nobody edited.
+     *
+     * Only the two version fields are touched. The dependency tree is left
+     * exactly as npm wrote it, which is the same thing `npm version` does.
+     */
+    private function writePackageLock(string $path, string $version): bool
+    {
+        $data = $this->readJson($path);
+
+        $rootMatches = ($data['packages'][''] ?? null) === null
+            || ($data['packages']['']['version'] ?? null) === $version;
+
+        if (($data['version'] ?? null) === $version && $rootMatches) {
+            echo "  $path (no change)\n";
+
+            return false;
+        }
+
+        $data['version'] = $version;
+
+        // lockfileVersion 2 and 3 carry it again under packages[""]; version 1
+        // has no packages block at all, so only write what is already there.
+        if (isset($data['packages']) && \is_array($data['packages']) && \array_key_exists('', $data['packages'])) {
+            $data['packages']['']['version'] = $version;
+        }
+
+        $this->writeJson($path, $data, indent: 2);
+        echo "  $path → version=$version\n";
 
         return true;
     }

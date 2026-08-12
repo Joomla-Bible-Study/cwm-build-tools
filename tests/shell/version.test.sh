@@ -74,4 +74,32 @@ printf '<extension><name>x</name></extension>\n' > "$WORK/noversion.xml"
 cwm_version_from_manifest "$WORK/noversion.xml" >/dev/null
 assert_equals "1" "$?" "a manifest without a <version> element returns 1"
 
+
+# --- cwm_latest_stable_tag ---------------------------------------------------
+#
+# The case that produced empty changelog entries: 1.1.10 cut straight after
+# 1.1.10-rc1, where git describe answers with the rc and the range holds only
+# the version bump (#74).
+assert_equals "v1.1.9" "$(cwm_latest_stable_tag "$(printf 'v1.1.8\nv1.1.9\nv1.1.10-rc1')")" \
+    "an rc is skipped in favour of the last stable"
+
+assert_equals "v1.1.9" "$(cwm_latest_stable_tag "$(printf 'v1.1.9\nv1.1.10-beta1\nv1.1.10-rc1\nv1.1.10-rc2')")" \
+    "a run of pre-releases is skipped wholesale"
+
+assert_equals "v1.2.0" "$(cwm_latest_stable_tag "$(printf 'v1.1.9\nv1.2.0')")" \
+    "with no pre-releases the newest tag is used"
+
+assert_equals "v2.0.0-beta1" "$(cwm_latest_stable_tag "$(printf 'v1.0.0-alpha1\nv2.0.0-beta1')")" \
+    "a project with only pre-releases still gets a base"
+
+assert_equals "" "$(cwm_latest_stable_tag "")" \
+    "no tags yields nothing rather than an error"
+
+assert_equals "1.1.9" "$(cwm_latest_stable_tag "$(printf '1.1.9\n1.1.10-rc1')")" \
+    "tags without a v prefix work too"
+
+# A v prefix must not be mistaken for a pre-release suffix.
+assert_equals "v10.5.7" "$(cwm_latest_stable_tag "$(printf 'v10.5.6\nv10.5.7')")" \
+    "the leading v is not read as a hyphenated suffix"
+
 finish

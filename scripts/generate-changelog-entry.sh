@@ -27,6 +27,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -187,6 +188,21 @@ if [ -z "$ENTRY" ]; then
     exit 1
 fi
 
+# An entry with no <item> is well-formed and says nothing. It happens when the
+# range the notes were generated from contains only chores — most often when the
+# previous tag was a release candidate, so everything worth describing sits under
+# a version no site was offered (#74). Releasing around it is a decision, not an
+# error, but it should be a decision someone makes rather than one that happens.
+ITEM_COUNT=$(printf '%s' "$ENTRY" | grep -c '<item>' || true)
+
+if [ "$ITEM_COUNT" -eq 0 ]; then
+    echo "WARNING: the ${VERSION} entry has no items — the release notes for this" >&2
+    echo "         range described nothing user-facing. If the previous tag was a" >&2
+    echo "         pre-release, the description you want is probably under it." >&2
+    echo "         Write the entry by hand before releasing; this script skips a" >&2
+    echo "         version already present in the file." >&2
+fi
+
 if [ "$DRY_RUN" = true ]; then
     echo "$ENTRY"
     exit 0
@@ -199,26 +215,6 @@ if [ ! -f "$CHANGELOG_PATH" ]; then
 fi
 
 export CHANGELOG_ENTRY="$ENTRY"
-python3 - "$CHANGELOG_PATH" <<'INSERT_SCRIPT'
-import os, sys
-
-changelog_file = sys.argv[1]
-entry = os.environ.get('CHANGELOG_ENTRY', '')
-
-with open(changelog_file, 'r') as f:
-    content = f.read()
-
-marker = '<changelogs>'
-pos = content.find(marker)
-if pos == -1:
-    print("Error: Could not find <changelogs> tag in changelog file.", file=sys.stderr)
-    sys.exit(1)
-
-insert_pos = content.index('\n', pos) + 1
-new_content = content[:insert_pos] + '\n' + entry + '\n' + content[insert_pos:]
-
-with open(changelog_file, 'w') as f:
-    f.write(new_content)
-INSERT_SCRIPT
+python3 "${SCRIPT_DIR}/changelog-insert.py" "$CHANGELOG_PATH"
 
 echo "Changelog entry for ${VERSION} added to $(basename "$CHANGELOG_PATH")."
