@@ -13,11 +13,21 @@ declare(strict_types=1);
  * language files, and an opt-in self-verify step.
  */
 
+// This entry point has no autoloader — every class Packager can reach at
+// runtime has to be required here, including the ones it only touches on
+// some paths. ChildTokenSubstitution and its two dependencies were missed
+// when subBuild substitution landed in 1.18.0, so `cwm-package` fataled on
+// any project with a subBuild include while the unit tests stayed green:
+// they run under Composer's autoloader, which this does not have.
+// `tests/Cli/PackageCliTest.php` runs this file for real to catch that.
 require_once __DIR__ . '/../src/Build/BuildConfig.php';
 require_once __DIR__ . '/../src/Build/ManifestReader.php';
 require_once __DIR__ . '/../src/Build/Prompt.php';
 require_once __DIR__ . '/../src/Build/PackageBuilder.php';
 require_once __DIR__ . '/../src/Build/PackageConfig.php';
+require_once __DIR__ . '/../src/Config/ProfileResolver.php';
+require_once __DIR__ . '/../src/Release/TokenSubstituter.php';
+require_once __DIR__ . '/../src/Build/ChildTokenSubstitution.php';
 require_once __DIR__ . '/../src/Build/Packager.php';
 
 use CWM\BuildTools\Build\BuildConfig;

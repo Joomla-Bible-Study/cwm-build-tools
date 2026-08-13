@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-08-13
+
+### Fixed
+
+- **`cwm-package` fataled on any project with a `subBuild` include.** 1.18.0
+  wired `ChildTokenSubstitution` into `Packager::resolveSubBuild()` but never
+  required it in `scripts/package.php`, which has no autoloader and loads every
+  class by path. Result: `Class "CWM\BuildTools\Build\ChildTokenSubstitution"
+  not found`, and the build stopped.
+
+  The unit suite stayed green throughout, because it runs under Composer's
+  autoloader — the one thing the CLI does not have. `tests/Cli/PackageCliTest.php`
+  now runs `scripts/package.php` as a real subprocess against a project with a
+  `subBuild` child, and asserts both that it exits 0 and that the child was
+  actually substituted; it reproduces the fatal exactly when the requires are
+  removed.
+
+  Every other autoload-less entry point under `scripts/` was swept for the same
+  shape; this was the only one.
+
 ## [1.18.0] - 2026-08-13
 
 ### Fixed
