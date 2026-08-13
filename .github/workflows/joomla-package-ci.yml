@@ -83,35 +83,6 @@ env:
   NODE_OPTIONS: --disable-warning=DEP0040
 
 jobs:
-  # A job of its own rather than steps on `ci`, following Proclaim's js-checks:
-  # it needs none of the PHP setup, so running it in parallel keeps ESLint off
-  # the critical path instead of adding an npm ci to it. It also reports as its
-  # own check, so a JS failure is legible without opening the PHP job.
-  js-lint:
-    name: JS Lint
-    if: ${{ inputs.run-lint-js }}
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          submodules: ${{ inputs.submodules }}
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ inputs.node-version }}
-          cache: 'npm'
-          cache-dependency-path: |
-            **/package-lock.json
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint:js
-
   ci:
     name: PHP Lint, Tests, Build
     runs-on: ubuntu-latest
@@ -151,6 +122,21 @@ jobs:
 
       - name: Install Composer dependencies
         run: composer install --no-interaction --prefer-dist
+
+      # After composer install, not in a job of its own. The obvious design is a
+      # parallel js-lint job with no PHP setup — it was tried, and it fails:
+      # projects extend the shared ESLint base at
+      # vendor/cwm/build-tools/templates/eslint.config.base.mjs, which Composer
+      # puts there, so ESLint without composer install dies with
+      # ERR_MODULE_NOT_FOUND before linting a line. Proclaim's standalone
+      # js-checks job works because it runs Jest, which needs no such config.
+      - name: Install npm dependencies for JS lint
+        if: ${{ inputs.run-lint-js }}
+        run: npm ci
+
+      - name: Run ESLint
+        if: ${{ inputs.run-lint-js }}
+        run: npm run lint:js
 
       - name: Lint PHP syntax
         if: ${{ inputs.run-lint-syntax }}
