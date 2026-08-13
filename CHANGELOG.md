@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-08-13
+
+### Fixed
+
+- **A `subBuild` child is substituted with its own version before it is
+  packaged.** Token substitution is a *release* step — `cwm-release` runs it
+  once, in the outer repo, over the outer repo's `substituteTokens.paths`. A
+  `subBuild` runs the child's **build**, never its release, so the child was
+  packaged carrying whatever placeholders its committed source had, every time.
+  (#89)
+
+  The outer repo could not cover for it: when the child is a git submodule,
+  substituting it from the parent stamps another repo's source with the
+  parent's version, which is what Proclaim 10.4.1 did to a plugin (#1704) and
+  what `TokenSubstituter` has refused to do during descent since 1.16.0. So no
+  configuration fixed this, and 1.17.0's artifact gate turned it from invisible
+  into blocking — Proclaim could not cut a release at all, because
+  `pkg_cwmscripture` contributed ten literal tags from its install script that
+  nothing in Proclaim could remove.
+
+  `Build\ChildTokenSubstitution` reads the child's own `cwm-build.config.json`
+  and manifest, substitutes with the **child's** version, and restores the tree
+  byte for byte. `Packager::resolveSubBuild()` runs it around the build in a
+  `try/finally`, so a spawn failure, a non-zero exit or an empty `distGlob`
+  cannot leave a submodule rewritten — that is the drift `release.sh` step 4's
+  `git add -A` silently commits.
+
+  - `package.installer` is folded in, because that is where the failing tokens
+    actually live and it is in no project's `paths` (#75).
+  - A submodule nested *inside* the child is still skipped; that placeholder
+    belongs to its own release.
+  - ⚠️ Substituting the child's own root — normally a submodule — is
+    deliberate, and works because the submodule guard is an iterator filter
+    over entries found during descent, never the walk root.
+    `ChildTokenSubstitutionTest::substitutes_a_child_whose_root_is_a_submodule()`
+    pins that, so hardening the guard (#92) fails a test instead of silently
+    substituting nothing.
+
+### Added
+
+- `TokenSubstituter::filesContainingToken()` — the files the next
+  `substitute()` would rewrite, so a caller can snapshot and restore them.
+
 ## [1.17.0] - 2026-08-13
 
 ### Added
