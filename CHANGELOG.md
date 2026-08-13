@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`run-lint-js` runs after `composer install` instead of in a job of its own.**
+  As shipped in 1.16.0 it could not work: projects extend the shared ESLint base
+  at `vendor/cwm/build-tools/templates/eslint.config.base.mjs`, which Composer
+  puts there, so ESLint in a job with no PHP setup died with
+  `ERR_MODULE_NOT_FOUND` before linting a line. Both CWMLivingWord and
+  lib_cwmscripture failed identically the first time they turned it on.
+
+  The parallel job was modelled on Proclaim's `js-checks`, which stands alone
+  quite happily — because it runs Jest, which needs no Composer-delivered
+  config. ESLint here does, so the step belongs on the PHP job after the install
+  that provides it. The cost is one `npm ci` on that job's critical path; the
+  library pipeline already installs npm dependencies before its lint steps, so
+  there it is free.
+
 ## [1.16.0] - 2026-08-13
 
 ### Added

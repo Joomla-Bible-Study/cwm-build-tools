@@ -106,35 +106,6 @@ env:
   NODE_OPTIONS: --disable-warning=DEP0040
 
 jobs:
-  # A job of its own rather than steps on `ci`, following Proclaim's js-checks:
-  # it needs none of the PHP setup, so running it in parallel keeps ESLint off
-  # the critical path. It also reports as its own check, so a JS failure is
-  # legible without opening the PHP job.
-  js-lint:
-    name: JS Lint
-    if: ${{ inputs.run-lint-js }}
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          submodules: ${{ inputs.submodules }}
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ inputs.node-version }}
-          cache: 'npm'
-          cache-dependency-path: |
-            **/package-lock.json
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint:js
-
   ci:
     name: PHP Lint, Tests, Build
     runs-on: ubuntu-latest
@@ -175,8 +146,11 @@ jobs:
       - name: Install Composer dependencies
         run: composer install --no-interaction --prefer-dist
 
+      # Also for run-lint-js: ESLint extends the shared base config from
+      # vendor/cwm/build-tools, so it needs both this install and the composer
+      # one above. One npm ci serves the asset build and the lint.
       - name: Install npm dependencies
-        if: ${{ inputs.npm-build }}
+        if: ${{ inputs.npm-build || inputs.run-lint-js }}
         run: npm ci
 
       - name: Build minified assets
@@ -215,6 +189,10 @@ jobs:
       - name: Run PHP CS Fixer (dry-run)
         if: ${{ inputs.run-lint }}
         run: composer lint
+
+      - name: Run ESLint
+        if: ${{ inputs.run-lint-js }}
+        run: npm run lint:js
 
       - name: Run PHPUnit
         if: ${{ inputs.run-tests }}
