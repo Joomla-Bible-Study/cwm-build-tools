@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.16.1] - 2026-08-13
+
 ### Fixed
 
 - **`run-lint-js` runs after `composer install` instead of in a job of its own.**
