@@ -81,6 +81,11 @@ on:
         required: false
         type: boolean
         default: true
+      run-lint-js:
+        description: 'Whether to run npm run lint:js (ESLint). Off by default, unlike the PHP lint inputs: a project without the script would fail on it. Turn it on per project once lint:js is clean.'
+        required: false
+        type: boolean
+        default: false
       php-extensions:
         description: 'Extensions for setup-php'
         required: false
@@ -101,6 +106,35 @@ env:
   NODE_OPTIONS: --disable-warning=DEP0040
 
 jobs:
+  # A job of its own rather than steps on `ci`, following Proclaim's js-checks:
+  # it needs none of the PHP setup, so running it in parallel keeps ESLint off
+  # the critical path. It also reports as its own check, so a JS failure is
+  # legible without opening the PHP job.
+  js-lint:
+    name: JS Lint
+    if: ${{ inputs.run-lint-js }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: ${{ inputs.submodules }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+          cache-dependency-path: |
+            **/package-lock.json
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint:js
+
   ci:
     name: PHP Lint, Tests, Build
     runs-on: ubuntu-latest

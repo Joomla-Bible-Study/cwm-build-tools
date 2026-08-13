@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`run-lint-js` input on both reusable CI workflows.** Neither pipeline ran
+  ESLint, so `npm run lint:js` was gated nowhere across the org — CWMLivingWord
+  carried 394 errors in three source files without CI noticing, found only by
+  running the script by hand.
+
+  Off by default, unlike `run-lint` and `run-lint-syntax`: a project without the
+  script would fail on it, and in the package pipeline it costs an `npm ci` of
+  its own. Turn it on per project once `lint:js` is clean.
+
+  Runs as a `JS Lint` job of its own in both workflows, not as steps on the PHP
+  job, following the shape Proclaim already uses for its `js-checks`. ESLint
+  needs none of the PHP setup, so a parallel job keeps it off the critical path
+  rather than adding an `npm ci` to it, and a JS failure reports as its own
+  check instead of hiding inside the PHP job's log.
+
 ### Fixed
 
 - **`substituteTokens` no longer writes into git submodules.** A submodule
