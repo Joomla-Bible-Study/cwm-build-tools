@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`run-lint-js` input on both reusable CI workflows.** Neither pipeline ran
+  ESLint, so `npm run lint:js` was gated nowhere across the org — CWMLivingWord
+  carried 394 errors in three source files without CI noticing, found only by
+  running the script by hand.
+
+  Off by default, unlike `run-lint` and `run-lint-syntax`: a project without the
+  script would fail on it, and in the package pipeline it costs an `npm ci` of
+  its own. Turn it on per project once `lint:js` is clean.
+
+  In `joomla-package-ci.yml` the step brings its own `npm ci`, because the only
+  other npm install there happens inside the project's build command, which runs
+  after every lint step. In `joomla-library-ci.yml` the existing npm install now
+  also fires for `run-lint-js`, so a library that lints but does not build assets
+  still gets `node_modules`, and one that does both installs once.
+
 ### Fixed
 
 - **`substituteTokens` no longer writes into git submodules.** A submodule

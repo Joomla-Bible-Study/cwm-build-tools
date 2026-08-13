@@ -81,6 +81,11 @@ on:
         required: false
         type: boolean
         default: true
+      run-lint-js:
+        description: 'Whether to run npm run lint:js (ESLint). Off by default, unlike the PHP lint inputs: a project without the script would fail on it. Turn it on per project once lint:js is clean.'
+        required: false
+        type: boolean
+        default: false
       php-extensions:
         description: 'Extensions for setup-php'
         required: false
@@ -141,8 +146,10 @@ jobs:
       - name: Install Composer dependencies
         run: composer install --no-interaction --prefer-dist
 
+      # Also for run-lint-js, which needs node_modules whether or not this
+      # project builds assets. One install serves both.
       - name: Install npm dependencies
-        if: ${{ inputs.npm-build }}
+        if: ${{ inputs.npm-build || inputs.run-lint-js }}
         run: npm ci
 
       - name: Build minified assets
@@ -181,6 +188,10 @@ jobs:
       - name: Run PHP CS Fixer (dry-run)
         if: ${{ inputs.run-lint }}
         run: composer lint
+
+      - name: Run ESLint
+        if: ${{ inputs.run-lint-js }}
+        run: npm run lint:js
 
       - name: Run PHPUnit
         if: ${{ inputs.run-tests }}

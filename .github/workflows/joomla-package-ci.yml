@@ -63,6 +63,11 @@ on:
         required: false
         type: boolean
         default: true
+      run-lint-js:
+        description: 'Whether to run npm run lint:js (ESLint). Off by default, unlike the PHP lint inputs: it costs an npm ci of its own, and a project without the script would fail on it. Turn it on per project once lint:js is clean.'
+        required: false
+        type: boolean
+        default: false
       php-extensions:
         description: 'Extensions for setup-php'
         required: false
@@ -125,6 +130,18 @@ jobs:
       - name: Run PHP CS Fixer (dry-run)
         if: ${{ inputs.run-lint }}
         run: composer lint
+
+      # Its own npm ci, because the only other npm install in this workflow is
+      # the one inside the project's build command, which runs after every lint
+      # step — too late to lint against. Cheap after Setup Node's npm cache, and
+      # it leaves node_modules in place, so the later install is a near no-op.
+      - name: Install npm dependencies for JS lint
+        if: ${{ inputs.run-lint-js }}
+        run: npm ci
+
+      - name: Run ESLint
+        if: ${{ inputs.run-lint-js }}
+        run: npm run lint:js
 
       - name: Run PHPUnit
         if: ${{ inputs.run-tests }}
