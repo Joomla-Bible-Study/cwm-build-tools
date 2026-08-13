@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-08-13
+
 ### Added
 
 - **`cwm-release` refuses to publish an artifact containing unsubstituted
