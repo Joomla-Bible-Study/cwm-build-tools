@@ -194,6 +194,42 @@ final class Packager
 
         echo "  -> sub-build {$include['outputName']} (in {$include['path']})\n";
 
+        // A subBuild runs the child's BUILD, never its release — so without
+        // this the child is packaged carrying whatever placeholder tokens its
+        // committed source has, and no outer-repo setting can fix it (#89).
+        // Substituted with the child's own version, and reverted in the
+        // `finally` below: the child is usually a submodule checkout, and
+        // leaving it rewritten is the drift `git add -u` silently commits.
+        $substitution = new ChildTokenSubstitution($subDir);
+        $rewritten    = $substitution->apply();
+
+        if ($rewritten > 0) {
+            echo "     substituted the token in $rewritten file(s) at the child's own version\n";
+        }
+
+        try {
+            return $this->runSubBuild($include, $stagedPath, $i, $subDir, $buildScriptAbs);
+        } finally {
+            $substitution->restore();
+        }
+    }
+
+    /**
+     * Run the child's build script and stage the zip it produced.
+     *
+     * Split out of {@see resolveSubBuild} so every exit — a spawn failure, a
+     * non-zero exit, an empty distGlob — unwinds through one `finally` that
+     * restores the child's working tree.
+     *
+     * @param array<string, mixed> $include
+     */
+    private function runSubBuild(
+        array $include,
+        string $stagedPath,
+        int $i,
+        string $subDir,
+        string $buildScriptAbs
+    ): string {
         // Array-form proc_open: no shell, no metachar interpretation. Inherit
         // STDOUT/STDERR so the user sees the sub-build's progress live.
         $cmd = array_merge(['php', $buildScriptAbs], $include['args']);
