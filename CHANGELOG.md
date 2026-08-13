@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-08-13
+
 ### Added
 
 - **`run-lint-js` input on both reusable CI workflows.** Neither pipeline ran
@@ -23,6 +25,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   needs none of the PHP setup, so a parallel job keeps it off the critical path
   rather than adding an `npm ci` to it, and a JS failure reports as its own
   check instead of hiding inside the PHP job's log.
+
+- **The moving major tag re-points itself on release.** `v1` is what every
+  consumer pins the reusable workflows to, and moving it was step 6 of a hand-run
+  checklist. It was moved for v1.13.2 and then missed for v1.14.0, v1.15.0 and
+  v1.15.1 — three releases cut about an hour apart — so for eleven days every
+  project ran the v1.13.2 pipeline while three releases' worth of fixes sat
+  published and unreachable. Nothing failed; a stale tag simply keeps serving old
+  code.
+
+  `.github/workflows/major-tag.yml` now force-moves it on `release: published`,
+  guarded to stable `vX.Y.Z` tags, skipping pre-releases, deriving the major from
+  the released tag so cutting `v2.0.0` leaves `v1` alone. `workflow_dispatch`
+  repairs a release that predates it. It lives here rather than in
+  `scripts/release.sh` because this repository is released by hand.
 
 ### Fixed
 
