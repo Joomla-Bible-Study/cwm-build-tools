@@ -169,7 +169,19 @@ final class TokenSubstituterTest extends TestCase
         $this->seedFile('src/Model.php',                 "<?php\n// __DEPLOY_VERSION__\n");
         $this->seedFile('src/vendor/dep/Lib.php',        "<?php\n// __DEPLOY_VERSION__\n");
         $this->seedFile('src/node_modules/pkg/index.js', "// __DEPLOY_VERSION__\n");
-        $this->seedFile('src/.git/HEAD',                 "ref: __DEPLOY_VERSION__\n");
+        // Nested one level down rather than at `src/` itself: a `.git` directly
+        // inside the walk root makes that root a repository, and #92's check
+        // now skips such a root wholesale — which would skip everything here.
+        //
+        // Note this line does not pin ALWAYS_SKIP's `.git` entry, and the
+        // original `src/.git/HEAD` fixture did not either: `HEAD` fails the
+        // extension filter anyway. The two rules also overlap — any `.git`
+        // *directory* makes its parent look like a nested repository, so the
+        // submodule filter skips it whether or not `.git` is in ALWAYS_SKIP.
+        // What this asserts is the outcome that matters: nothing under it is
+        // rewritten. Kept as a `.php` file so the extension filter is not
+        // what produces the result.
+        $this->seedFile('src/inner/.git/hooks/pre-commit.php', "<?php\n// __DEPLOY_VERSION__\n");
 
         $touched = $this->runQuiet(fn () => $this->substituter([
             'paths'      => ['src/'],
@@ -241,6 +253,62 @@ final class TokenSubstituterTest extends TestCase
     private function substituter(array $config): TokenSubstituter
     {
         return new TokenSubstituter($this->tmpDir, $config);
+    }
+
+    /**
+     * The 1.16.0 guard is an iterator filter, and a filter never sees the root
+     * it was handed — so naming a submodule *directly* in `paths` walked
+     * straight into it and stamped another repo's source with this repo's
+     * version (#92). `libraries/` was safe only because descent found the
+     * submodule one level down.
+     */
+    #[Test]
+    public function skips_a_submodule_named_directly_in_paths(): void
+    {
+        $this->seedFile('libraries/lib_thing/src/Thing.php', "<?php\n/** @since  __DEPLOY_VERSION__ */\n");
+        file_put_contents($this->tmpDir . '/libraries/lib_thing/.git', "gitdir: ../../.git/modules/lib_thing\n");
+
+        $touched = $this->runQuiet(
+            fn () => $this->substituter(['paths' => ['libraries/lib_thing/']])->substitute('10.5.8')
+        );
+
+        self::assertSame([], $touched, 'A submodule path root must not be substituted.');
+        self::assertStringContainsString(
+            '__DEPLOY_VERSION__',
+            $this->read('libraries/lib_thing/src/Thing.php'),
+            "That placeholder belongs to the submodule's own release."
+        );
+    }
+
+    /** The skip is about submodules, not about deep paths — ordinary roots still work. */
+    #[Test]
+    public function still_substitutes_a_path_root_that_is_not_a_submodule(): void
+    {
+        $this->seedFile('libraries/mine/src/Thing.php', "<?php\n/** @since  __DEPLOY_VERSION__ */\n");
+
+        $touched = $this->runQuiet(
+            fn () => $this->substituter(['paths' => ['libraries/mine/']])->substitute('10.5.8')
+        );
+
+        self::assertCount(1, $touched);
+        self::assertStringContainsString('@since  10.5.8', $this->read('libraries/mine/src/Thing.php'));
+    }
+
+    /**
+     * `pathsWithInstaller()` adds a FILE as a path root. The submodule check
+     * must not swallow it — that file is where #75's tokens live.
+     */
+    #[Test]
+    public function a_file_path_root_is_unaffected_by_the_submodule_check(): void
+    {
+        $this->seedFile('build/script.install.php', "<?php\n/** @since  __DEPLOY_VERSION__ */\n");
+
+        $touched = $this->runQuiet(
+            fn () => $this->substituter(['paths' => ['build/script.install.php']])->substitute('10.5.8')
+        );
+
+        self::assertCount(1, $touched);
+        self::assertStringContainsString('@since  10.5.8', $this->read('build/script.install.php'));
     }
 
     private function runQuiet(callable $fn): mixed

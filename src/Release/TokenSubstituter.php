@@ -115,6 +115,11 @@ final class TokenSubstituter
                 continue;
             }
 
+            if ($this->isSubmoduleRoot($absolute)) {
+                fwrite(STDERR, "Warning: substituteTokens path is a git submodule: $relative (skipped)\n");
+                continue;
+            }
+
             foreach ($this->walkFiles($absolute, $extensions) as $file) {
                 if ($this->replaceInFile($file, $token, $version)) {
                     $touched[] = $file;
@@ -151,7 +156,7 @@ final class TokenSubstituter
         foreach ($paths as $relative) {
             $absolute = $this->projectRoot . '/' . ltrim((string) $relative, '/');
 
-            if (!file_exists($absolute)) {
+            if (!file_exists($absolute) || $this->isSubmoduleRoot($absolute)) {
                 continue;
             }
 
@@ -165,6 +170,31 @@ final class TokenSubstituter
         }
 
         return $found;
+    }
+
+    /**
+     * Is this configured path root itself a submodule (or a nested clone)?
+     *
+     * The descent filter in {@see walkFiles()} skips submodules it *encounters*,
+     * but an iterator filter never sees the root it was handed — so a project
+     * that names a submodule directly in `paths` was substituting it with the
+     * outer version, which is the exact thing the 1.16.0 guard exists to
+     * prevent (#92). `libraries/` was safe only because descent found the
+     * submodule one level down; `libraries/lib_cwmscripture/` was not.
+     *
+     * Checked here rather than inside `walkFiles()` so that a *file* path root
+     * — `pathsWithInstaller()` adds one — is unaffected.
+     *
+     * ⚠️ This is about the path root, not the project root.
+     * `Build\ChildTokenSubstitution` points a substituter at a submodule's own
+     * tree on purpose, with paths like `src/` *inside* it; those roots are not
+     * submodules, so they are untouched by this. A repo's own release
+     * substituting its own paths is always correct — it is only the *outer*
+     * repo reaching in that is wrong.
+     */
+    private function isSubmoduleRoot(string $path): bool
+    {
+        return is_dir($path) && file_exists($path . '/.git');
     }
 
     /**
