@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-08-13
+
 ### Fixed
 
 - **`substituteTokens` no longer writes into a submodule named directly in
