@@ -18,11 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   script would fail on it, and in the package pipeline it costs an `npm ci` of
   its own. Turn it on per project once `lint:js` is clean.
 
-  In `joomla-package-ci.yml` the step brings its own `npm ci`, because the only
-  other npm install there happens inside the project's build command, which runs
-  after every lint step. In `joomla-library-ci.yml` the existing npm install now
-  also fires for `run-lint-js`, so a library that lints but does not build assets
-  still gets `node_modules`, and one that does both installs once.
+  Runs as a `JS Lint` job of its own in both workflows, not as steps on the PHP
+  job, following the shape Proclaim already uses for its `js-checks`. ESLint
+  needs none of the PHP setup, so a parallel job keeps it off the critical path
+  rather than adding an `npm ci` to it, and a JS failure reports as its own
+  check instead of hiding inside the PHP job's log.
 
 ### Fixed
 
