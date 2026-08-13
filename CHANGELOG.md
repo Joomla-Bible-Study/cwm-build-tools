@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`substituteTokens` no longer writes into a submodule named directly in
+  `paths`.** The 1.16.0 guard is an iterator filter, and a filter never sees
+  the root it was handed — so `paths: ["libraries/lib_thing/"]` walked straight
+  into that submodule and stamped it with the outer repo's version, the exact
+  thing the guard exists to prevent. `libraries/` was safe only because descent
+  found the submodule one level down. (#92)
+
+  Checked on the path root rather than inside the walk, so a *file* path root
+  (`pathsWithInstaller()` adds one) is unaffected. `Build\ChildTokenSubstitution`
+  is also unaffected: it points at paths *inside* a submodule's own tree, which
+  are not themselves submodules — a repo's own release substituting its own
+  paths is always correct, and no opt-in flag was needed.
+
 ## [1.18.1] - 2026-08-13
 
 ### Fixed
