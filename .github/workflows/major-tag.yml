@@ -1,0 +1,83 @@
+name: Move major tag
+
+# Re-points the moving major tag (`v1`) at each published release.
+#
+# This was step 6 of the hand-run release flow in CLAUDE.md, and being a human
+# step is exactly why it failed: v1 was moved for v1.13.2 on 2026-07-30 and then
+# missed for v1.14.0, v1.15.0 and v1.15.1, three releases cut about an hour
+# apart on 2026-08-10. Consumers pin the reusable workflows as `...@v1`, so for
+# eleven days every project ran the v1.13.2 pipeline while three releases' worth
+# of fixes sat published and unreachable. Nothing failed loudly; the tag simply
+# stayed where it was.
+#
+# So the step moves here. Releases of this repository are cut by hand — it has
+# no cwm-build.config.json and no `composer release` script — so putting it in
+# scripts/release.sh would not have caught this.
+#
+# The tag this creates is unsigned, unlike the one it replaces. A signature on a
+# tag that is force-moved on every release attests to little; reachability from
+# a signed release tag is the property that matters, and that is preserved
+# because this only ever points the major tag at a tag the release created.
+
+on:
+  release:
+    types: [published]
+  # For repairing the tag by hand after a release that predates this workflow,
+  # or one published while it was broken.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to point the major tag at, e.g. v1.16.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  move:
+    name: Re-point major tag
+    # A pre-release is not what `@v1` should hand to every consumer.
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # Full history and tags: the release tag has to be resolvable here.
+          fetch-depth: 0
+
+      - name: Re-point the moving major tag
+        env:
+          # Via env rather than inline ${{ }}: a tag name is user-supplied text,
+          # and the shell must never be asked to parse it as code.
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # Stable vX.Y.Z only. A tag like v1.16.0-alpha1 or a non-version tag
+          # must not become what every consumer runs.
+          if ! printf '%s' "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::notice::$TAG is not a stable vX.Y.Z tag; leaving the major tag alone."
+            exit 0
+          fi
+
+          MAJOR="${TAG%%.*}"
+
+          if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "::error::${TAG} does not exist in this repository."
+            exit 1
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # ^{commit} dereferences an annotated tag to the commit it points at,
+          # so the major tag lands on the same commit rather than on a tag
+          # object pointing at a tag object.
+          git tag -fa "$MAJOR" -m "Latest ${MAJOR}.x release (${TAG})" "${TAG}^{commit}"
+          git push origin "$MAJOR" --force
+
+          echo "::notice::${MAJOR} now points at ${TAG} ($(git rev-parse --short "${TAG}^{commit}"))."
+          echo "${MAJOR} -> ${TAG}" >> "$GITHUB_STEP_SUMMARY"

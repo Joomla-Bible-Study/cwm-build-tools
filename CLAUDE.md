@@ -115,14 +115,22 @@ on top of auto-derive (deduped by target).
 3. `git tag -a vX.Y.Z -m "vX.Y.Z"`.
 4. `git push origin main && git push origin vX.Y.Z`.
 5. `gh release create vX.Y.Z --title 'vX.Y.Z' --notes "..."`.
-6. **Re-point the moving major tag:**
-   `git tag -fa v1 -m "v1 -> vX.Y.Z" && git push origin v1 --force`.
 
-Step 6 is not optional. Consumers reference the reusable CI workflows as
-`...@v1` (the CI equivalent of their `^1.0` Composer constraint), so a
-release that skips it ships pipeline changes that no project actually
-runs — the workflows keep executing the previous release's code, silently.
-Drop the step only when cutting `v2`, which gets its own moving tag.
+The moving major tag re-points itself. Publishing the release fires
+`.github/workflows/major-tag.yml`, which force-moves `v1` onto the released
+commit. Check it went green; if a release predates the workflow or it failed,
+run it by hand from the Actions tab (`workflow_dispatch`, tag = `vX.Y.Z`).
+
+This used to be step 6, done by hand, and being a human step is why it broke:
+`v1` was moved for v1.13.2 and then missed for v1.14.0, v1.15.0 and v1.15.1,
+three releases cut about an hour apart. Consumers reference the reusable CI
+workflows as `...@v1` (the CI equivalent of their `^1.0` Composer constraint),
+so for eleven days every project kept running the v1.13.2 pipeline while three
+releases' worth of fixes sat published and unreachable — silently, because
+nothing about a stale tag fails.
+
+Cutting `v2` means teaching that workflow about a second moving tag, rather
+than remembering a step.
 
 No `version` field in `composer.json` — Composer reads the git tag.
 
