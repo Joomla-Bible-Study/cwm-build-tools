@@ -202,6 +202,82 @@ PHP);
         $packager->package();
     }
 
+    /**
+     * A subBuild runs the child's BUILD, never its release, so without
+     * substitution the packaged child ships whatever placeholders its source
+     * carries — and no outer-repo setting can fix it, because substituting a
+     * submodule from the parent stamps the wrong version (#89).
+     */
+    #[Test]
+    public function subBuildSubstitutesTheChildWithItsOwnVersion(): void
+    {
+        $this->writeManifest('build/pkg.xml', '10.5.8');
+        $this->seedSubstitutingChild('1.2.5');
+
+        $config = $this->makePackageConfig([
+            'includes' => [[
+                'type'        => 'subBuild',
+                'path'        => 'lib',
+                'buildScript' => 'build.php',
+                'distGlob'    => 'dist/lib-*.zip',
+                'outputName'  => 'lib.zip',
+            ]],
+        ]);
+
+        $this->expectOutputRegex('/sub-build lib\.zip/');
+        $outer = (new Packager($config, null, $this->tmpDir))->package();
+
+        // The child was packaged at ITS version, not the wrapper's 10.5.8.
+        $staged = $this->nestedEntryContents($outer, 'lib.zip', 'src/Thing.php');
+        $this->assertStringContainsString('@since 1.2.5', $staged);
+        $this->assertStringNotContainsString('__DEPLOY_VERSION__', $staged);
+        $this->assertStringNotContainsString('10.5.8', $staged);
+
+        // ...and the child's working tree is exactly as it was found. It is a
+        // submodule checkout in the real case, and release.sh step 4's
+        // `git add -A` is waiting downstream (#1704).
+        $this->assertStringContainsString(
+            '__DEPLOY_VERSION__',
+            file_get_contents($this->tmpDir . '/lib/src/Thing.php')
+        );
+    }
+
+    /** Restore runs from a `finally`, so a blown-up build must not leave the child rewritten. */
+    #[Test]
+    public function subBuildRestoresTheChildEvenWhenTheBuildFails(): void
+    {
+        $this->writeManifest('build/pkg.xml', '10.5.8');
+        $this->seedSubstitutingChild('1.2.5');
+        file_put_contents($this->tmpDir . '/lib/build.php', "<?php exit(3);\n");
+
+        $before = file_get_contents($this->tmpDir . '/lib/src/Thing.php');
+
+        $config = $this->makePackageConfig([
+            'includes' => [[
+                'type'        => 'subBuild',
+                'path'        => 'lib',
+                'buildScript' => 'build.php',
+                'distGlob'    => 'dist/*.zip',
+                'outputName'  => 'lib.zip',
+            ]],
+        ]);
+
+        $this->expectOutputRegex('/sub-build/');
+
+        try {
+            (new Packager($config, null, $this->tmpDir))->package();
+            $this->fail('The failing sub-build should have thrown.');
+        } catch (\RuntimeException) {
+            // expected
+        }
+
+        $this->assertSame(
+            $before,
+            file_get_contents($this->tmpDir . '/lib/src/Thing.php'),
+            'A failed sub-build must still leave the child byte-identical.'
+        );
+    }
+
     #[Test]
     public function subBuildPassesArgsToScript(): void
     {
@@ -719,5 +795,56 @@ XML;
         }
 
         @rmdir($dir);
+    }
+
+    /**
+     * A subBuild child that opts into substitution: its own manifest, its own
+     * config, a placeholder in source, and a build script that zips the tree.
+     */
+    private function seedSubstitutingChild(string $childVersion): void
+    {
+        mkdir($this->tmpDir . '/lib/src', 0o777, true);
+        mkdir($this->tmpDir . '/lib/dist', 0o777, true);
+        mkdir($this->tmpDir . '/lib/build', 0o777, true);
+
+        file_put_contents($this->tmpDir . '/lib/src/Thing.php', "<?php\n/** @since __DEPLOY_VERSION__ */\n");
+        file_put_contents(
+            $this->tmpDir . '/lib/build/manifest.xml',
+            "<?xml version=\"1.0\"?>\n<extension><version>$childVersion</version></extension>\n"
+        );
+        file_put_contents($this->tmpDir . '/lib/cwm-build.config.json', json_encode([
+            'package'         => ['manifest' => 'build/manifest.xml'],
+            'versionTracking' => ['substituteTokens' => ['paths' => ['src/'], 'extensions' => ['php']]],
+        ]));
+
+        file_put_contents($this->tmpDir . '/lib/build.php', <<<'PHP'
+<?php
+$out = __DIR__ . '/dist/lib-1.2.5.zip';
+$zip = new ZipArchive();
+$zip->open($out, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+$zip->addFile(__DIR__ . '/src/Thing.php', 'src/Thing.php');
+$zip->close();
+echo "  produced $out\n";
+PHP);
+    }
+
+    /** Contents of one entry inside a zip nested in the outer package. */
+    private function nestedEntryContents(string $outerZip, string $childName, string $entry): string
+    {
+        $outer = new \ZipArchive();
+        $outer->open($outerZip);
+        $childBytes = $outer->getFromName($childName);
+        $outer->close();
+
+        $tmp = tempnam(sys_get_temp_dir(), 'cwm-nested-');
+        file_put_contents($tmp, $childBytes);
+
+        $child = new \ZipArchive();
+        $child->open($tmp);
+        $contents = (string) $child->getFromName($entry);
+        $child->close();
+        @unlink($tmp);
+
+        return $contents;
     }
 }

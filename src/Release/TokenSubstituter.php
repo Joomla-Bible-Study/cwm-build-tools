@@ -126,6 +126,48 @@ final class TokenSubstituter
     }
 
     /**
+     * Every file the next `substitute()` call would rewrite.
+     *
+     * Exists so a caller can snapshot those files before substituting and put
+     * them back afterwards. `Build\ChildTokenSubstitution` needs that: it
+     * substitutes a `subBuild` child's working tree so the packaged child does
+     * not ship the literal token, but that tree is usually a submodule
+     * checkout, and leaving it rewritten would show up as another repo's
+     * version staged into it (#1704).
+     *
+     * Silent about missing paths — `substitute()` already warns, and warning
+     * twice for one release reads like two different problems.
+     *
+     * @return list<string>
+     */
+    public function filesContainingToken(): array
+    {
+        $token      = $this->config['token']      ?? self::DEFAULT_TOKEN;
+        $paths      = $this->config['paths']      ?? [];
+        $extensions = $this->config['extensions'] ?? self::DEFAULT_EXTENSIONS;
+
+        $found = [];
+
+        foreach ($paths as $relative) {
+            $absolute = $this->projectRoot . '/' . ltrim((string) $relative, '/');
+
+            if (!file_exists($absolute)) {
+                continue;
+            }
+
+            foreach ($this->walkFiles($absolute, $extensions) as $file) {
+                $contents = file_get_contents($file);
+
+                if ($contents !== false && str_contains($contents, $token)) {
+                    $found[] = $file;
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    /**
      * @param  list<string> $extensions
      * @return iterable<string>
      */
