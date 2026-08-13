@@ -323,6 +323,34 @@ else
 fi
 echo ""
 
+# --- Gate: no unsubstituted placeholder tokens in the artifact ---
+#
+# Deliberately placed between build and push. At this point nothing has been
+# committed, pushed, tagged, released or published, so a failure costs a re-run;
+# thirty lines further down it would cost a cleanup.
+#
+# This asks whether the token is in the bytes about to ship, rather than whether
+# `substituteTokens.paths` looks right — the only form of the question that
+# survives a stale vendored copy of these tools (CWMScriptureLinks#29), a path
+# list that never covered a sub-extension (#27), or the installer blind spot
+# that #75 fixed narrowly. See #85.
+if [ "$DRY_RUN" = "1" ]; then
+    # No build ran, so this is whatever the artifact selection above found on
+    # disk — usually the *previous* release. Scanning it is still informative
+    # (same reasoning as that selection block), but a hit describes that older
+    # zip, not the release being cut, so it must never fail the run.
+    if [ -f "${ARTIFACTS[0]}" ]; then
+        echo "[gate] Scanning ${ARTIFACTS[0]} for unsubstituted tokens (previously built — report only)..."
+        php "${TOOLS_DIR}/scripts/verify-artifact-tokens.php" -f "${ARTIFACTS[0]}" --warn-only || true
+    else
+        echo "[gate] Would scan the built artifact for unsubstituted tokens (nothing built under --dry-run)."
+    fi
+else
+    echo "[gate] Scanning ${ARTIFACTS[0]} for unsubstituted tokens..."
+    php "${TOOLS_DIR}/scripts/verify-artifact-tokens.php" -f "${ARTIFACTS[0]}" || exit 1
+fi
+echo ""
+
 # --- Step 4: Commit and push ---
 echo "[4/9] Committing version bump..."
 # Add only files modified by step 1 + 2, not unrelated untracked files. The

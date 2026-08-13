@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`cwm-release` refuses to publish an artifact containing unsubstituted
+  `__DEPLOY_VERSION__`.** A new gate between build and push unzips the artifact
+  it is about to ship — recursing into nested zips — and stops the release if
+  the placeholder survives anywhere in it. Nothing has been committed, pushed,
+  tagged or published at that point, so a failure costs a re-run. (#85)
+
+  Substitution is driven by `substituteTokens.paths`, a hand-maintained list
+  that nothing validates. Three separate releases shipped the literal token
+  because of it: the `package.installer` blind spot (#75), a `paths` entry that
+  covered one of three sub-extensions (CWMScriptureLinks#27), and a vendored
+  copy of these tools that predated #75 (CWMScriptureLinks#29). Every one is
+  invisible to a check that reads configuration, so this one reads the bytes.
+
+  Run against the published `pkg_cwmscripture-1.2.5.zip` it reports all 16
+  occurrences across three files and two nesting levels in a single pass.
+
+  - Deliberately ignores `substituteTokens.extensions`. That defaults to
+    `['php']`, which is why a token in an XML manifest or a JS file ships
+    unnoticed — filtering the assertion the same way would give it the blind
+    spot it exists to catch. Binary entries are skipped by content, not by
+    extension.
+  - Under `--dry-run` it reports and never fails: no build ran, so the artifact
+    on disk is usually the *previous* release, and a finding there describes
+    that zip rather than the one being cut.
+  - Skips projects with no `substituteTokens` block, matching
+    `substitute-tokens.php` — but says so rather than exiting silently.
+  - Usable on its own: `php scripts/verify-artifact-tokens.php -f <artifact>`,
+    with `--warn-only` to report without a non-zero exit.
+
 ## [1.16.1] - 2026-08-13
 
 ### Fixed
