@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-08-14
+
 ### Fixed
 
 - **The `joomlaLinks` `manifest` key is no longer dropped during validation.**
