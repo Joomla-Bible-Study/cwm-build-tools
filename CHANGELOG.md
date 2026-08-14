@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **An explicit `dev.links[]` entry now overrides the auto-derived pair for the
   same target.** Derived pairs were emitted first and deduplication kept the
-  first writer, so an explicit entry for a target the deriver also produced was
+  first writer, so an explicit entry for a target auto-derivation also produced was
   discarded without a word. That left `dev.deriveLinks: false` — hand-write
   every link for the project — as the only way to correct a single wrong pair,
   and made inference bugs like #95 unworkaroundable for anyone hitting one.

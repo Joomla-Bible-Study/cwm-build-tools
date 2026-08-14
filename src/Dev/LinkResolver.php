@@ -582,7 +582,7 @@ final class LinkResolver
      *
      * externalLinks() appends the explicit dev.links[] entries after the
      * auto-derived ones, so last-wins is what lets a project correct a single
-     * pair the deriver got wrong. Keeping the first instead silently discarded
+     * pair auto-derivation got wrong. Keeping the first instead silently discarded
      * the explicit entry, leaving `dev.deriveLinks: false` — hand-write every
      * link for the project — as the only way to override anything (#98).
      *
