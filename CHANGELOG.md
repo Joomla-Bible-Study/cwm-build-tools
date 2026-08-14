@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-08-14
+
+### Fixed
+
+- **A component's media layout is read from its manifest instead of guessed
+  from the disk.** `LinkResolver::componentMediaSource()` chose between the flat
+  layout (assets under `media/`) and the namespaced one (assets under
+  `media/<name>/`) by testing whether `media/<name>/` happened to exist — and
+  `is_dir()` cannot tell a namespaced layout from a stray empty `media/<name>/`
+  that something else left behind. This repo's own
+  `project-component-namespaced-media` fixture is the shape of that mistake: a
+  directory holding nothing but a `.keep`. (#95)
+
+  Proclaim hit it. Its manifest declares the flat layout
+  (`<media destination="com_proclaim" folder="media">`) and its dev symlinks
+  matched, but two of its unit tests left an empty `media/com_proclaim/`
+  behind — so `cwm-verify` reported a conflict on all four linked dev sites at
+  once, with the sites right and the expectation wrong. `cwm-link` shares the
+  resolution, so relinking in that state would have repointed every dev site's
+  `media/<name>` symlink at the empty directory and taken the component's
+  assets offline.
+
+  `deriveComponent()` has the manifest parsed already, so it now reads the
+  `<media folder="">` it declares, falling back to the probe when the manifest
+  declares nothing usable: no `<media>` element, an empty folder (which would
+  resolve to the extension root itself), an absolute path, or one containing
+  `..`.
+
+  `deriveFromTopLevel()` and `derivePackageComponent()` keep the probe — the
+  former is driven by a config block naming only a type and name, the latter by
+  a `joomlaLinks` tuple carrying no manifest path. Neither has a manifest to
+  read, and swapping an `is_dir()` guess for a filename guess would not be an
+  improvement; the docblock records the limitation instead.
+
+### Changed
+
+- **A component declaring a media folder that is not on disk now yields no
+  media link at all**, where it previously fell back to linking `media/<name>`
+  at the parent. Emitting nothing beats exposing the whole media tree because
+  the declared folder has not been built yet.
+
 ## [1.19.0] - 2026-08-13
 
 ### Fixed
