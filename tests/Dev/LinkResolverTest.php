@@ -258,6 +258,59 @@ final class LinkResolverTest extends TestCase
     }
 
     #[Test]
+    public function an_explicit_link_overrides_the_auto_derived_pair_for_the_same_target(): void
+    {
+        // Without this, dev.deriveLinks:false -- hand-write every link for the
+        // project -- was the only way to correct a single derived pair.
+        $projectRoot = realpath(__DIR__ . '/../fixtures/project-component-toplevel');
+        self::assertNotFalse($projectRoot);
+
+        $config = [
+            'extension' => ['type' => 'component', 'name' => 'com_example'],
+            'manifests' => ['extensions' => []],
+            'dev'       => ['links' => [
+                ['source' => 'media/somewhere-else', 'target' => '{joomlaPath}/media/com_example'],
+            ]],
+        ];
+
+        $links  = (new LinkResolver($projectRoot, $config))->externalLinks('/var/www/joomla');
+        $source = self::mediaSourceFor($links, '/var/www/joomla/media/com_example');
+
+        self::assertSame($projectRoot . '/media/somewhere-else', $source);
+        self::assertCount(
+            3,
+            $links,
+            'the override replaces the derived pair rather than adding a second one',
+        );
+    }
+
+    #[Test]
+    public function an_overriding_link_keeps_the_derived_pair_position(): void
+    {
+        $projectRoot = realpath(__DIR__ . '/../fixtures/project-component-toplevel');
+        self::assertNotFalse($projectRoot);
+
+        $config = [
+            'extension' => ['type' => 'component', 'name' => 'com_example'],
+            'manifests' => ['extensions' => []],
+            'dev'       => ['links' => [
+                ['source' => 'media/somewhere-else', 'target' => '{joomlaPath}/media/com_example'],
+            ]],
+        ];
+
+        $links = (new LinkResolver($projectRoot, $config))->externalLinks('/var/www/joomla');
+
+        self::assertSame(
+            [
+                '/var/www/joomla/administrator/components/com_example',
+                '/var/www/joomla/components/com_example',
+                '/var/www/joomla/media/com_example',
+            ],
+            array_column($links, 'target'),
+        );
+    }
+
+    #[Test]
     public function stray_media_name_dir_does_not_override_a_manifest_declaring_the_flat_layout(): void
     {
         // The regression this class of bug produces: an empty media/<name>/

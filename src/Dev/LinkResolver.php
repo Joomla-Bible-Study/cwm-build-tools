@@ -227,11 +227,17 @@ final class LinkResolver
     {
         $name = $link['name'];
 
+        // A package that names its component manifest gets the layout read from
+        // it, the same way deriveComponent() does. Without one there is nothing
+        // to read, so the probe stands (#97).
+        $media = $this->packageMediaSource($pkgRoot, $name, $link['manifest'] ?? null)
+            ?? $this->componentMediaSource($pkgRoot . '/media', $name);
+
         foreach (['admin' => "/administrator/components/{$name}",
                   'site'  => "/components/{$name}",
                   'media' => "/media/{$name}"] as $sub => $tail) {
             $src = $sub === 'media'
-                ? $this->componentMediaSource($pkgRoot . '/media', $name)
+                ? $media
                 : $pkgRoot . '/' . $sub;
 
             if (is_dir($src)) {
@@ -338,6 +344,35 @@ final class LinkResolver
         $namespaced = $mediaDir . '/' . $name;
 
         return is_dir($namespaced) ? $namespaced : $mediaDir;
+    }
+
+    /**
+     * Resolve a package component's media source from the manifest its
+     * joomlaLinks tuple names, if it names one and the file parses.
+     *
+     * Unlike deriveComponent(), nothing here guarantees a manifest exists — the
+     * tuple's `manifest` key is optional — so this returns null whenever the
+     * declared layout cannot be read, and the caller falls back to the probe.
+     *
+     * @param  string|null $manifestFile  Tuple-relative manifest path, if declared.
+     * @return string|null
+     */
+    private function packageMediaSource(string $pkgRoot, string $name, ?string $manifestFile): ?string
+    {
+        if ($manifestFile === null || $manifestFile === '') {
+            return null;
+        }
+
+        $manifestPath = $pkgRoot . '/' . ltrim($manifestFile, '/');
+        $xml          = $this->loadManifest($manifestPath);
+
+        if ($xml === null) {
+            return null;
+        }
+
+        // <media folder=""> is relative to the manifest, which need not sit at
+        // the package root even though admin/ and site/ are resolved from there.
+        return $this->mediaSourceFromManifest($xml, \dirname($manifestPath));
     }
 
     /**
@@ -543,23 +578,34 @@ final class LinkResolver
     }
 
     /**
+     * Collapse to one pair per target, keeping the last writer.
+     *
+     * externalLinks() appends the explicit dev.links[] entries after the
+     * auto-derived ones, so last-wins is what lets a project correct a single
+     * pair auto-derivation got wrong. Keeping the first instead silently discarded
+     * the explicit entry, leaving `dev.deriveLinks: false` — hand-write every
+     * link for the project — as the only way to override anything (#98).
+     *
+     * Position is the derived pair's, so the emitted order stays stable.
+     *
      * @param  list<LinkPair>  $links
      * @return list<LinkPair>
      */
     private function dedupe(array $links): array
     {
-        $seen = [];
-        $out  = [];
+        $at  = [];
+        $out = [];
 
         foreach ($links as $pair) {
             $key = $pair['target'];
 
-            if (isset($seen[$key])) {
+            if (isset($at[$key])) {
+                $out[$at[$key]] = $pair;
                 continue;
             }
 
-            $seen[$key] = true;
-            $out[]      = $pair;
+            $at[$key] = \count($out);
+            $out[]    = $pair;
         }
 
         return $out;

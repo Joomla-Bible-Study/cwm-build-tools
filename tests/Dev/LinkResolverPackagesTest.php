@@ -282,6 +282,106 @@ final class LinkResolverPackagesTest extends TestCase
         );
     }
 
+    #[Test]
+    public function declared_manifest_beats_a_stray_media_name_dir(): void
+    {
+        // Same shape that broke Proclaim (#95): a flat-layout component with an
+        // empty media/<name>/ lying around. Here the tuple names the manifest,
+        // so the declared layout settles it instead of the probe.
+        $pkgRoot = $this->tmpDir . '/vendor/cwm/flat';
+        mkdir($pkgRoot . '/media/com_flat', 0o777, true);
+        file_put_contents(
+            $pkgRoot . '/flat.xml',
+            '<extension type="component"><name>com_flat</name>'
+            . '<media destination="com_flat" folder="media"/></extension>',
+        );
+
+        $pkg = $this->package(
+            $pkgRoot,
+            [['type' => 'component', 'name' => 'com_flat', 'manifest' => 'flat.xml']],
+        );
+
+        $links = (new LinkResolver($this->tmpDir, []))->externalLinksForPackages('/joomla', [$pkg]);
+
+        self::assertSame($pkgRoot . '/media', $this->sourceFor($links, '/joomla/media/com_flat'));
+    }
+
+    #[Test]
+    public function declared_manifest_resolves_a_namespaced_media_folder(): void
+    {
+        $pkgRoot = $this->tmpDir . '/vendor/cwm/nested';
+        mkdir($pkgRoot . '/media/com_nested', 0o777, true);
+        file_put_contents(
+            $pkgRoot . '/nested.xml',
+            '<extension type="component"><name>com_nested</name>'
+            . '<media destination="com_nested" folder="media/com_nested"/></extension>',
+        );
+
+        $pkg = $this->package(
+            $pkgRoot,
+            [['type' => 'component', 'name' => 'com_nested', 'manifest' => 'nested.xml']],
+        );
+
+        $links = (new LinkResolver($this->tmpDir, []))->externalLinksForPackages('/joomla', [$pkg]);
+
+        self::assertSame(
+            $pkgRoot . '/media/com_nested',
+            $this->sourceFor($links, '/joomla/media/com_nested'),
+        );
+    }
+
+    #[Test]
+    public function media_folder_is_relative_to_a_nested_manifest_not_the_package_root(): void
+    {
+        $pkgRoot = $this->tmpDir . '/vendor/cwm/deep';
+        mkdir($pkgRoot . '/pkg/media', 0o777, true);
+        mkdir($pkgRoot . '/media', 0o777, true);
+        file_put_contents(
+            $pkgRoot . '/pkg/deep.xml',
+            '<extension type="component"><name>com_deep</name>'
+            . '<media destination="com_deep" folder="media"/></extension>',
+        );
+
+        $pkg = $this->package(
+            $pkgRoot,
+            [['type' => 'component', 'name' => 'com_deep', 'manifest' => 'pkg/deep.xml']],
+        );
+
+        $links = (new LinkResolver($this->tmpDir, []))->externalLinksForPackages('/joomla', [$pkg]);
+
+        self::assertSame($pkgRoot . '/pkg/media', $this->sourceFor($links, '/joomla/media/com_deep'));
+    }
+
+    #[Test]
+    public function an_unreadable_declared_manifest_falls_back_to_the_probe(): void
+    {
+        $pkgRoot = $this->tmpDir . '/vendor/cwm/broken';
+        mkdir($pkgRoot . '/media', 0o777, true);
+        // Named but absent — nothing to read, so the probe stands.
+        $pkg = $this->package(
+            $pkgRoot,
+            [['type' => 'component', 'name' => 'com_broken', 'manifest' => 'nope.xml']],
+        );
+
+        $links = (new LinkResolver($this->tmpDir, []))->externalLinksForPackages('/joomla', [$pkg]);
+
+        self::assertSame($pkgRoot . '/media', $this->sourceFor($links, '/joomla/media/com_broken'));
+    }
+
+    /**
+     * @param  list<array{source: string, target: string, package: string}>  $links
+     */
+    private function sourceFor(array $links, string $target): string
+    {
+        foreach ($links as $link) {
+            if ($link['target'] === $target) {
+                return $link['source'];
+            }
+        }
+
+        self::fail("No link found for target {$target}");
+    }
+
     private function rrmdir(string $path): void
     {
         if (!is_dir($path) && !is_link($path)) {
