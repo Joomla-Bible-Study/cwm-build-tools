@@ -17,7 +17,8 @@ namespace CWM\BuildTools\Config;
  *     name?: string,
  *     group?: string,
  *     element?: string,
- *     client?: 'site'|'administrator'
+ *     client?: 'site'|'administrator',
+ *     manifest?: string
  * }
  */
 final class CwmPackage

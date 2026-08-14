@@ -130,6 +130,48 @@ final class InstalledPackageReaderTest extends TestCase
     }
 
     #[Test]
+    public function optional_manifest_key_survives_validation(): void
+    {
+        // LinkResolver advertises and reads joomlaLinks[].manifest, but the key
+        // whitelist here used to drop it, so the resolver's `?? <name>.xml`
+        // fallback always won and the declared value never arrived (#97).
+        $tmpRoot = sys_get_temp_dir() . '/cwm-installed-reader-' . bin2hex(random_bytes(6));
+        mkdir($tmpRoot . '/vendor/composer', 0o777, true);
+
+        try {
+            file_put_contents(
+                $tmpRoot . '/vendor/composer/installed.json',
+                json_encode([
+                    'packages' => [[
+                        'name'               => 'cwm/declaresmanifest',
+                        'version'            => '1.0.0',
+                        'version_normalized' => '1.0.0.0',
+                        'dist'               => ['type' => 'zip', 'url' => 'x', 'reference' => 'z', 'shasum' => ''],
+                        'type'               => 'library',
+                        'install-path'       => '../cwm/declaresmanifest',
+                        'extra'              => [
+                            'cwm-build-tools' => [
+                                'joomlaLinks' => [
+                                    ['type' => 'component', 'name' => 'com_x', 'manifest' => 'custom/x.xml'],
+                                ],
+                            ],
+                        ],
+                    ]],
+                ]),
+            );
+
+            $packages = (new InstalledPackageReader($tmpRoot))->cwmPackages();
+
+            self::assertSame('custom/x.xml', $packages[0]->joomlaLinks[0]['manifest'] ?? null);
+        } finally {
+            @unlink($tmpRoot . '/vendor/composer/installed.json');
+            @rmdir($tmpRoot . '/vendor/composer');
+            @rmdir($tmpRoot . '/vendor');
+            @rmdir($tmpRoot);
+        }
+    }
+
+    #[Test]
     public function throws_when_module_client_is_not_site_or_administrator(): void
     {
         $tmpRoot = sys_get_temp_dir() . '/cwm-installed-reader-' . bin2hex(random_bytes(6));

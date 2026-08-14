@@ -189,7 +189,11 @@ final class InstalledPackageReader
 
         $out = ['type' => $type];
 
-        foreach (['name', 'group', 'element', 'client'] as $key) {
+        // 'manifest' is optional and advertised by LinkResolver for library and
+        // component links. Omitting it here dropped it during validation, so the
+        // key never reached the resolver and its `?? <name>.xml` fallback always
+        // won (#97).
+        foreach (['name', 'group', 'element', 'client', 'manifest'] as $key) {
             if (isset($entry[$key]) && is_string($entry[$key]) && $entry[$key] !== '') {
                 $out[$key] = $entry[$key];
             }
