@@ -578,23 +578,34 @@ final class LinkResolver
     }
 
     /**
+     * Collapse to one pair per target, keeping the last writer.
+     *
+     * externalLinks() appends the explicit dev.links[] entries after the
+     * auto-derived ones, so last-wins is what lets a project correct a single
+     * pair the deriver got wrong. Keeping the first instead silently discarded
+     * the explicit entry, leaving `dev.deriveLinks: false` — hand-write every
+     * link for the project — as the only way to override anything (#98).
+     *
+     * Position is the derived pair's, so the emitted order stays stable.
+     *
      * @param  list<LinkPair>  $links
      * @return list<LinkPair>
      */
     private function dedupe(array $links): array
     {
-        $seen = [];
-        $out  = [];
+        $at  = [];
+        $out = [];
 
         foreach ($links as $pair) {
             $key = $pair['target'];
 
-            if (isset($seen[$key])) {
+            if (isset($at[$key])) {
+                $out[$at[$key]] = $pair;
                 continue;
             }
 
-            $seen[$key] = true;
-            $out[]      = $pair;
+            $at[$key] = \count($out);
+            $out[]    = $pair;
         }
 
         return $out;

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The `joomlaLinks` `manifest` key is no longer dropped during validation.**
+  `LinkResolver` has read it since packages were first supported, and the class
+  docblock advertises it, but `InstalledPackageReader::validateLink()`
+  normalises each tuple through a `name`/`group`/`element`/`client` whitelist —
+  so the key never arrived and the `?? <name>.xml` fallback always won. A
+  package declaring it was ignored silently. (#97)
+
+  This also gives `derivePackageComponent()` the declared signal it lacked: it
+  had to resolve a component's media layout by probing for `media/<name>`, the
+  inference #95 removed elsewhere by reading the manifest. When a tuple names
+  its manifest, the declared `<media folder="">` now settles the layout and a
+  stray empty `media/<name>/` cannot mislead it. `<media folder="">` resolves
+  relative to the manifest's own directory, which need not be the package root.
+
+  No installed package declares `manifest` today, so nothing changes behaviour
+  until one does.
+
+- **An explicit `dev.links[]` entry now overrides the auto-derived pair for the
+  same target.** Derived pairs were emitted first and deduplication kept the
+  first writer, so an explicit entry for a target the deriver also produced was
+  discarded without a word. That left `dev.deriveLinks: false` — hand-write
+  every link for the project — as the only way to correct a single wrong pair,
+  and made inference bugs like #95 unworkaroundable for anyone hitting one.
+  (#98)
+
+  Explicit configuration beats inference; that is the point of it being
+  explicit. The override takes the derived pair's position, so emitted order is
+  unchanged.
+
 ## [1.20.0] - 2026-08-14
 
 ### Fixed

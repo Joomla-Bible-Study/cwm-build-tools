@@ -74,7 +74,7 @@ That is deliberate. A rewrite that silently does nothing is precisely how the
 version drifted in the first place, so a misconfigured entry has to stop the
 bump rather than let a stale literal ship.
 | `assets` | Source-tree asset staging (`images`, `vendorMediaSource`, `packages[]`). Source paths, not install paths. |
-| `dev` | Optional dev-link overrides — `deriveLinks`, `links[]`, `internalLinks[]`, `cwmSiblings`. |
+| `dev` | Optional dev-link overrides — `deriveLinks`, `links[]`, `internalLinks[]`, `cwmSiblings`. A `links[]` entry whose target matches an auto-derived one replaces it, so a single wrong pair can be corrected without setting `deriveLinks: false` and hand-writing them all. |
 | `gitignore` | `{ outputPaths[], mediaPaths[] }` feeding the managed `.gitignore` block. |
 | `vendors` | Bundled npm libraries `vendor:check` reports on — `[{ npm, label?, notes? }]`. |
 | `security` | Optional `vendor:check` audit tuning. See [security block](#the-security-block). |
