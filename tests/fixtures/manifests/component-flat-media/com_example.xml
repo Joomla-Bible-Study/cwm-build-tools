@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Flat media layout (Proclaim): assets live directly under media/, and the
+    install's media/com_example must link there.
+-->
+<extension type="component" method="upgrade">
+    <name>com_example</name>
+    <version>1.2.3</version>
+    <creationDate>2026-01-01</creationDate>
+    <author>CWM</author>
+    <description>COM_EXAMPLE_DESCRIPTION</description>
+    <files>
+        <filename>example.xml</filename>
+    </files>
+    <media destination="com_example" folder="media">
+        <filename>index.html</filename>
+        <folder>css</folder>
+        <folder>js</folder>
+    </media>
+</extension>

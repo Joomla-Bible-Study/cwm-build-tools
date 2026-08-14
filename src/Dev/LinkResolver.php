@@ -311,13 +311,23 @@ final class LinkResolver
     }
 
     /**
-     * Resolve a component's media source directory, honouring both supported
-     * layouts: media files directly under `media/` (manifest
+     * Resolve a component's media source directory by probing the disk.
+     *
+     * Both layouts are supported: media files directly under `media/` (manifest
      * `<media folder="media">`, e.g. Proclaim) or namespaced under
      * `media/<name>/` (`<media folder="media/<name>">`, e.g. com_cwmconnect,
      * com_livingword). The namespaced subdir wins when it exists so the
      * install's `media/<name>` symlink points at the real component assets
      * instead of one level too high.
+     *
+     * The probe cannot tell a namespaced layout from a stray empty
+     * `media/<name>/` that something else left behind, so a flat-layout
+     * component with such a directory present resolves one level too deep.
+     * Prefer mediaSourceFromManifest() wherever the manifest is in hand;
+     * this remains the only available signal at the two call sites that have
+     * none — deriveFromTopLevel(), where the config declares just a name and
+     * type, and derivePackageComponent(), whose joomlaLinks tuple carries no
+     * manifest path.
      *
      * @param  string $mediaDir  The component's media base (…/media).
      * @param  string $name      The component element name (e.g. com_example).
@@ -328,6 +338,41 @@ final class LinkResolver
         $namespaced = $mediaDir . '/' . $name;
 
         return is_dir($namespaced) ? $namespaced : $mediaDir;
+    }
+
+    /**
+     * Resolve a component's media source from the layout its manifest declares
+     * — `<media folder="…">`, relative to the directory holding the manifest.
+     *
+     * Returns null when the manifest declares nothing usable, leaving the
+     * caller to fall back to componentMediaSource(). That covers a missing
+     * `<media>` element, an empty folder (which would resolve to the extension
+     * root itself), and any folder escaping that root.
+     *
+     * @param  string $base  The directory the manifest sits in.
+     * @return string|null
+     */
+    private function mediaSourceFromManifest(\SimpleXMLElement $xml, string $base): ?string
+    {
+        $media = $xml->media[0] ?? null;
+
+        if ($media === null) {
+            return null;
+        }
+
+        $folder = trim((string) ($media['folder'] ?? ''), " \t\n\r\0\x0B/");
+
+        if ($folder === '' || str_starts_with($folder, '/')) {
+            return null;
+        }
+
+        foreach (explode('/', $folder) as $segment) {
+            if ($segment === '..') {
+                return null;
+            }
+        }
+
+        return $base . '/' . $folder;
     }
 
     /**
@@ -356,11 +401,16 @@ final class LinkResolver
 
         $base = \dirname($manifestPath);
 
+        // The manifest is already parsed here, so the declared layout wins over
+        // probing the disk for media/<name>.
+        $media = $this->mediaSourceFromManifest($xml, $base)
+            ?? $this->componentMediaSource($base . '/media', $name);
+
         foreach (['admin' => "/administrator/components/{$name}",
                   'site'  => "/components/{$name}",
                   'media' => "/media/{$name}"] as $sub => $tail) {
             $src = $sub === 'media'
-                ? $this->componentMediaSource($base . '/media', $name)
+                ? $media
                 : $base . '/' . $sub;
 
             if (is_dir($src)) {

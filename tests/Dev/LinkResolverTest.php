@@ -256,4 +256,90 @@ final class LinkResolverTest extends TestCase
 
         self::assertCount(1, $links);
     }
+
+    #[Test]
+    public function stray_media_name_dir_does_not_override_a_manifest_declaring_the_flat_layout(): void
+    {
+        // The regression this class of bug produces: an empty media/<name>/
+        // left behind by something else (a test teardown, an aborted build) is
+        // indistinguishable from a real namespaced layout by is_dir() alone.
+        // The manifest says folder="media", so the flat source must win.
+        $stray = self::FIXTURES . '/component-flat-media/media/com_example';
+        mkdir($stray, 0o777, true);
+
+        try {
+            $config = [
+                'extension' => ['type' => 'package', 'name' => 'pkg_example'],
+                'manifests' => ['extensions' => [
+                    ['type' => 'component', 'path' => 'component-flat-media/com_example.xml'],
+                ]],
+            ];
+
+            $links  = (new LinkResolver(self::FIXTURES, $config))->externalLinks('/var/www/joomla');
+            $source = self::mediaSourceFor($links, '/var/www/joomla/media/com_example');
+
+            self::assertSame(self::FIXTURES . '/component-flat-media/media', $source);
+        } finally {
+            rmdir($stray);
+        }
+    }
+
+    #[Test]
+    public function manifest_declaring_a_namespaced_media_folder_resolves_there(): void
+    {
+        $namespaced = self::FIXTURES . '/component-declared-media-missing/media/com_example';
+        mkdir($namespaced, 0o777, true);
+
+        try {
+            $config = [
+                'extension' => ['type' => 'package', 'name' => 'pkg_example'],
+                'manifests' => ['extensions' => [
+                    ['type' => 'component', 'path' => 'component-declared-media-missing/com_example.xml'],
+                ]],
+            ];
+
+            $links  = (new LinkResolver(self::FIXTURES, $config))->externalLinks('/var/www/joomla');
+            $source = self::mediaSourceFor($links, '/var/www/joomla/media/com_example');
+
+            self::assertSame($namespaced, $source);
+        } finally {
+            rmdir($namespaced);
+        }
+    }
+
+    #[Test]
+    public function declared_media_folder_missing_on_disk_yields_no_media_link(): void
+    {
+        // Better to emit nothing than to link media/<name> at the parent and
+        // expose the whole media tree because the declared folder is unbuilt.
+        $config = [
+            'extension' => ['type' => 'package', 'name' => 'pkg_example'],
+            'manifests' => ['extensions' => [
+                ['type' => 'component', 'path' => 'component-declared-media-missing/com_example.xml'],
+            ]],
+        ];
+
+        $links   = (new LinkResolver(self::FIXTURES, $config))->externalLinks('/var/www/joomla');
+        $targets = array_column($links, 'target');
+
+        self::assertNotContains('/var/www/joomla/media/com_example', $targets);
+        // The other two links still derive, so this is not a vacuous pass.
+        self::assertContains('/var/www/joomla/administrator/components/com_example', $targets);
+    }
+
+    #[Test]
+    public function media_folder_escaping_the_extension_root_is_ignored(): void
+    {
+        $config = [
+            'extension' => ['type' => 'package', 'name' => 'pkg_example'],
+            'manifests' => ['extensions' => [
+                ['type' => 'component', 'path' => 'component-unsafe-media/com_example.xml'],
+            ]],
+        ];
+
+        $links  = (new LinkResolver(self::FIXTURES, $config))->externalLinks('/var/www/joomla');
+        $source = self::mediaSourceFor($links, '/var/www/joomla/media/com_example');
+
+        self::assertSame(self::FIXTURES . '/component-unsafe-media/media', $source);
+    }
 }
