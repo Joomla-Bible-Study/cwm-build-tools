@@ -33,6 +33,24 @@ import globals from 'globals';
 
 export default defineConfig([
     {
+        // ⚠️ These are advisory unless the consumer's lint:js pins this config.
+        //
+        // ESLint 10 resolves the nearest eslint.config.* per file rather than
+        // using only the root one, so a plain `eslint .` walks into any
+        // directory carrying its own config — a git submodule, or this package's
+        // own install root under vendor/ — and lints those files under *that*
+        // config. These ignores never reach them.
+        //
+        // Seen both ways on Proclaim (build-tools#90): a hard
+        // ERR_MODULE_NOT_FOUND when the nested config imported a base file whose
+        // vendor tree was not installed, and, more quietly, files listed here
+        // being linted regardless — the count dropped 113 → 105 once the config
+        // was pinned.
+        //
+        // The invocation that holds:
+        //   eslint --no-config-lookup -c eslint.config.mjs --max-warnings=0 .
+        //
+        // `composer sync-configs` warns when lint:js omits it.
         ignores: ['**/vendor/', '**/node_modules/', '**/dist/', '**/reports/', 'media/'],
     },
 

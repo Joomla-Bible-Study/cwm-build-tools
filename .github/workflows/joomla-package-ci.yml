@@ -64,7 +64,7 @@ on:
         type: boolean
         default: true
       run-lint-js:
-        description: 'Whether to run npm run lint:js (ESLint). Off by default, unlike the PHP lint inputs: it costs an npm ci of its own, and a project without the script would fail on it. Turn it on per project once lint:js is clean.'
+        description: 'Whether to run npm run lint:js (ESLint). Off by default, unlike the PHP lint inputs: it costs an npm ci of its own, and a project without the script would fail on it. Turn it on per project once lint:js is clean. NOTE: pin the config in that script — "eslint --no-config-lookup -c eslint.config.mjs …" — or ESLint 10 loads the nearest config per file and the shared base ignores stop applying to submodules and vendor/ (build-tools#90).'
         required: false
         type: boolean
         default: false

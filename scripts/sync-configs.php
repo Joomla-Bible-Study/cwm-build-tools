@@ -59,6 +59,7 @@ syncEditorConfig($projectRoot, $templates, $dryRun);
 syncPhpCsFixer($projectRoot, $dryRun);
 syncPhpunit($projectRoot, $templates, $dryRun);
 syncEslint($projectRoot, $templates, $projectConfig, $dryRun);
+checkEslintInvocation($projectRoot);
 checkProfileHints($projectConfig, $toolsRoot);
 
 echo $dryRun ? "(dry-run; no files written)\n" : "Done.\n";
@@ -538,4 +539,61 @@ function checkProfileHints(array $config, string $toolsRoot): void
             echo "cwm-build.config.json: versionTracking block matches profile '{$profile}' defaults — safe to delete.\n";
         }
     }
+}
+
+/**
+ * Warn when a consumer's `lint:js` script does not pin the config file.
+ *
+ * ESLint 10 resolves the nearest `eslint.config.*` per file rather than using
+ * only the root one. A plain `eslint .` therefore walks into any directory
+ * carrying its own config -- a git submodule, or this package's own install
+ * root under vendor/ -- and lints those files under *that* config, which means
+ * the `ignores` in templates/eslint.config.base.mjs never apply to them.
+ *
+ * Two ways that shows up, both seen on Proclaim (issue #90):
+ *
+ *   - A hard failure, when the nested config imports a base file whose Composer
+ *     vendor tree is not installed: "Cannot find module ...eslint.config.base.mjs".
+ *   - Silently linting more than intended. Proclaim's root config listed the
+ *     submodule paths under `ignores` and they were linted regardless; the file
+ *     count dropped 113 -> 105 once the config was pinned.
+ *
+ * Advisory only. package.json belongs to the consumer, and sync-configs does
+ * not rewrite hand-authored files -- the same reason checkProfileHints() below
+ * reports rather than edits.
+ */
+function checkEslintInvocation(string $projectRoot): void
+{
+    $packageJson = $projectRoot . '/package.json';
+
+    if (!is_file($packageJson)) {
+        return;
+    }
+
+    try {
+        $package = json_decode((string) file_get_contents($packageJson), true, 512, JSON_THROW_ON_ERROR);
+    } catch (\JsonException) {
+        // A malformed package.json is not this handler's problem to report.
+        return;
+    }
+
+    $script = $package['scripts']['lint:js'] ?? null;
+
+    if (!is_string($script) || $script === '') {
+        return;
+    }
+
+    // Either form pins the config: --no-config-lookup stops the per-file search
+    // outright, and -c/--config names the file to use.
+    if (str_contains($script, '--no-config-lookup')
+        || str_contains($script, '--config ')
+        || preg_match('/(^|\s)-c\s/', $script) === 1) {
+        return;
+    }
+
+    echo "package.json: lint:js does not pin an ESLint config.\n"
+        . "  ESLint 10 loads the nearest eslint.config.* per file, so the ignores in\n"
+        . "  the shared base config are advisory for any directory that has its own\n"
+        . "  (a submodule, or vendor/). Consider:\n"
+        . "    \"lint:js\": \"eslint --no-config-lookup -c eslint.config.mjs --max-warnings=0 .\"\n";
 }
