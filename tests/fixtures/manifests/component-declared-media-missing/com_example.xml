@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Namespaced media layout (com_cwmconnect, com_livingword): assets live under
+    media/com_example/. The directory is deliberately absent from this fixture
+    so tests can create it at runtime, or leave it missing to check that a
+    declared-but-unbuilt folder yields no link at all.
+-->
+<extension type="component" method="upgrade">
+    <name>com_example</name>
+    <version>1.2.3</version>
+    <creationDate>2026-01-01</creationDate>
+    <author>CWM</author>
+    <description>COM_EXAMPLE_DESCRIPTION</description>
+    <files>
+        <filename>example.xml</filename>
+    </files>
+    <media destination="com_example" folder="media/com_example">
+        <filename>index.html</filename>
+    </media>
+</extension>

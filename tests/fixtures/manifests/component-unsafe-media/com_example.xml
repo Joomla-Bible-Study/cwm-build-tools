@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    A media folder that escapes the extension root. Nothing legitimate declares
+    this; the resolver must ignore it and fall back to probing the disk rather
+    than yield a source outside the project.
+-->
+<extension type="component" method="upgrade">
+    <name>com_example</name>
+    <version>1.2.3</version>
+    <creationDate>2026-01-01</creationDate>
+    <author>CWM</author>
+    <description>COM_EXAMPLE_DESCRIPTION</description>
+    <files>
+        <filename>example.xml</filename>
+    </files>
+    <media destination="com_example" folder="../../../etc">
+        <filename>index.html</filename>
+    </media>
+</extension>
