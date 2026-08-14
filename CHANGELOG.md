@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`sync-configs` now warns when a consumer's `lint:js` does not pin its ESLint
+  config.** ESLint 10 resolves the nearest `eslint.config.*` per file rather
+  than using only the root one, so a plain `eslint .` walks into any directory
+  carrying its own config — a git submodule, or this package's own install root
+  under `vendor/` — and lints those files under *that* config. The `ignores` in
+  `templates/eslint.config.base.mjs` never reach them. (#90)
+
+  Both failure modes were seen on Proclaim: a hard `ERR_MODULE_NOT_FOUND` when
+  the nested config imported a base file whose Composer vendor tree was not
+  installed, and, more quietly, files listed under `ignores` being linted
+  anyway — the count dropped 113 → 105 once the config was pinned.
+
+  Advisory only. `package.json` belongs to the consumer and `sync-configs` does
+  not rewrite hand-authored files, so it reports the recommended invocation
+  rather than applying it. The warning recognises `--no-config-lookup`, `-c` and
+  `--config`, which covers every form currently in use across the consuming
+  repos.
+
+  The `ignores` block in the base config and the `run-lint-js` workflow input
+  now both carry the same warning, so it is stated where someone editing either
+  will read it.
+
 ## [1.21.0] - 2026-08-14
 
 ### Fixed
