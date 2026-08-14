@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-08-14
+
 ### Fixed
 
 - **`sync-configs` now warns when a consumer's `lint:js` does not pin its ESLint
