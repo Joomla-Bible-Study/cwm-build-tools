@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#
+# cwm-lint-comments — keep issue references out of code comments.
+#
+# git log and git blame already connect any line to its commit, its pull
+# request and its issue, so a number written at the line adds nothing and
+# goes stale when the numbering context does. `owner/repo#123` names another
+# project's tracker and is allowed.
+#
+# Usage from a consuming project:
+#   composer lint-comments
+#   composer lint-comments -- --warn
+#   composer lint-comments -- --help
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/lint-comments.php" "$@"

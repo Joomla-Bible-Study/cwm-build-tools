@@ -20,7 +20,8 @@ use CWM\BuildTools\Release\TokenSubstituter;
  * The outer repo cannot cover for it either. When the child is a git
  * submodule — which is the case this exists for — substituting it from the
  * parent stamps another repo's source with the parent's version, which is
- * what Proclaim 10.4.1 did to a plugin (#1704) and what `TokenSubstituter`
+ * what Proclaim 10.4.1 did to a plugin (Joomla-Bible-Study/Proclaim#1704) and
+ * what `TokenSubstituter`
  * has refused to do during descent since 1.16.0.
  *
  * So the substitution has to happen here, where the child's own version is
