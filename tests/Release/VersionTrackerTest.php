@@ -78,19 +78,48 @@ final class VersionTrackerTest extends TestCase
     }
 
     #[Test]
-    public function update_for_release_strips_prerelease_suffix_when_computing_nexts(): void
+    public function update_for_release_leaves_every_pointer_alone_for_a_prerelease(): void
     {
-        $this->seedVersionsJson(['current' => ['version' => '10.3.1']]);
+        $this->seedVersionsJson([
+            'current' => ['version' => '10.3.1'],
+            'next'    => ['patch' => '10.3.2', 'minor' => '10.4.0', 'major' => '11.0.0'],
+            '_updated' => '2026-05-01',
+        ]);
 
         $tracker = $this->tracker(['versionsJson' => 'build/versions.json']);
-        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2-beta1', '2026-05-15'));
+        $touched = $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2-beta1', '2026-05-15'));
 
         $v = $this->readJson('build/versions.json');
 
-        self::assertSame('10.3.2-beta1', $v['current']['version']);
-        self::assertSame('10.3.3', $v['next']['patch']);
+        // current is the last STABLE release — Proclaim's upgrade harness
+        // installs it as the baseline, so a beta recorded here becomes the
+        // state of the world for the next upgrade test (#103).
+        self::assertSame('10.3.1', $v['current']['version']);
+
+        // next.patch is already 10.3.2 — the version 10.3.2-beta1 is
+        // stabilising. Advancing it to 10.3.3 would skip that release.
+        self::assertSame('10.3.2', $v['next']['patch']);
         self::assertSame('10.4.0', $v['next']['minor']);
         self::assertSame('11.0.0', $v['next']['major']);
+
+        self::assertSame('2026-05-01', $v['_updated']);
+        self::assertSame([], $touched, 'nothing was written, so nothing is reported as touched');
+    }
+
+    #[Test]
+    public function update_for_release_strips_a_prerelease_suffix_it_is_stabilising(): void
+    {
+        // 10.3.2 final, released after 10.3.2-beta1: the stable line advances
+        // to it, and the nexts follow from it.
+        $this->seedVersionsJson(['current' => ['version' => '10.3.1']]);
+
+        $tracker = $this->tracker(['versionsJson' => 'build/versions.json']);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2', '2026-05-15'));
+
+        $v = $this->readJson('build/versions.json');
+
+        self::assertSame('10.3.2', $v['current']['version']);
+        self::assertSame('10.3.3', $v['next']['patch']);
     }
 
     #[Test]

@@ -87,6 +87,10 @@ final class VersionTracker
      * `_updated`. Leaves `active_development` alone — that's the dev-side
      * field, updated by the next cwm-bump.
      *
+     * A pre-release writes nothing. Both fields describe the stable line —
+     * `current` is the last stable release, `next.*` the candidates that follow
+     * it — and a beta advances neither. See writeVersionsJsonRelease().
+     *
      * Called from cwm-release step 7.
      *
      * @return list<string> Files actually rewritten.
@@ -274,7 +278,34 @@ final class VersionTracker
     {
         $data = $this->readJson($path);
 
+        // Computed before the pre-release check so a malformed version still
+        // throws rather than being waved through as "not stable, nothing to do".
         $nexts = $this->computeNexts($version);
+
+        /*
+         * A pre-release advances neither pointer, so it writes nothing.
+         *
+         * `current` is documented as the last stable release, and consumers
+         * read it that way — Proclaim's upgrade harness takes it as the
+         * artifact "users are on" and installs it as the baseline to upgrade
+         * from. Recording 10.4.0-beta1 there hands the next upgrade test a beta
+         * as the state of the world (#103).
+         *
+         * `next.*` follows for the same reason. It is derived from the last
+         * stable release, and after 10.3.2-beta1 the next release is 10.3.2
+         * itself — which is what next.patch already holds, computed from
+         * 10.3.1. Advancing it to 10.3.3 would name a version that skips the
+         * one being stabilised.
+         *
+         * `_updated` stamps when these pointers last moved, so it stays put
+         * too. The GitHub release, the tag and the changelog all still record
+         * that the pre-release happened; this file is not that record.
+         */
+        if (preg_match('/^\d+\.\d+\.\d+-/', $version) === 1) {
+            echo "  $path (unchanged — $version is a pre-release; current/next track stable releases)\n";
+
+            return false;
+        }
 
         $needsWrite = false;
 
