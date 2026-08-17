@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`Dev\TestSite` reads `dbtype` and speaks both databases.** The primitive
+  every consumer is about to migrate twelve files onto was MySQL-only in four
+  places, silently: a `mysql:` DSN with `charset=utf8mb4`, and `SHOW TABLES` /
+  `SHOW COLUMNS`, which PostgreSQL does not have. Shipping it that way would
+  have replaced twelve scattered MySQL assumptions with one shared one, which is
+  harder to find later, not easier.
+
+  `driver()` and `isPostgres()` expose what the site actually runs, mapped from
+  Joomla's `dbtype` (`mysqli`/`mysql` → `mysql`, `pgsql`/`postgresql` →
+  `pgsql`). An unrecognised value falls back to MySQL rather than throwing —
+  every CWM site is MySQL today, and refusing to connect to guard against a
+  database nobody uses would break working installs — but the fallback is
+  inspectable rather than assumed.
+
+  `hasTable()` and `hasColumn()` now use `information_schema`, which both
+  databases have. They filter on a schema name resolved per driver: the database
+  name for MySQL, `current_schema()` for PostgreSQL, where a database holds many
+  schemas and Joomla's tables are not guaranteed to be in `public`. Without that
+  filter `information_schema` answers about every schema on the server, and a
+  same-named table elsewhere reads as this site's.
+
+  `ExtensionVerifier`'s last `SHOW COLUMNS` — the namespace-column probe — goes
+  through `hasColumn()`, so no MySQL-only introspection remains in `src/`.
+
+  This is the tooling groundwork only. Shipping PostgreSQL support means
+  `install.*.sql`, `uninstall.*.sql`, per-driver `<schemapath>` entries and 37
+  migration files per consumer, which is tracked separately.
+
 - **`Dev\TestSite` — one implementation of "read `configuration.php`, open a
   connection, know the prefix".** That primitive was hand-rolled in twelve files
   across Proclaim and CWMLivingWord, which did not even agree on a driver — six

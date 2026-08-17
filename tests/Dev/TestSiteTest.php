@@ -122,6 +122,31 @@ final class TestSiteTest extends TestCase
     }
 
     #[Test]
+    public function reads_the_driver_from_dbtype(): void
+    {
+        self::assertSame('mysql', TestSite::fromPath($this->fixture('standard'))->driver());
+        self::assertFalse(TestSite::fromPath($this->fixture('standard'))->isPostgres());
+
+        self::assertSame('pgsql', TestSite::fromPath($this->fixture('postgres'))->driver());
+        self::assertTrue(TestSite::fromPath($this->fixture('postgres'))->isPostgres());
+    }
+
+    #[Test]
+    public function an_unknown_dbtype_falls_back_to_mysql(): void
+    {
+        /*
+         * Every CWM site is MySQL today. Refusing to open a connection over a
+         * dbtype this mapping has not seen would break working installs to
+         * guard against a database nobody is using — so it falls back, and
+         * driver() makes the assumption inspectable.
+         */
+        $config = TestSite::readConfig($this->fixture('escapes'));
+
+        self::assertNotNull($config);
+        self::assertSame('mysql', $config['driver'], 'a configuration.php with no dbtype reads as MySQL');
+    }
+
+    #[Test]
     public function an_install_config_contributes_its_path_only(): void
     {
         /*
