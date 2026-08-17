@@ -51,8 +51,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   shape, in the tool written to fix #101; the two outcomes are now distinct, and
   `--help` says so. (#125)
 
-### Fixed
-
 - **`cwm-reset-testsite` matched table prefixes with `_` treated as a
   wildcard.** `_` is a single-character wildcard in `LIKE`, so the pattern for
   prefix `bsms_` on a site prefixed `jos_` was `jos_bsms_%` — which also matches
