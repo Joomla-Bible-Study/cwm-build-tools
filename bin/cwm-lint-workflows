@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#
+# cwm-lint-workflows — find CI path filters that guard nothing.
+#
+# A `paths:` entry naming a file that has moved or been deleted silently stops
+# guarding anything, and reads in review exactly like one that works: the job
+# does not run, the pull request is green, and nothing says a check was skipped.
+#
+# Usage from a consuming project:
+#   composer lint-workflows
+#   composer lint-workflows -- --warn
+#   composer lint-workflows -- --help
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/lint-workflows.php" "$@"

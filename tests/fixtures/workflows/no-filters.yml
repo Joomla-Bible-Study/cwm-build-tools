@@ -1,0 +1,7 @@
+on:
+  workflow_dispatch:
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "paths: not a filter, just output"
