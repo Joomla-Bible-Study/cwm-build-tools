@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.23.1] - 2026-08-17
+
+### Fixed
+
+- **`cwm-verify` was fatal in 1.23.0.** `Class "CWM\BuildTools\Dev\TestSite"
+  not found` on every run, from `ExtensionVerifier.php:64`.
+
+  `scripts/` has no autoloader — each entry point requires the `src` files it
+  needs by path. 1.23.0 refactored `ExtensionVerifier` onto the new `TestSite`
+  and never told `scripts/verify.php`, so the class graph was complete under
+  PHPUnit (which autoloads through Composer) and incomplete under the CLI. 525
+  unit tests passed and the command could not start.
+
+  CLAUDE.md warns about exactly this, and 1.18.0 shipped a fatal in
+  `cwm-package` the same way, so the fix is not only the missing require:
+  `tests/shell/cli-loads.test.sh` now loads each path-require CLI's declared
+  class files in a fresh process and asserts every CWM class those files
+  reference actually resolves. It is mutation-checked — with the require removed
+  it fails — and it emits an explicit verdict, so a harness that dies cannot be
+  read as a pass. Scripts that load through Composer's autoloader and guard with
+  `class_exists()` are exempt, since that is a different and valid strategy.
+
+  Only `cwm-verify` was affected; it is the one command that loads
+  `ExtensionVerifier`.
+
 ## [1.23.0] - 2026-08-17
 
 ### Added

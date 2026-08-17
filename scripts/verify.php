@@ -21,6 +21,7 @@ require_once __DIR__ . '/../src/Config/CwmPackage.php';
 require_once __DIR__ . '/../src/Config/InstalledPackageReader.php';
 require_once __DIR__ . '/../src/Dev/InstallConfig.php';
 require_once __DIR__ . '/../src/Dev/PropertiesReader.php';
+require_once __DIR__ . '/../src/Dev/TestSite.php';
 require_once __DIR__ . '/../src/Dev/ExtensionVerifier.php';
 require_once __DIR__ . '/../src/Dev/Linker.php';
 require_once __DIR__ . '/../src/Dev/LinkResolver.php';
