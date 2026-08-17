@@ -65,6 +65,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Every one of those is opt-in by config: a project declaring none has its
   modules and update sites left alone rather than swept by a default.
 
+  An `elements[]` entry may be a plain string, or `{ element, type, folder }`
+  when a bare element is ambiguous — `element = 'cwmscripture'` matches a
+  library and two plugins, and a pattern wide enough to catch one takes the
+  others with it. `groups{}` holds optional families enabled with
+  `--with <name>`, for a stack shared with another extension: taking it unasked
+  breaks a site hosting both. `typeAliasPatterns[]` clears `#__content_types`
+  and `#__contentitem_tag_map`, which are keyed by alias rather than by
+  extension id and so survive the extension row.
+
   Tables are discovered from `information_schema` by prefix rather than read
   from a list, since a table added by a forgotten migration is exactly the
   residue that masks a later failure. Directory removal refuses paths that

@@ -49,6 +49,10 @@ USAGE
 OPTIONS
   -n, --dry-run      Print what would be removed and stop.
   --install <id>     Only this install id, which must still be role = test.
+  --with <group>     Also remove an optional family group declared under
+                     testSite.reset.groups. Repeatable. A group that is shared
+                     with another extension is opt-in for a reason: taking it
+                     unasked breaks a site hosting both.
   -h, --help         Show this and exit.
 
 CONFIGURATION  (testSite.reset)
@@ -95,6 +99,7 @@ CWM_HELP;
 
 $dryRun    = false;
 $onlyId    = null;
+$groups    = [];
 $arguments = array_slice($argv, 1);
 
 for ($i = 0; $i < count($arguments); $i++) {
@@ -108,6 +113,16 @@ for ($i = 0; $i < count($arguments); $i++) {
 
     if ($arg === '--install') {
         $onlyId = $arguments[++$i] ?? null;
+
+        continue;
+    }
+
+    if ($arg === '--with') {
+        $group = $arguments[++$i] ?? null;
+
+        if ($group !== null) {
+            $groups[] = $group;
+        }
 
         continue;
     }
@@ -169,7 +184,7 @@ foreach ($installs as $install) {
         continue;
     }
 
-    $reset  = new TestSiteReset($site, $plan);
+    $reset  = new TestSiteReset($site, $plan, $groups);
     $family = $reset->familyRows();
     $tables = $reset->familyTables();
 
@@ -192,6 +207,10 @@ foreach ($installs as $install) {
 
     // The retained set, named, every run — including when it is empty, so
     // "nothing is retained" is a statement rather than an absence.
+    if ($groups !== []) {
+        echo '  groups: ' . implode(', ', $groups) . "\n";
+    }
+
     $retain = $plan['retain'] ?? [];
     echo '  retained (' . count($retain) . "): " . ($retain === [] ? '(none declared)' : implode(', ', $retain)) . "\n";
 

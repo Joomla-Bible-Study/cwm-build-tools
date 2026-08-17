@@ -41,11 +41,12 @@ final class TestSiteReset
 {
     /**
      * @param  array{
-     *     elements?: list<string>,
+     *     elements?: list<string|array{element: string, type?: string, folder?: string}>,
      *     elementPatterns?: list<string>,
      *     tablePrefixes?: list<string>,
      *     components?: list<string>,
      *     menuLinkPatterns?: list<string>,
+     *     typeAliasPatterns?: list<string>,
      *     modulePatterns?: list<string>,
      *     updateSiteNamePatterns?: list<string>,
      *     actionLogPatterns?: list<string>,
@@ -54,10 +55,59 @@ final class TestSiteReset
      *     retain?: list<string>
      * }  $plan  The project's `testSite.reset` block.
      */
+    /** @var array<string, mixed> The plan with any enabled groups merged in. */
+    private readonly array $plan;
+
+    /**
+     * @param  array<string, mixed>  $plan    The project's `testSite.reset` block.
+     * @param  list<string>          $groups  Optional group names to enable, from
+     *                                        `testSite.reset.groups`.
+     */
     public function __construct(
         private readonly TestSite $site,
-        private readonly array $plan,
+        array $plan,
+        array $groups = [],
     ) {
+        $this->plan = self::withGroups($plan, $groups);
+    }
+
+    /**
+     * Merge named optional groups into a plan.
+     *
+     * Some families are conditional: CWMLivingWord removes the scripture stack
+     * only when asked, because that stack is shared with Proclaim and a run
+     * that took it unasked would break a site hosting both. Modelled as named
+     * groups rather than a boolean so a second condition does not need a second
+     * flag threaded through everything.
+     *
+     * Lists concatenate rather than replace — a group adds to the family, it
+     * does not redefine it.
+     *
+     * @param  array<string, mixed>  $plan
+     * @param  list<string>          $groups
+     *
+     * @return array<string, mixed>
+     */
+    public static function withGroups(array $plan, array $groups): array
+    {
+        $available = $plan['groups'] ?? [];
+        unset($plan['groups']);
+
+        foreach ($groups as $name) {
+            if (!isset($available[$name]) || !is_array($available[$name])) {
+                continue;
+            }
+
+            foreach ($available[$name] as $key => $values) {
+                if (!is_array($values)) {
+                    continue;
+                }
+
+                $plan[$key] = array_merge($plan[$key] ?? [], $values);
+            }
+        }
+
+        return $plan;
     }
 
     /**
@@ -74,9 +124,40 @@ final class TestSiteReset
         $clauses = [];
         $params  = [];
 
-        foreach ($this->plan['elements'] ?? [] as $element) {
-            $clauses[] = 'element = ?';
-            $params[]  = $element;
+        foreach ($this->plan['elements'] ?? [] as $entry) {
+            /*
+             * A bare string matches the element whatever its type or group.
+             * An object qualifies it — CWMLivingWord's family needs
+             * `element = 'livingword' AND type = 'plugin' AND folder = 'task'`
+             * to name one of two plugins that share an element, which is the
+             * same collision ExtensionQuery exists for. A pattern broad enough
+             * to catch both would take the webservices plugin with it.
+             */
+            if (is_string($entry)) {
+                $clauses[] = 'element = ?';
+                $params[]  = $entry;
+
+                continue;
+            }
+
+            if (!is_array($entry) || !isset($entry['element'])) {
+                continue;
+            }
+
+            $parts    = ['element = ?'];
+            $params[] = $entry['element'];
+
+            if (isset($entry['type'])) {
+                $parts[]  = 'type = ?';
+                $params[] = $entry['type'];
+            }
+
+            if (isset($entry['folder'])) {
+                $parts[]  = 'folder = ?';
+                $params[] = $entry['folder'];
+            }
+
+            $clauses[] = '(' . implode(' AND ', $parts) . ')';
         }
 
         foreach ($this->plan['elementPatterns'] ?? [] as $pattern) {
@@ -101,6 +182,7 @@ final class TestSiteReset
             if (in_array($row['element'], $retain, true)) {
                 continue;
             }
+
 
             $rows[] = [
                 'extension_id' => (int) $row['extension_id'],
@@ -176,7 +258,7 @@ final class TestSiteReset
      * part-way leaves an extension row without its schema row rather than a
      * schema row pointing at nothing — the former is what a reinstall repairs.
      *
-     * @return array{extensions: int, schemas: int, tables: list<string>, assets: int, categories: int, menus: int, modules: int, updateSites: int, actionLogs: int}
+     * @return array{extensions: int, schemas: int, tables: list<string>, assets: int, categories: int, menus: int, modules: int, updateSites: int, actionLogs: int, contentTypes: int}
      */
     public function purgeDatabase(): array
     {
@@ -186,6 +268,7 @@ final class TestSiteReset
         $counts = [
             'extensions' => 0, 'schemas' => 0, 'tables' => [], 'assets' => 0,
             'categories' => 0, 'menus' => 0, 'modules' => 0, 'updateSites' => 0, 'actionLogs' => 0,
+            'contentTypes' => 0,
         ];
 
         if ($ids !== []) {
@@ -211,6 +294,21 @@ final class TestSiteReset
             $stmt = $db->prepare('DELETE FROM ' . $this->site->table('#__categories') . ' WHERE extension = ?');
             $stmt->execute([$component]);
             $counts['categories'] += $stmt->rowCount();
+        }
+
+        foreach ($this->plan['typeAliasPatterns'] ?? [] as $pattern) {
+            // Content types and their tag map are keyed by type_alias, not by
+            // extension_id, so removing the extension row leaves them behind —
+            // and a reinstall then finds the type already registered.
+            foreach ([['#__content_types', 'type_alias'], ['#__contentitem_tag_map', 'type_alias']] as [$token, $column]) {
+                if (!$this->site->hasTable($token)) {
+                    continue;
+                }
+
+                $stmt = $db->prepare('DELETE FROM ' . $this->site->table($token) . " WHERE {$column} LIKE ?");
+                $stmt->execute([$pattern]);
+                $counts['contentTypes'] += $stmt->rowCount();
+            }
         }
 
         foreach ($this->plan['menuLinkPatterns'] ?? [] as $pattern) {
