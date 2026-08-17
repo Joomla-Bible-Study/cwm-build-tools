@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`cwm-reset-testsite` matched table prefixes with `_` treated as a
+  wildcard.** `_` is a single-character wildcard in `LIKE`, so the pattern for
+  prefix `bsms_` on a site prefixed `jos_` was `jos_bsms_%` — which also matches
+  `josXbsmsY…`. That list is handed to `DROP TABLE`. The hand-rolled script this
+  replaced escaped the underscores; the extraction did not carry that across.
+
+  No real site was at risk — verified against a populated test site, where the
+  loose pattern matched exactly the same 27 tables and nothing else — but a
+  latent over-match in a command that drops tables is not worth keeping.
+
+  The literal part is now escaped with `!` as the `ESCAPE` character rather than
+  the conventional backslash: `ESCAPE '\'` reaches MySQL as an unterminated
+  string literal, and `!` needs no quoting on either MySQL or PostgreSQL.
+
 ## [1.23.1] - 2026-08-17
 
 ### Fixed
