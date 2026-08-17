@@ -138,7 +138,7 @@ final class TokenSubstituter
      * substitutes a `subBuild` child's working tree so the packaged child does
      * not ship the literal token, but that tree is usually a submodule
      * checkout, and leaving it rewritten would show up as another repo's
-     * version staged into it (#1704).
+     * version staged into it (Joomla-Bible-Study/Proclaim#1704).
      *
      * Silent about missing paths — `substitute()` already warns, and warning
      * twice for one release reads like two different problems.

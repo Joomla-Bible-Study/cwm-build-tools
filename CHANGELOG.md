@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`cwm-lint-comments` — keep issue references out of code comments.** Lifted
+  from Proclaim's `build/lint-comments.php`, the only copy, for a rule its own
+  header records as spanning three repositories: *"a sweep cleared it across
+  three repositories once, and within a week new citations had been written."*
+  A rule that regrows in all three belongs with the dependency all three share.
+  (#105)
+
+  The parsing is the part worth not writing twice. It is not a grep — block
+  state carries across lines so docblock continuations are read as comment,
+  quotes are tracked so a `//` inside a string is code, a `//` preceded by `:`
+  is left alone so a URL is not mistaken for a comment, and CSS is scanned with
+  only block comments legal. A whole-line grep would flag every hex colour and
+  every number inside a string, and a tool that cries wolf gets switched off.
+
+  `owner/repo#123` is never flagged: blame cannot lead anyone to another
+  repository's tracker, so that citation earns its place — and qualifying a bare
+  number is how to fix a cross-repository reference rather than delete it.
+
+  Tests are skipped by default, deliberately. A regression test's docblock
+  naming the issue it guards is the one place the number is the subject rather
+  than a pointer away from it.
+
+  The four-digit threshold is now configurable (`lint.issueDigits`, `--digits`).
+  Three digits collide with CSS hex colours, and four was calibrated to a
+  project whose numbering had long passed 1000 — a younger repository numbering
+  in the hundreds would otherwise get no coverage at all, silently, which is the
+  failure this tool exists to prevent elsewhere.
+
+  Run against this repository it found two real cross-repository citations to
+  Proclaim's tracker, written bare as if they were this project's issue numbers.
+  Both are now qualified.
+
 - **`cwm-lint-queries` — enforce `$db->createQuery()` over
   `$db->getQuery(true)`.** Lifted from Proclaim's `build/lint-queries.sh`, which
   was the only copy: `lib_cwmscripture` and CWMLivingWord hold the same
