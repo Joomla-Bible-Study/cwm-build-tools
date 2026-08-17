@@ -29,6 +29,66 @@ composer cwm-release
 6. **Finish** — update `versions.json` and push the release commit/tag to
    `github.releaseBranch`.
 
+## The release gate
+
+If the project's `composer.json` defines a `test:release` script, `cwm-release`
+runs it as a pre-flight gate and stops before touching anything if it fails.
+This is opt-in by presence — a project with no `test:release` script is released
+exactly as before. Pass `--skip-tests` to release anyway; `--dry-run` still runs
+the gate for real, since it verifies rather than writes.
+
+The gate runs **before the version bump**, so it verifies the commit about to be
+released rather than the commit that results from bumping it. That ordering is
+deliberate and worth keeping, but it has a consequence: at the moment the gate
+runs, nothing on disk names the version about to ship.
+
+`cwm-release` therefore hands the gate that version in the environment:
+
+```bash
+CWM_RELEASE_VERSION=1.2.3 composer test:release
+```
+
+It is set for that one command, not exported — the bump, the build and every
+later step see the environment they always did.
+
+!!! warning "Don't resolve the version under test from `versions.json`"
+    Neither field names the release in progress while the gate is running.
+    `active_development.version` is written by `cwm-bump`, which has not run
+    yet, so it holds the *previous* bump's value. `current.version` is written
+    by step 8, after publishing, so it holds the *previous* release.
+
+    An upgrade phase that reads either as "the build under test" and compares it
+    against a baseline resolved the same way finds them equal, concludes there
+    is nothing to upgrade to, and reports itself not-applicable. The gate then
+    passes. A CWMLivingWord 5.7.0 release went out that way with the upgrade
+    path — the one every existing site takes, and where install-scriptfile
+    postflight repairs live — never exercised, on a release whose headline fix
+    was exactly such a repair (#101).
+
+    Read `CWM_RELEASE_VERSION` for the target, and resolve the baseline from
+    published artifacts — the newest stable GitHub release older than the target
+    — rather than from a file the pipeline has not updated yet.
+
+The variable's presence is itself the signal, because `test:release` runs in two
+situations and the right answer differs between them:
+
+| `CWM_RELEASE_VERSION` | Situation | The build under test is |
+|---|---|---|
+| set | a release is in progress; the bump has not run | the variable |
+| unset | nightly, PR or manual run; no release in flight | `active_development.version` |
+
+Outside a release that file is correct — `cwm-bump` wrote it and nothing is
+mid-flight — so the fallback is not a workaround, it is the other half of the
+contract. Read the variable when it is set and fall back when it is not:
+
+```bash
+TARGET="${CWM_RELEASE_VERSION:-$(jq -r .active_development.version versions.json)}"
+```
+
+A gate phase that genuinely has nothing to do should still say so loudly enough
+to be read as a finding. "Not applicable" printed next to a passing gate is
+indistinguishable from "covered", which is what made the above quiet.
+
 ## The token gate
 
 Step 2 substitutes across `substituteTokens.paths`. That list is hand-maintained
@@ -62,13 +122,6 @@ If it fires, the usual causes are a shipped directory missing from `paths`
 is not covered by a bare `src/` entry) or a vendored `cwm/build-tools` older than
 the fix for the file in question — `composer.lock` is not evidence the installed
 tree is current.
-
-Before any of that, if the project's `composer.json` defines a `test:release`
-script, `cwm-release` runs it as a pre-flight gate and stops before touching
-anything if it fails. This is opt-in by presence — a project with no
-`test:release` script is released exactly as before. Pass `--skip-tests` to
-release anyway; `--dry-run` still runs the gate for real, since it verifies
-rather than writes.
 
 Always check `--help` for the current flags and any dry-run option:
 
