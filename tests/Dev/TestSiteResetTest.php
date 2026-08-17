@@ -34,6 +34,10 @@ final class TestSiteResetTest extends TestCase
         );
         $this->pdo->exec('CREATE TABLE jos_schemas (extension_id INTEGER, version_id TEXT)');
         $this->pdo->exec('CREATE TABLE jos_modules (id INTEGER PRIMARY KEY, module TEXT)');
+        // A table an unescaped `jos_bsms_%` would wrongly match: `_` is a LIKE
+        // wildcard, so it also matches any single character in those positions.
+        $this->pdo->exec('CREATE TABLE josXbsmsY_decoy (id INTEGER)');
+        $this->pdo->exec('CREATE TABLE jos_bsms_studies (id INTEGER)');
         $this->pdo->exec('CREATE TABLE jos_modules_menu (moduleid INTEGER, menuid INTEGER)');
         $this->pdo->exec('CREATE TABLE jos_update_sites (update_site_id INTEGER PRIMARY KEY, name TEXT)');
         $this->pdo->exec('CREATE TABLE jos_update_sites_extensions (update_site_id INTEGER, extension_id INTEGER)');
@@ -219,6 +223,31 @@ final class TestSiteResetTest extends TestCase
             ['com_proclaim'],
             array_column($this->reset(['elements' => ['com_proclaim']], ['nope'])->familyRows(), 'element')
         );
+    }
+
+    #[Test]
+    public function table_matching_treats_underscores_literally(): void
+    {
+        /*
+         * `_` is a single-character wildcard in LIKE, so an unescaped
+         * `jos_bsms_%` also matches `josXbsmsY_decoy`. This list is handed
+         * straight to DROP TABLE, so the literal part must be escaped — the
+         * script this replaced did exactly that.
+         *
+         * `!` is the escape character rather than a backslash: `ESCAPE '\'`
+         * reaches MySQL as an unterminated string literal, which is how the
+         * first attempt at this broke the query while this test still passed —
+         * it exercised the pure function and not the SQL. SQLite has no
+         * information_schema, so the query itself is verified against live
+         * MySQL rather than here.
+         */
+        $reset = $this->reset(['tablePrefixes' => ['bsms_']]);
+
+        $method = new \ReflectionMethod($reset, 'escapeLike');
+
+        self::assertSame('jos!_bsms!_', $method->invoke(null, 'jos_bsms_'));
+        self::assertSame('a!%b', $method->invoke(null, 'a%b'));
+        self::assertSame('a!!b', $method->invoke(null, 'a!b'), 'the escape char is escaped first');
     }
 
     #[Test]

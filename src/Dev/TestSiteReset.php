@@ -216,8 +216,12 @@ final class TestSiteReset
         $params  = [$this->schemaName()];
 
         foreach ($prefixes as $prefix) {
-            $clauses[] = 'table_name LIKE ?';
-            $params[]  = $this->site->prefix() . $prefix . '%';
+            // Escape the LIKE metacharacters in the literal part. `_` matches
+            // any single character, so an unescaped `jos_bsms_%` also matches
+            // `josXbsmsY...` — and this list is handed to DROP TABLE. The
+            // script this replaced escaped it for the same reason.
+            $clauses[] = "table_name LIKE ? ESCAPE '!'";
+            $params[]  = self::escapeLike($this->site->prefix() . $prefix) . '%';
         }
 
         $stmt = $this->site->db()->prepare(
@@ -525,6 +529,21 @@ final class TestSiteReset
         }
 
         return $removed;
+    }
+
+    /**
+     * Escape `_` and `%` so a literal is matched literally by LIKE.
+     *
+     * `!` is the escape character rather than the conventional backslash,
+     * because a backslash has to survive both PHP's string handling and the
+     * server's: `ESCAPE '\'` reaches MySQL as an unterminated string literal.
+     * `!` needs no quoting anywhere and means the same on MySQL and
+     * PostgreSQL. It is escaped first, or it would escape the escapes added
+     * after it.
+     */
+    private static function escapeLike(string $literal): string
+    {
+        return str_replace(['!', '_', '%'], ['!!', '!_', '!%'], $literal);
     }
 
     /** Whether any extension row holds this element, of any type. */
