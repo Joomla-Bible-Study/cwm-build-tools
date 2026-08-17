@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`cwm-baseline` — resolve and fetch the released package an upgrade test
+  upgrades *from*.** Both consumers had written this themselves and diverged on
+  the part that matters. Proclaim read `versions.json` `current`; CWMLivingWord
+  resolved it from the releases that exist, after `current` made the phase skip
+  itself during the 5.7.0 release. Each implementation had something the other
+  lacked — a floor below which no release installs, a `gh`-presence check, a
+  not-applicable path — and neither was going to acquire the other's half. (#103)
+
+  Resolution: the newest release strictly older than the target, at or above
+  `baseline.minimum`, preferring stable and falling back to a pre-release only
+  when nothing stable qualifies. The target is `CWM_RELEASE_VERSION` when a
+  release is in flight (#101), `--target`, or the manifest — in that order — so
+  the baseline is chosen relative to the version being shipped rather than the
+  manifest the pre-bump gate has not touched yet.
+
+  The artifact name and its directory come from `build.outputGlob`, the one
+  artifact-naming key present in every project shape, with the version
+  substituted for its `*`. A glob that cannot name exactly one asset is refused
+  rather than guessed at: a wrong name reports "not found on the release", which
+  sends the reader after the wrong problem.
+
+  **Exit 3 is "no usable baseline"** — a first release, or every candidate below
+  the floor — kept distinct from both success and failure. Treating it as fatal
+  blocks the first release of every new project; treating it as success reports
+  an upgrade test that never ran.
+
+  Selection lives in `scripts/lib/baseline.sh`, free of network calls, so it is
+  tested against release-list fixtures rather than by reading.
+
 ### Changed (breaking)
 
 - **A pre-release no longer moves `current.version` or `next.*` in

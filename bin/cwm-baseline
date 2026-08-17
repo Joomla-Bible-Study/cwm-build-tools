@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#
+# cwm-baseline — fetch the released package an upgrade test upgrades from.
+#
+# Resolves the newest release older than the version under test (preferring
+# stable, honouring baseline.minimum) and downloads its artifact into the
+# project's build output directory.
+#
+# Usage from a consuming project:
+#   composer cwm-baseline
+#   composer cwm-baseline -- --target 5.7.1
+#   composer cwm-baseline -- --print
+#   composer cwm-baseline -- --help
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec bash "${TOOLS_DIR}/scripts/baseline.sh" "$@"

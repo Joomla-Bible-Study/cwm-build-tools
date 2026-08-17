@@ -90,6 +90,34 @@ A gate phase that genuinely has nothing to do should still say so loudly enough
 to be read as a finding. "Not applicable" printed next to a passing gate is
 indistinguishable from "covered", which is what made the above quiet.
 
+### The other end: which release to upgrade *from*
+
+An upgrade phase also needs a "before" state, and `cwm-baseline` resolves and
+fetches it:
+
+```bash
+composer cwm-baseline            # newest release older than the version under test
+composer cwm-baseline -- --print # just say which, download nothing
+```
+
+It reads `CWM_RELEASE_VERSION` when a release is in flight, so the baseline is
+chosen relative to the version being shipped rather than the stale manifest.
+Stable releases are preferred; a pre-release is only chosen when no stable one
+qualifies. `baseline.minimum` excludes early releases that cannot install.
+
+It downloads the **released artifact**, not a rebuild of an old tree — the
+released zip carries the old `install.sql`, without the newer migrations, so
+installing the new build over it genuinely exercises the `ADD COLUMN` /
+`CREATE TABLE` update SQL.
+
+!!! note "Exit 3 means *not applicable*, and the caller decides"
+    A project's first release has nothing to upgrade from, and neither does one
+    whose every candidate sits below `baseline.minimum`. That is not a failure.
+    It exits **3** rather than 0 or 1 so the caller can tell it apart from both:
+    treating it as fatal blocks the first release of every new project, and
+    treating it as success reports an upgrade test that never ran. #101 is the
+    story of that distinction being made silently, in the wrong place.
+
 ## The token gate
 
 Step 2 substitutes across `substituteTokens.paths`. That list is hand-maintained
