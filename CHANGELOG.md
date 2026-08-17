@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-08-17
+
 ### Added
 
 - **`cwm-lint-workflows` — find CI path filters that guard nothing.** A `paths:`
