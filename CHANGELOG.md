@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.23.2] - 2026-08-17
+
 ### Fixed
 
 - **`cwm-ars-publish` could not publish from a private repository.** It verified
