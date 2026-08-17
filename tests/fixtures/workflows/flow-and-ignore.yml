@@ -1,0 +1,8 @@
+on:
+  pull_request:
+    paths: [ 'src/**', "docs/**" ]
+    paths-ignore:
+      - 'docs/legacy/**'
+jobs:
+  build:
+    runs-on: ubuntu-latest

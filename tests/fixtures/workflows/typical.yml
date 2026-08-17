@@ -1,0 +1,25 @@
+name: E2E
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'admin/**'
+      - 'site/**'
+  pull_request:
+    branches: [ "development" ]
+    paths:
+      # A comment between entries, as the real files carry.
+      - 'api/**'
+      - "tests/e2e/**"
+      - build/test-install.sh
+      - 'composer.lock'
+      # This one names a file that no longer exists.
+      - 'build/reset-testsite.php'
+      - '.github/workflows/e2e.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7

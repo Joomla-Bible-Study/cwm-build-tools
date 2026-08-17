@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`cwm-lint-workflows` — find CI path filters that guard nothing.** A `paths:`
+  entry naming a file that has moved or been deleted stops guarding anything,
+  and in review it is indistinguishable from one that works: the job does not
+  run, the pull request is green, and nothing reports that a check was skipped.
+  That is the #101 shape, except the gate never starts. (#129)
+
+  It happened five times across two consumer repositories before this existed.
+  Proclaim's `e2e.yml` carries comments recording two of them; a third was an
+  entry for `build/reset-testsite.php` that outlived the file by a day, after
+  the shared command replaced it.
+
+  **A stale `paths-ignore` is a notice, not a failure.** It fails *open* — it
+  excludes nothing, so the job merely runs more often — and it is not reliably
+  wrong either: excluding a gitignored directory like `.claude/**` is deliberate
+  and invisible to a check that reads tracked files. Reporting those as errors
+  is how a linter starts crying wolf and gets switched off. Dogfooding found
+  exactly that case and the distinction was added because of it.
+
+  Patterns are compiled to regular expressions rather than passed to `glob()`,
+  which has no `**` — and `**` is most of what these filters use — then matched
+  against `git ls-files`, so a pattern covering only ignored build output is
+  correctly reported as covering nothing.
+
+  It does **not** catch the expensive half: a filter too *narrow*, where the job
+  that should have run did not because nobody listed the path. No static check
+  can see that. `--help` says so, and names the two habits that do cover it.
+
 ## [1.23.2] - 2026-08-17
 
 ### Fixed

@@ -70,6 +70,7 @@ ARS endpoint, category, and stream IDs come from the `ars` block in
 | Command | What it does |
 |---|---|
 | `cwm-lint-queries` | Enforce `$db->createQuery()` over `$db->getQuery(true)`. A consistency guard, not a correctness one — both return the same `DatabaseQuery`. **Exit 1** on findings; `--warn` to report without failing. The no-argument `$db->getQuery()` is a different operation and is never flagged. |
+| `cwm-lint-workflows` | Flag CI `paths:` filters that match no tracked file. A filter decides whether a job runs; an entry naming a deleted file guards nothing and reads in review exactly like one that works. **Exit 1** on stale `paths`; a stale `paths-ignore` is a notice only, since it fails open and may be a deliberate exclusion of a gitignored directory. |
 | `cwm-lint-comments` | Flag issue references written inside code comments — git blame already connects a line to its issue, so the citation adds nothing and goes stale. Only the comment part of a line is searched, so a hex colour or a number in a string is safe. `owner/repo#123` is allowed. **Exit 1** on findings; `--warn` to report without failing. |
 | `cwm-lint-deprecations` | Flag Joomla 6/7 upgrade blockers (`bootstrap.modal`, `data-bs-toggle=modal`, iframe modal handlers, `Joomla.Modal`, jQuery globals). **Exit 1** on findings; `--warn` to report without failing. See the [JS guide](javascript-and-joomladialog.md#71-cwm-lint-deprecations-find-j67-blockers). |
 | `cwm-sync-languages` | Sync and translate Joomla language files for the project. |

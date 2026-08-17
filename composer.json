@@ -63,6 +63,7 @@
         "bin/cwm-baseline",
         "bin/cwm-lint-queries",
         "bin/cwm-lint-comments",
+        "bin/cwm-lint-workflows",
         "bin/cwm-reset-testsite",
         "bin/cwm-verify-update-stream"
     ],
