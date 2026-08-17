@@ -27,6 +27,7 @@ cwm-init` rather than authoring by hand. Minimal examples live in
 | `ars` | Akeeba Release System target: `endpoint`, `categoryId`, `updateStreamId`, `environments[]`, `tokenItem`, `tokenVault` (1Password). |
 | `github` | `{ owner, repo, releaseBranch }` for release + changelog. |
 | `changelog` | `{ file, url }` — the Joomla changelog XML path and its raw URL. |
+| `lint` | Optional. `{ paths[], excludeDirs[] }` — source roots the lint commands scan, and extra directory basenames to skip on top of `vendor/`, `node_modules/`, `build/`, `dist/` and the VCS directories. A git submodule is a separate repository and not this project's standard to enforce; name it in `excludeDirs`. Defaults to the conventional Joomla roots that exist. |
 | `baseline` | Optional. `{ minimum }` — the oldest release `cwm-baseline` may pick as an upgrade "before" state. For projects whose early packages do not install at all, so choosing one wastes a run on a failure that says nothing about the build. Omit for no floor. |
 | `announcement` | `{ command, bulletsDir }` for the release announcement article. |
 | `versionTracking` | Override layer, deep-merged on top of the profile. `versionsJson`, `packageJson`, `substituteTokens.paths[]`, `sourceFiles[]`. **Lists replace wholesale.** See [source-file version literals](#versiontrackingsourcefiles--version-literals-in-source) below. |

@@ -60,7 +60,8 @@
         "bin/cwm-joomla-install",
         "bin/cwm-joomla-latest",
         "bin/cwm-joomla-cms-deps",
-        "bin/cwm-baseline"
+        "bin/cwm-baseline",
+        "bin/cwm-lint-queries"
     ],
     "config": {
         "sort-packages": true,

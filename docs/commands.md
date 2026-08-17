@@ -67,5 +67,6 @@ ARS endpoint, category, and stream IDs come from the `ars` block in
 
 | Command | What it does |
 |---|---|
+| `cwm-lint-queries` | Enforce `$db->createQuery()` over `$db->getQuery(true)`. A consistency guard, not a correctness one — both return the same `DatabaseQuery`. **Exit 1** on findings; `--warn` to report without failing. The no-argument `$db->getQuery()` is a different operation and is never flagged. |
 | `cwm-lint-deprecations` | Flag Joomla 6/7 upgrade blockers (`bootstrap.modal`, `data-bs-toggle=modal`, iframe modal handlers, `Joomla.Modal`, jQuery globals). **Exit 1** on findings; `--warn` to report without failing. See the [JS guide](javascript-and-joomladialog.md#71-cwm-lint-deprecations-find-j67-blockers). |
 | `cwm-sync-languages` | Sync and translate Joomla language files for the project. |

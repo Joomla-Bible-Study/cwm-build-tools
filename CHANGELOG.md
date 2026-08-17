@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`cwm-lint-queries` — enforce `$db->createQuery()` over
+  `$db->getQuery(true)`.** Lifted from Proclaim's `build/lint-queries.sh`, which
+  was the only copy: `lib_cwmscripture` and CWMLivingWord hold the same
+  convention with nothing checking it. (#104)
+
+  A consistency guard rather than a correctness one — both spellings return the
+  same `DatabaseQuery` and neither is deprecated in Joomla 5 or 6. It exists
+  because consistency does not hold on its own. Proclaim reached 666 uses of the
+  old spelling against 9 of the documented one, not by decision but because new
+  code copies what it finds nearby, and that pressure is not specific to one
+  project.
+
+  The no-argument `$db->getQuery()` returns the *current* query rather than a new
+  one. Different operation, never flagged.
+
+  No new scanner: `DeprecationScanner` already takes its ruleset as a
+  constructor argument, so the tree walk, the symlink guard and the exclusion
+  handling are reused and only the rules are new (`Dev\QueryStyleRules`).
+
+  Paths come from `lint.paths[]`, defaulting to the conventional Joomla roots
+  **that exist** — scanning a path that is not there is not an error, but
+  reporting "no findings" for a tree that was never opened is the failure a
+  linter must not have, so the run names what it scanned either way.
+  `lint.excludeDirs[]` covers the submodule case: a separate repository is not
+  this project's standard to enforce.
+
 - **`cwm-baseline` — resolve and fetch the released package an upgrade test
   upgrades *from*.** Both consumers had written this themselves and diverged on
   the part that matters. Proclaim read `versions.json` `current`; CWMLivingWord
