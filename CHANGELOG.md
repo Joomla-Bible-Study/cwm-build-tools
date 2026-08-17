@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-08-17
+
 ### Added
 
 - **`cwm-verify-update-stream`, and a post-publish step in `release.sh` to run
@@ -235,10 +237,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Selection lives in `scripts/lib/baseline.sh`, free of network calls, so it is
   tested against release-list fixtures rather than by reading.
 
-### Changed (breaking)
+
+### Fixed
 
 - **A pre-release no longer moves `current.version` or `next.*` in
-  `versions.json`.** `writeVersionsJsonRelease()` wrote `$version` into
+  `versions.json`.** *(Behaviour change for any project that ships
+  pre-releases — see the note at the end of this entry.)* `writeVersionsJsonRelease()` wrote `$version` into
   `current.version` unconditionally, but that field is documented — in its own
   default description, and in the template this package ships — as the *last
   stable release*. Releasing `10.4.0-beta1` recorded a pre-release there. (#103)
@@ -263,7 +267,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   changelog all still record that the pre-release happened. `versions.json` was
   never that record.
 
-### Fixed
+  Filed as a fix rather than a breaking change because the old behaviour
+  contradicted the field's own documented contract: both its default
+  description and the `versions.json` template this package ships call it the
+  *last stable release*. Restoring that is what changed. But it **is** observable
+  for a project that releases pre-releases and reads either field — after
+  updating, cutting a beta stops advancing the stable pointers, which is the
+  point.
 
 - **`release.sh` now tells the `test:release` gate which version is about to
   ship.** The gate runs before the bump, deliberately — it verifies the commit
