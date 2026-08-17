@@ -59,6 +59,8 @@ PROJECT_ROOT="$(pwd)"
 source "${SCRIPT_DIR}/lib/version.sh"
 # shellcheck source=lib/ars.sh
 source "${SCRIPT_DIR}/lib/ars.sh"
+# shellcheck source=lib/optoken.sh
+source "${SCRIPT_DIR}/lib/optoken.sh"
 
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"
 
@@ -161,34 +163,40 @@ echo "  artifact:      ${ZIP_NAME}"
 echo "  download URL:  ${GITHUB_DOWNLOAD_URL}"
 
 # --- Get API token ---
-if [ -n "${ARS_API_TOKEN:-}" ]; then
-    TOKEN="$ARS_API_TOKEN"
-    echo "Using ARS_API_TOKEN from environment."
-elif command -v op >/dev/null 2>&1; then
-    echo "Retrieving API token from 1Password (item: '${TOKEN_ITEM}', vault: '${TOKEN_VAULT}')..."
-    TOKEN=$(op item get "$TOKEN_ITEM" --vault "$TOKEN_VAULT" --fields label=credential --reveal 2>/dev/null || echo "")
-else
-    echo "Error: ARS_API_TOKEN not set and 1Password CLI (op) not installed."
-    exit 1
-fi
+# Retrieval, and the reason when it fails, live in lib/optoken.sh (#126).
+TOKEN="$(cwm_op_token "$TOKEN_ITEM" "$TOKEN_VAULT")" || exit 1
 
-if [ -z "$TOKEN" ]; then
-    echo "Error: Could not retrieve API token."
-    exit 1
-fi
-
-# --- Verify GitHub release exists ---
+# --- Verify GitHub release exists, and read what we need from it ---
+#
+# Through `gh`, not a bare curl to api.github.com. The unauthenticated call
+# this replaces answered 404 on a PRIVATE repository whether or not the release
+# existed, so publishing stopped and told the reader to create a release that
+# was already there — with no flag to skip it, which left private-repo
+# consumers unable to publish at all (#125).
+#
+# It was redundant as well as broken: the statements below already read the
+# same release through authenticated `gh`. One call now does both, so there is
+# no second way for the check and the read to disagree.
 echo "Verifying GitHub release ${TAG}..."
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/releases/tags/${TAG}")
+GH_ERR="$(mktemp)"
 
-if [ "$HTTP_CODE" != "200" ]; then
-    echo "Error: GitHub release ${TAG} not found (HTTP ${HTTP_CODE})."
-    echo "Create the release first: gh release create ${TAG} ${ZIP_PATH}"
+if ! RELEASE_DATE=$(gh release view "$TAG" --repo "${GH_OWNER}/${GH_REPO}" \
+        --json publishedAt --jq '.publishedAt' 2>"$GH_ERR"); then
+    echo "Error: GitHub release ${TAG} not found in ${GH_OWNER}/${GH_REPO}."
+
+    if [ -s "$GH_ERR" ]; then
+        sed 's/^/  gh: /' "$GH_ERR"
+    fi
+
+    echo "  Create it first: gh release create ${TAG} ${ZIP_PATH}"
+    echo "  If the release does exist, check that gh is authenticated for this repo:"
+    echo "    gh auth status"
+    rm -f "$GH_ERR"
     exit 1
 fi
 
-# --- Get release date and asset info from GitHub ---
-RELEASE_DATE=$(gh release view "$TAG" --repo "${GH_OWNER}/${GH_REPO}" --json publishedAt --jq '.publishedAt' 2>/dev/null | sed 's/T/ /' | sed 's/Z//' || echo "")
+rm -f "$GH_ERR"
+RELEASE_DATE=$(printf '%s' "$RELEASE_DATE" | sed 's/T/ /' | sed 's/Z//')
 
 ASSET_INFO=$(gh release view "$TAG" --repo "${GH_OWNER}/${GH_REPO}" --json assets --jq ".assets[] | select(.name==\"${ZIP_NAME}\")")
 

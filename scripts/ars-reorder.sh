@@ -23,6 +23,10 @@
 #
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/optoken.sh
+source "${SCRIPT_DIR}/lib/optoken.sh"
+
 PROJECT_ROOT="$(pwd)"
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"
 
@@ -87,19 +91,8 @@ if [ -z "$CATEGORY_ID" ]; then
 fi
 
 # --- Token ---
-if [ -n "${ARS_API_TOKEN:-}" ]; then
-    TOKEN="$ARS_API_TOKEN"
-elif command -v op >/dev/null 2>&1; then
-    TOKEN=$(op item get "$TOKEN_ITEM" --vault "$TOKEN_VAULT" --fields label=credential --reveal 2>/dev/null || echo "")
-else
-    echo "Error: ARS_API_TOKEN not set and 1Password CLI (op) not installed." >&2
-    exit 1
-fi
-
-if [ -z "$TOKEN" ]; then
-    echo "Error: Could not retrieve API token." >&2
-    exit 1
-fi
+# Retrieval, and the reason when it fails, live in lib/optoken.sh (#126).
+TOKEN="$(cwm_op_token "$TOKEN_ITEM" "$TOKEN_VAULT")" || exit 1
 
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

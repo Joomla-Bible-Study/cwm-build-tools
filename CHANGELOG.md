@@ -9,6 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`cwm-ars-publish` could not publish from a private repository.** It verified
+  the GitHub release with an unauthenticated `curl` to `api.github.com`, which
+  answers 404 on a private repo whether or not the release exists — so
+  publishing stopped and told the reader to create a release that was already
+  there, with no flag to skip the check. (#125)
+
+  The check was redundant as well as broken: the next two statements already
+  read the same release through authenticated `gh`. One authenticated call now
+  does both, so there is no second way for the check and the read to disagree,
+  and `gh`'s own message is printed when it fails.
+
+- **1Password failures reported no cause, in four commands.**
+  `2>/dev/null || echo ""` discarded `op`'s stderr *and* its exit status,
+  collapsing every failure into `Could not retrieve API token` — a misnamed item
+  or vault, the field not being `credential`, a locked account, an
+  unauthorized invocation, or `op` not signed in. (#126)
+
+  It cost real time: a release stopped that way while the same `op item get` run
+  by hand returned the credential, and the visible evidence pointed at composer
+  hard enough that a bug report against composer was drafted before the cause
+  turned out to be a transient 1Password authorization state — which `op`'s own
+  stderr names.
+
+  Retrieval now lives in `lib/optoken.sh`, shared by `cwm-ars-publish`,
+  `cwm-ars-list`, `cwm-ars-create-stream` and `cwm-ars-reorder`. The credential
+  comes back on stdout and nothing else ever does; the cause, the exit status
+  and the item and vault looked up go to stderr; and the error names
+  `ARS_API_TOKEN` as the bypass, which the script has always supported and no
+  failure message mentioned.
+
+  The fifth copy, in `cwm-article.sh`, captured stderr with `2>&1` — into the
+  token, so any warning `op` writes on success was prepended to the credential
+  and sent to an API. That is why the shared helper keeps the streams apart.
+
+- **`cwm-baseline` reported an authentication failure as "no usable baseline".**
+  Same `2>/dev/null || true` shape: a `gh` failure — auth, an unreachable
+  network, a typo'd repo — produced an empty release list and **exit 3**, which
+  callers are told to read as *not applicable, not a failure*. An upgrade phase
+  would stand down silently on an error it could have named. That is the #101
+  shape, in the tool written to fix #101; the two outcomes are now distinct, and
+  `--help` says so. (#125)
+
+### Fixed
+
 - **`cwm-reset-testsite` matched table prefixes with `_` treated as a
   wildcard.** `_` is a single-character wildcard in `LIKE`, so the pattern for
   prefix `bsms_` on a site prefixed `jos_` was `jos_bsms_%` — which also matches

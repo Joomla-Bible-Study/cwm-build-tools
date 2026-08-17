@@ -183,4 +183,33 @@ assert_contains "$(run_baseline)" "Already present" \
 run_baseline --target 0.5.0 --print > /dev/null
 assert_equals "3" "$?" "no usable baseline exits 3"
 
+# --- An error is not "not applicable" ------------------------------------------
+# gh failing -- auth, network, a typo'd repo -- must NOT come back as 3. A
+# caller is told 3 means "nothing to upgrade from, carry on", so reporting an
+# auth failure that way makes the upgrade phase stand down silently: the #101
+# shape, in the tool written to fix #101 (#125).
+cat > "${WORK}/bin/gh" <<'FAILSTUB'
+#!/usr/bin/env bash
+echo "gh: Could not resolve to a Repository with the name 'acme/smoke'." >&2
+exit 1
+FAILSTUB
+chmod +x "${WORK}/bin/gh"
+
+ERR="$(run_baseline --print 2>&1)"
+STATUS=$?
+
+assert_equals "1" "$STATUS" "a gh failure exits 1, not the not-applicable 3"
+assert_contains "$ERR" "Could not resolve to a Repository" "gh's reason is surfaced, not discarded"
+assert_contains "$ERR" "not the same as having no usable baseline" "the two outcomes are told apart in words"
+
+# And a gh that simply reports no releases is still the not-applicable case.
+cat > "${WORK}/bin/gh" <<'EMPTYSTUB'
+#!/usr/bin/env bash
+exit 0
+EMPTYSTUB
+chmod +x "${WORK}/bin/gh"
+
+run_baseline --print > /dev/null 2>&1
+assert_equals "3" "$?" "a repo with genuinely no releases still exits 3"
+
 finish
