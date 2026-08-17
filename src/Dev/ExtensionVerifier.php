@@ -70,7 +70,9 @@ final class ExtensionVerifier
         }
 
         $prefix       = $site->prefix();
-        $hasNamespace = $this->hasNamespaceColumn($pdo, $prefix);
+        // Older Joomla schemas have no namespace column. TestSite answers this
+        // portably; SHOW COLUMNS, which this used, is MySQL-only.
+        $hasNamespace = $site->hasColumn('#__extensions', 'namespace');
         $expected     = array_merge($this->expectedExtensions(), $this->expectedFromPackages($packages));
 
         $ok     = 0;
@@ -813,13 +815,6 @@ final class ExtensionVerifier
         }
 
         return 'added';
-    }
-
-    private function hasNamespaceColumn(\PDO $pdo, string $prefix): bool
-    {
-        $stmt = $pdo->query("SHOW COLUMNS FROM {$prefix}extensions LIKE 'namespace'");
-
-        return $stmt instanceof \PDOStatement && $stmt->rowCount() > 0;
     }
 
     /**

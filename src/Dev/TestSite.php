@@ -49,9 +49,12 @@ final class TestSite
 {
     private ?PDO $pdo = null;
 
+    /** Resolved lazily; see {@see schemaName()}. */
+    private ?string $schemaName = null;
+
     /**
      * @param  string  $path    Absolute path to the Joomla document root.
-     * @param  array{host: string, user: string, password: string, db: string, dbprefix: string}  $config
+     * @param  array{host: string, user: string, password: string, db: string, dbprefix: string, driver: string}  $config
      *         Parsed connection values from that install's configuration.php.
      */
     private function __construct(
@@ -114,6 +117,7 @@ final class TestSite
             'password' => '',
             'db'       => '',
             'dbprefix' => $prefix,
+            'driver'   => (string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME),
         ]);
 
         $site->pdo = $pdo;
@@ -136,6 +140,83 @@ final class TestSite
     public function database(): string
     {
         return $this->config['db'];
+    }
+
+    /**
+     * The PDO driver this site uses: `mysql` or `pgsql`.
+     *
+     * Read from `dbtype` in configuration.php. Callers running SQL that is not
+     * portable — and most schema DDL is not — should branch on this rather than
+     * assume, which is the assumption every hand-rolled copy made silently.
+     */
+    public function driver(): string
+    {
+        return $this->config['driver'];
+    }
+
+    /** Whether this site runs on PostgreSQL. */
+    public function isPostgres(): bool
+    {
+        return $this->driver() === 'pgsql';
+    }
+
+    /**
+     * The DSN for this site's driver.
+     *
+     * `charset=utf8mb4` is MySQL-only; PostgreSQL takes the encoding from the
+     * database itself, and passing an unknown DSN parameter to it is an error
+     * rather than something ignored.
+     */
+    private function dsn(): string
+    {
+        $host = $this->config['host'];
+        $db   = $this->config['db'];
+
+        if ($this->driver() === 'pgsql') {
+            // Joomla writes host:port into the same field for both drivers.
+            [$hostname, $port] = array_pad(explode(':', $host, 2), 2, null);
+
+            return 'pgsql:host=' . $hostname
+                . ($port !== null ? ';port=' . $port : '')
+                . ';dbname=' . $db;
+        }
+
+        return 'mysql:host=' . $host . ';dbname=' . $db . ';charset=utf8mb4';
+    }
+
+    /**
+     * The schema name `information_schema` queries should filter on.
+     *
+     * The two databases disagree about what a "schema" is. In MySQL it is the
+     * database, so the database name is the filter. In PostgreSQL a database
+     * holds many schemas and Joomla's tables live in whichever is first on the
+     * search path — usually `public`, but not necessarily, so it is asked
+     * rather than assumed.
+     *
+     * Filtering matters: without it, `information_schema` answers about every
+     * schema on the server, and a table of the same name in another database
+     * reads as this site's.
+     */
+    private function schemaName(): string
+    {
+        if ($this->schemaName !== null) {
+            return $this->schemaName;
+        }
+
+        if ($this->driver() === 'pgsql') {
+            $current = $this->db()->query('SELECT current_schema()')?->fetchColumn();
+
+            return $this->schemaName = is_string($current) ? $current : 'public';
+        }
+
+        // fromPdo() carries no database name; ask the connection instead.
+        if ($this->config['db'] !== '') {
+            return $this->schemaName = $this->config['db'];
+        }
+
+        $current = $this->db()->query('SELECT DATABASE()')?->fetchColumn();
+
+        return $this->schemaName = is_string($current) ? $current : '';
     }
 
     /**
@@ -168,7 +249,7 @@ final class TestSite
 
         try {
             $this->pdo = new PDO(
-                'mysql:host=' . $this->config['host'] . ';dbname=' . $this->config['db'] . ';charset=utf8mb4',
+                $this->dsn(),
                 $this->config['user'],
                 $this->config['password'],
                 [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION],
@@ -194,8 +275,10 @@ final class TestSite
      */
     public function hasTable(string $token): bool
     {
-        $stmt = $this->db()->prepare('SHOW TABLES LIKE ?');
-        $stmt->execute([$this->table($token)]);
+        $stmt = $this->db()->prepare(
+            'SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = ?'
+        );
+        $stmt->execute([$this->schemaName(), $this->table($token)]);
 
         return $stmt->fetchColumn() !== false;
     }
@@ -209,8 +292,11 @@ final class TestSite
      */
     public function hasColumn(string $token, string $column): bool
     {
-        $stmt = $this->db()->prepare('SHOW COLUMNS FROM ' . $this->table($token) . ' LIKE ?');
-        $stmt->execute([$column]);
+        $stmt = $this->db()->prepare(
+            'SELECT 1 FROM information_schema.columns '
+            . 'WHERE table_schema = ? AND table_name = ? AND column_name = ?'
+        );
+        $stmt->execute([$this->schemaName(), $this->table($token), $column]);
 
         return $stmt->fetchColumn() !== false;
     }
@@ -221,7 +307,7 @@ final class TestSite
      * Pure: it takes a path and returns values, so it is tested against fixture
      * files rather than a live install.
      *
-     * @return array{host: string, user: string, password: string, db: string, dbprefix: string}|null
+     * @return array{host: string, user: string, password: string, db: string, dbprefix: string, driver: string}|null
      *         Null when the file is absent, unreadable, or names no database.
      */
     public static function readConfig(string $joomlaPath): ?array
@@ -260,7 +346,29 @@ final class TestSite
             'password' => $values['password'] ?? '',
             'db'       => $values['db'],
             'dbprefix' => $values['dbprefix'] ?? 'jos_',
+            'driver'   => self::normaliseDriver($values['dbtype'] ?? 'mysqli'),
         ];
+    }
+
+    /**
+     * Map Joomla's `dbtype` onto a PDO driver name.
+     *
+     * Joomla writes `mysqli` (and historically `mysql`) for MySQL and MariaDB,
+     * and `pgsql` (sometimes spelled `postgresql`) for PostgreSQL. PDO knows
+     * `mysql` and `pgsql`.
+     *
+     * An unrecognised value falls back to `mysql` rather than throwing: every
+     * CWM site is MySQL today, and refusing to open a connection over a dbtype
+     * this mapping has not seen would break working installs to guard against a
+     * database nobody is using. The fallback is visible via {@see driver()} so a
+     * caller that cares can check.
+     */
+    private static function normaliseDriver(string $dbtype): string
+    {
+        return match (strtolower($dbtype)) {
+            'pgsql', 'postgresql' => 'pgsql',
+            default               => 'mysql',
+        };
     }
 
     /**
