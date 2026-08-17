@@ -53,6 +53,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   because the family matched more than intended and the next run would start
   from a state nobody described.
 
+  It covers everything the copies it replaces did, which is more than
+  `#__extensions`: module instances and their `#__modules_menu` assignments (an
+  extension row is not the module), update sites and their extension links (a
+  stale one keeps Joomla polling for something uninstalled, and a reinstall will
+  not re-add it), action-log registrations, and loose files by glob — install
+  manifests being the load-bearing case, since their presence makes a fresh
+  install register as an *update* and run ALTER SQL against tables that do not
+  exist yet.
+
+  Every one of those is opt-in by config: a project declaring none has its
+  modules and update sites left alone rather than swept by a default.
+
   Tables are discovered from `information_schema` by prefix rather than read
   from a list, since a table added by a forgotten migration is exactly the
   residue that masks a later failure. Directory removal refuses paths that

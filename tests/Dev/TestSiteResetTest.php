@@ -33,6 +33,15 @@ final class TestSiteResetTest extends TestCase
             )'
         );
         $this->pdo->exec('CREATE TABLE jos_schemas (extension_id INTEGER, version_id TEXT)');
+        $this->pdo->exec('CREATE TABLE jos_modules (id INTEGER PRIMARY KEY, module TEXT)');
+        $this->pdo->exec('CREATE TABLE jos_modules_menu (moduleid INTEGER, menuid INTEGER)');
+        $this->pdo->exec('CREATE TABLE jos_update_sites (update_site_id INTEGER PRIMARY KEY, name TEXT)');
+        $this->pdo->exec('CREATE TABLE jos_update_sites_extensions (update_site_id INTEGER, extension_id INTEGER)');
+
+        $this->pdo->exec("INSERT INTO jos_modules VALUES (10, 'mod_proclaim'), (11, 'mod_menu')");
+        $this->pdo->exec('INSERT INTO jos_modules_menu VALUES (10, 1), (11, 1)');
+        $this->pdo->exec("INSERT INTO jos_update_sites VALUES (20, 'Proclaim Updates'), (21, 'Joomla Core')");
+        $this->pdo->exec('INSERT INTO jos_update_sites_extensions VALUES (20, 1), (21, 99)');
 
         $rows = [
             [1, 'component', 'com_proclaim', '', 1],
@@ -137,6 +146,59 @@ final class TestSiteResetTest extends TestCase
             $reset->retainedStatus(),
             'a retained extension is reported as surviving, so nobody has to infer it'
         );
+    }
+
+    #[Test]
+    public function removes_module_instances_and_their_menu_assignments(): void
+    {
+        // A module's #__extensions row is not the module. Removing the
+        // extension while instances remain leaves rows pointing at a module
+        // Joomla can no longer resolve.
+        $counts = $this->reset(['modulePatterns' => ['mod_proclaim%']])->purgeDatabase();
+
+        self::assertSame(1, $counts['modules']);
+        self::assertSame(
+            ['mod_menu'],
+            $this->pdo->query('SELECT module FROM jos_modules')->fetchAll(PDO::FETCH_COLUMN)
+        );
+        self::assertSame(
+            [11],
+            array_map('intval', $this->pdo->query('SELECT moduleid FROM jos_modules_menu')->fetchAll(PDO::FETCH_COLUMN)),
+            'the assignment goes with the instance'
+        );
+    }
+
+    #[Test]
+    public function removes_update_sites_and_leaves_core_alone(): void
+    {
+        // A stale update site keeps Joomla polling a stream for something that
+        // is not installed, and a reinstall finds it already registered and
+        // does not re-add it.
+        $counts = $this->reset(['updateSiteNamePatterns' => ['%Proclaim%']])->purgeDatabase();
+
+        self::assertSame(1, $counts['updateSites']);
+        self::assertSame(
+            ['Joomla Core'],
+            $this->pdo->query('SELECT name FROM jos_update_sites')->fetchAll(PDO::FETCH_COLUMN)
+        );
+        self::assertSame(
+            [21],
+            array_map('intval', $this->pdo->query('SELECT update_site_id FROM jos_update_sites_extensions')->fetchAll(PDO::FETCH_COLUMN))
+        );
+    }
+
+    #[Test]
+    public function unconfigured_cleanups_are_no_ops(): void
+    {
+        // A project that declares none of these must not have its modules or
+        // update sites touched by a default.
+        $counts = $this->reset(['elements' => ['com_proclaim']])->purgeDatabase();
+
+        self::assertSame(0, $counts['modules']);
+        self::assertSame(0, $counts['updateSites']);
+        self::assertSame(0, $counts['actionLogs']);
+        self::assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM jos_modules')->fetchColumn());
+        self::assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM jos_update_sites')->fetchColumn());
     }
 
     #[Test]

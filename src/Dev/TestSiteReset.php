@@ -46,7 +46,11 @@ final class TestSiteReset
      *     tablePrefixes?: list<string>,
      *     components?: list<string>,
      *     menuLinkPatterns?: list<string>,
+     *     modulePatterns?: list<string>,
+     *     updateSiteNamePatterns?: list<string>,
+     *     actionLogPatterns?: list<string>,
      *     directories?: list<string>,
+     *     fileGlobs?: list<string>,
      *     retain?: list<string>
      * }  $plan  The project's `testSite.reset` block.
      */
@@ -172,14 +176,17 @@ final class TestSiteReset
      * part-way leaves an extension row without its schema row rather than a
      * schema row pointing at nothing — the former is what a reinstall repairs.
      *
-     * @return array{extensions: int, schemas: int, tables: list<string>, assets: int, categories: int, menus: int}
+     * @return array{extensions: int, schemas: int, tables: list<string>, assets: int, categories: int, menus: int, modules: int, updateSites: int, actionLogs: int}
      */
     public function purgeDatabase(): array
     {
         $db     = $this->site->db();
         $rows   = $this->familyRows();
         $ids    = array_column($rows, 'extension_id');
-        $counts = ['extensions' => 0, 'schemas' => 0, 'tables' => [], 'assets' => 0, 'categories' => 0, 'menus' => 0];
+        $counts = [
+            'extensions' => 0, 'schemas' => 0, 'tables' => [], 'assets' => 0,
+            'categories' => 0, 'menus' => 0, 'modules' => 0, 'updateSites' => 0, 'actionLogs' => 0,
+        ];
 
         if ($ids !== []) {
             $in = implode(',', array_map('intval', $ids));
@@ -211,6 +218,10 @@ final class TestSiteReset
             $stmt->execute([$pattern]);
             $counts['menus'] += $stmt->rowCount();
         }
+
+        $counts['modules']     = $this->purgeModules();
+        $counts['updateSites'] = $this->purgeUpdateSites();
+        $counts['actionLogs']  = $this->purgeActionLogs();
 
         return $counts;
     }
@@ -254,6 +265,168 @@ final class TestSiteReset
         }
 
         return ['removed' => $removed, 'unlinked' => $unlinked];
+    }
+
+    /**
+     * Remove the family's module instances and their menu assignments.
+     *
+     * A module's `#__extensions` row is not the module: instances live in
+     * `#__modules`, and removing the extension while instances remain leaves
+     * rows pointing at a module Joomla can no longer resolve. The assignments in
+     * `#__modules_menu` go first, since they are keyed on the instance id.
+     */
+    private function purgeModules(): int
+    {
+        $patterns = $this->plan['modulePatterns'] ?? [];
+
+        if ($patterns === []) {
+            return 0;
+        }
+
+        $db      = $this->site->db();
+        $clauses = [];
+        $params  = [];
+
+        foreach ($patterns as $pattern) {
+            $clauses[] = 'module LIKE ?';
+            $params[]  = $pattern;
+        }
+
+        $where = implode(' OR ', $clauses);
+
+        $stmt = $db->prepare('SELECT id FROM ' . $this->site->table('#__modules') . " WHERE {$where}");
+        $stmt->execute($params);
+
+        $ids = array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN) ?: []);
+
+        if ($ids === []) {
+            return 0;
+        }
+
+        $in = implode(',', $ids);
+        $db->exec('DELETE FROM ' . $this->site->table('#__modules_menu') . " WHERE moduleid IN ({$in})");
+
+        return $db->exec('DELETE FROM ' . $this->site->table('#__modules') . " WHERE id IN ({$in})") ?: 0;
+    }
+
+    /**
+     * Remove the family's update sites.
+     *
+     * A stale `#__update_sites` row keeps Joomla polling a stream for an
+     * extension that is no longer installed, and a reinstall then finds the site
+     * already registered and does not re-add it — so the fresh install ends up
+     * with an update site nobody wrote this run.
+     */
+    private function purgeUpdateSites(): int
+    {
+        $patterns = $this->plan['updateSiteNamePatterns'] ?? [];
+
+        if ($patterns === []) {
+            return 0;
+        }
+
+        $db      = $this->site->db();
+        $clauses = [];
+        $params  = [];
+
+        foreach ($patterns as $pattern) {
+            $clauses[] = 'name LIKE ?';
+            $params[]  = $pattern;
+        }
+
+        $where = implode(' OR ', $clauses);
+
+        $stmt = $db->prepare('SELECT update_site_id FROM ' . $this->site->table('#__update_sites') . " WHERE {$where}");
+        $stmt->execute($params);
+
+        $ids = array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN) ?: []);
+
+        if ($ids === []) {
+            return 0;
+        }
+
+        $in = implode(',', $ids);
+        $db->exec('DELETE FROM ' . $this->site->table('#__update_sites_extensions') . " WHERE update_site_id IN ({$in})");
+
+        return $db->exec('DELETE FROM ' . $this->site->table('#__update_sites') . " WHERE update_site_id IN ({$in})") ?: 0;
+    }
+
+    /**
+     * Remove the family's action-log registrations.
+     *
+     * Cosmetic next to the rest, but a duplicate row here surfaces in the admin
+     * UI as a repeated entry after every reinstall, which reads as a bug in the
+     * extension being tested.
+     */
+    private function purgeActionLogs(): int
+    {
+        $patterns = $this->plan['actionLogPatterns'] ?? [];
+
+        if ($patterns === []) {
+            return 0;
+        }
+
+        $db      = $this->site->db();
+        $removed = 0;
+
+        foreach ($patterns as $pattern) {
+            foreach ([['#__action_logs_extensions', 'extension'], ['#__action_log_config', 'type_alias']] as [$token, $column]) {
+                if (!$this->site->hasTable($token)) {
+                    continue;
+                }
+
+                $stmt = $db->prepare('DELETE FROM ' . $this->site->table($token) . " WHERE {$column} LIKE ?");
+                $stmt->execute([$pattern]);
+                $removed += $stmt->rowCount();
+            }
+        }
+
+        return $removed;
+    }
+
+    /**
+     * Remove loose files the family leaves outside its own directories.
+     *
+     * Install manifests are the load-bearing ones: their presence makes a fresh
+     * install register as an update and run ALTER SQL against tables that do not
+     * exist yet, which is the failure the whole reset exists to prevent. Language
+     * files and their cache are scattered across every locale, so these are
+     * globs rather than a hand-maintained list that would miss a locale.
+     *
+     * @return list<string> Paths removed, relative to the site root.
+     */
+    public function purgeFiles(): array
+    {
+        $globs = $this->plan['fileGlobs'] ?? [];
+
+        if ($globs === []) {
+            return [];
+        }
+
+        $root    = realpath($this->site->path) ?: $this->site->path;
+        $removed = [];
+
+        foreach ($globs as $pattern) {
+            foreach (glob($root . '/' . ltrim($pattern, '/')) ?: [] as $path) {
+                $real = realpath($path);
+
+                // Refuse anything resolving outside the site: a mistyped ../ in
+                // config must not reach the rest of the disk.
+                if ($real === false || !str_starts_with($real, $root . DIRECTORY_SEPARATOR)) {
+                    continue;
+                }
+
+                if (is_link($path) || !is_dir($path)) {
+                    @unlink($path);
+                } else {
+                    $this->removeDirectory($real);
+                }
+
+                $removed[] = substr($real, strlen($root) + 1);
+            }
+        }
+
+        return $removed;
     }
 
     /** Whether any extension row holds this element, of any type. */
