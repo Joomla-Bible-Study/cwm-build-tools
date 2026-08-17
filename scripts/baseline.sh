@@ -73,7 +73,8 @@ CONFIGURATION
 
 EXIT CODE
   0  a baseline is present in the output directory
-  1  an error: bad config, gh missing or failing, asset not on the release
+  1  an error: bad config, gh missing or failing (including an auth failure,
+     which is deliberately NOT reported as 3), asset not on the release
   3  no usable baseline exists — the first release of a project, or every
      candidate below the floor. NOT a failure. A caller that treats this as
      fatal blocks the first release of every new project; one that treats it
@@ -165,13 +166,33 @@ else
         exit 1
     fi
 
-    RELEASES="$(gh release list --repo "$REPO" --limit 100 \
-        --json tagName,isPrerelease \
-        --jq '.[] | [.tagName, (.isPrerelease | tostring)] | @tsv' 2>/dev/null || true)"
+    # `2>/dev/null || true` here would report an auth failure, an unreachable
+    # network or a typo'd repo as "no releases" — and exit 3, which callers are
+    # told to read as "not applicable, not a failure". A gate standing down
+    # silently on an error it could have named is the #101 shape, in the tool
+    # written to fix #101. So the two outcomes are kept apart (#125).
+    GH_ERR="$(mktemp)"
+
+    if ! RELEASES="$(gh release list --repo "$REPO" --limit 100 \
+            --json tagName,isPrerelease \
+            --jq '.[] | [.tagName, (.isPrerelease | tostring)] | @tsv' 2>"$GH_ERR")"; then
+        echo "Error: could not list releases for ${REPO}." >&2
+
+        if [ -s "$GH_ERR" ]; then
+            sed 's/^/  gh: /' "$GH_ERR" >&2
+        fi
+
+        echo "  This is not the same as having no usable baseline: check that gh is" >&2
+        echo "  authenticated for this repo (gh auth status), or name one explicitly" >&2
+        echo "  with --version <ver>." >&2
+        rm -f "$GH_ERR"
+        exit 1
+    fi
+
+    rm -f "$GH_ERR"
 
     if [ -z "$RELEASES" ]; then
         echo "NOT APPLICABLE: ${REPO} has no releases to use as a baseline." >&2
-        echo "                GitHub must also be reachable to resolve one." >&2
         exit 3
     fi
 
