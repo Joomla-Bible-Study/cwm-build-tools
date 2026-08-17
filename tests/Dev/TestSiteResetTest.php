@@ -52,6 +52,11 @@ final class TestSiteResetTest extends TestCase
             // could plausibly sweep up.
             [5, 'component', 'com_content', '', 1],
             [6, 'plugin', 'scripturelinks', 'content', 0],
+            // The shared-element collision, as it really occurs: the library
+            // registers under its <libraryname>, and two plugins share it.
+            [7, 'library', 'cwmscripture', '', 0],
+            [8, 'plugin', 'cwmscripture', 'system', 0],
+            [9, 'plugin', 'cwmscripture', 'task', 0],
         ];
 
         $stmt = $this->pdo->prepare('INSERT INTO jos_extensions VALUES (?, ?, ?, ?, ?)');
@@ -60,14 +65,14 @@ final class TestSiteResetTest extends TestCase
             $stmt->execute($row);
         }
 
-        foreach ([1, 2, 3, 4, 5, 6] as $id) {
+        foreach ([1, 2, 3, 4, 5, 6, 7, 8, 9] as $id) {
             $this->pdo->prepare('INSERT INTO jos_schemas VALUES (?, ?)')->execute([$id, '1.0.0']);
         }
     }
 
-    private function reset(array $plan): TestSiteReset
+    private function reset(array $plan, array $groups = []): TestSiteReset
     {
-        return new TestSiteReset(TestSite::fromPdo($this->pdo, 'jos_'), $plan);
+        return new TestSiteReset(TestSite::fromPdo($this->pdo, 'jos_'), $plan, $groups);
     }
 
     #[Test]
@@ -78,9 +83,12 @@ final class TestSiteResetTest extends TestCase
             'elementPatterns' => ['%scripture%'],
         ])->familyRows();
 
-        // Ordered by type, folder, element: component, library, plugin.
+        // Ordered by type, folder, element: component, libraries, plugins.
+        // Note how wide '%scripture%' is — it takes the library registered
+        // under its <libraryname> and both plugins sharing that element. That
+        // breadth is the argument for qualified entries below.
         self::assertSame(
-            ['com_proclaim', 'lib_cwmscripture', 'scripturelinks'],
+            ['com_proclaim', 'cwmscripture', 'lib_cwmscripture', 'scripturelinks', 'cwmscripture', 'cwmscripture'],
             array_column($rows, 'element')
         );
     }
@@ -103,7 +111,13 @@ final class TestSiteResetTest extends TestCase
             'retain'          => ['lib_cwmscripture'],
         ])->familyRows();
 
-        self::assertSame(['scripturelinks'], array_column($rows, 'element'));
+        // retain spares exactly the element named, and nothing else the pattern
+        // caught. Sparing by name is a blunt tool against a shared element —
+        // which is what qualified entries below are for.
+        self::assertSame(
+            ['cwmscripture', 'scripturelinks', 'cwmscripture', 'cwmscripture'],
+            array_column($rows, 'element')
+        );
     }
 
     #[Test]
@@ -125,10 +139,13 @@ final class TestSiteResetTest extends TestCase
         $remaining = $this->pdo->query('SELECT element FROM jos_extensions ORDER BY extension_id')
             ->fetchAll(PDO::FETCH_COLUMN);
 
-        self::assertSame(['proclaim', 'mod_proclaim', 'com_content', 'scripturelinks'], $remaining);
+        self::assertSame(
+            ['proclaim', 'mod_proclaim', 'com_content', 'scripturelinks', 'cwmscripture', 'cwmscripture', 'cwmscripture'],
+            $remaining
+        );
 
         // The schema rows for survivors must not have gone with them.
-        self::assertSame(4, (int) $this->pdo->query('SELECT COUNT(*) FROM jos_schemas')->fetchColumn());
+        self::assertSame(7, (int) $this->pdo->query('SELECT COUNT(*) FROM jos_schemas')->fetchColumn());
     }
 
     #[Test]
@@ -145,6 +162,62 @@ final class TestSiteResetTest extends TestCase
             ['lib_cwmscripture' => true],
             $reset->retainedStatus(),
             'a retained extension is reported as surviving, so nobody has to infer it'
+        );
+    }
+
+    #[Test]
+    public function a_qualified_entry_names_one_of_two_plugins_sharing_an_element(): void
+    {
+        /*
+         * The collision a bare element cannot express. Both rows are
+         * element='cwmscripture'; only type and folder tell them apart, and a
+         * pattern broad enough to catch one takes the other with it.
+         */
+        $rows = $this->reset([
+            'elements' => [['element' => 'cwmscripture', 'type' => 'plugin', 'folder' => 'system']],
+        ])->familyRows();
+
+        self::assertCount(1, $rows);
+        self::assertSame('system', $rows[0]['folder']);
+    }
+
+    #[Test]
+    public function a_bare_string_entry_still_matches_any_type(): void
+    {
+        // Backward compatible: the simple form keeps meaning "this element,
+        // wherever it is".
+        $rows = $this->reset(['elements' => ['cwmscripture']])->familyRows();
+
+        self::assertCount(3, $rows, 'library plus both plugins');
+    }
+
+    #[Test]
+    public function an_optional_group_is_off_until_asked_for(): void
+    {
+        /*
+         * A shared stack must not be removed unasked: CWMLivingWord and
+         * Proclaim both host the scripture extensions, and a run that took
+         * them without being told would break a site running both.
+         */
+        $plan = [
+            'elements' => ['com_proclaim'],
+            'groups'   => ['scripture' => ['elements' => ['lib_cwmscripture']]],
+        ];
+
+        self::assertSame(['com_proclaim'], array_column($this->reset($plan)->familyRows(), 'element'));
+
+        self::assertSame(
+            ['com_proclaim', 'lib_cwmscripture'],
+            array_column($this->reset($plan, ['scripture'])->familyRows(), 'element')
+        );
+    }
+
+    #[Test]
+    public function an_unknown_group_name_is_ignored_rather_than_fatal(): void
+    {
+        self::assertSame(
+            ['com_proclaim'],
+            array_column($this->reset(['elements' => ['com_proclaim']], ['nope'])->familyRows(), 'element')
         );
     }
 
