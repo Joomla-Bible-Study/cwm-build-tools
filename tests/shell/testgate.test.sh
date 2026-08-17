@@ -79,4 +79,41 @@ else
     PASS=$((PASS + 1))
 fi
 
+# --- Invoking the gate (#101) -------------------------------------------------
+# A stub `composer` on PATH, not the real one — the header's "running composer
+# for real isn't something a unit test should do" still holds. What is under
+# test is the environment the gate is handed and the status it returns, and
+# neither needs a real composer process to observe.
+mkdir -p "${WORK}/bin"
+cat > "${WORK}/bin/composer" <<'STUB'
+#!/usr/bin/env bash
+echo "args=$* version=${CWM_RELEASE_VERSION-<unset>}"
+exit "${STUB_EXIT:-0}"
+STUB
+chmod +x "${WORK}/bin/composer"
+PATH="${WORK}/bin:${PATH}"
+
+# The release target reaches the gate. Without it the gate has no way to know
+# which version is about to ship — the bump hasn't happened yet — and an
+# upgrade phase resolving it from versions.json compares a version to itself.
+assert_equals \
+    "args=test:release version=1.2.3" \
+    "$(cwm_run_test_release '1.2.3')" \
+    "the gate runs test:release with CWM_RELEASE_VERSION set to the target"
+
+# Scoped to that one command, not exported: the bump, the build and every
+# later step must keep the environment they had.
+assert_equals \
+    "<unset>" \
+    "${CWM_RELEASE_VERSION-<unset>}" \
+    "CWM_RELEASE_VERSION does not leak into the caller's environment"
+
+# release.sh branches three ways on this status (pass / dry-run warning / hard
+# stop), so it has to arrive unchanged rather than swallowed by the wrapper.
+export STUB_EXIT=7
+cwm_run_test_release '1.2.3' > /dev/null
+GATE_STATUS=$?
+unset STUB_EXIT
+assert_equals "7" "$GATE_STATUS" "composer's exit status reaches the caller unchanged"
+
 finish

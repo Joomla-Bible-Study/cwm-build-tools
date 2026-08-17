@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`release.sh` now tells the `test:release` gate which version is about to
+  ship.** The gate runs before the bump, deliberately — it verifies the commit
+  being released, not the commit that results from bumping it — but that means
+  nothing on disk names the target version while it runs. A project whose
+  upgrade phase resolved "the build under test" from `versions.json` therefore
+  read a stale pointer: `active_development.version` still holds the previous
+  bump's value, and `current.version` the previous release's. Compared against a
+  baseline resolved the same way, the two match, and the phase stands down. (#101)
+
+  CWMLivingWord 5.7.0 released that way. Clean install, accessibility and API
+  acceptance all ran; the upgrade path — the one every existing site takes, and
+  where install-scriptfile postflight repairs live — was never exercised, on a
+  release whose headline fix was exactly such a repair. The gate passed, because
+  a phase reporting itself not-applicable is not a failure.
+
+  Version resolution now happens immediately before the gate rather than after
+  it, and the gate is invoked as `CWM_RELEASE_VERSION=<target> composer
+  test:release`. The reorder is read-only — the argument or prompt, a manifest
+  read for the prompt hint, and `cwm_validate_release_version` — so the gate's
+  "nothing has been mutated yet" property is unchanged. As a side effect the two
+  version strings the pipeline refuses outright, empty and `-dev`, now cost a
+  second instead of a full acceptance suite. The variable is set as a command
+  prefix, not exported, so no later step's environment changes.
+
+  Consumers have to read it for this to do anything. `docs/releasing.md` covers
+  the contract and why the baseline belongs in published artifacts — the newest
+  stable release older than the target — rather than in a file the pipeline has
+  not written yet.
+
 ## [1.22.0] - 2026-08-14
 
 ### Fixed

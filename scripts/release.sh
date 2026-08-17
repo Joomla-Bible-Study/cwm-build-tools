@@ -49,6 +49,12 @@
 #   so that's a deliberate, visible choice rather than a reason to touch this
 #   script. See lib/testgate.sh.
 #
+#   The gate is handed CWM_RELEASE_VERSION — the version about to ship. It
+#   runs before the bump, so nothing on disk names that version yet, and a
+#   test phase that derives it from versions.json instead reads a stale
+#   pointer and can quietly decide it has nothing to do (#101). Read the
+#   variable, not the file.
+#
 # Prerequisites:
 #   - Clean working tree, on the configured release branch (default: main)
 #   - gh CLI authenticated
@@ -223,29 +229,15 @@ if [ -f .gitmodules ]; then
 fi
 echo ""
 
-# --- Pre-flight: release gate (composer test:release) ---
-# Verifies the commit about to be released, not the commit that results from
-# bumping/building it — so this runs before step 1, against what's on disk
-# right now. See lib/testgate.sh for why this exists at all.
-if [ "$SKIP_TESTS" = "1" ]; then
-    echo "[pre-flight] Skipping composer test:release (--skip-tests)."
-elif ! cwm_has_test_release_script "${PROJECT_ROOT}/composer.json"; then
-    echo "[pre-flight] No composer test:release script — skipping pre-release verification."
-else
-    echo "[pre-flight] Running composer test:release..."
-    if composer test:release; then
-        echo "  test:release passed."
-    elif [ "$DRY_RUN" = "1" ]; then
-        echo "  WARNING: test:release failed. A real run would stop here."
-    else
-        echo ""
-        echo "Error: composer test:release failed. Fix the failure, or pass --skip-tests to release anyway."
-        exit 1
-    fi
-fi
-echo ""
-
 # --- Get version ---
+#
+# Resolved before the gate below, not after, so the gate can be told which
+# version is about to ship (#101). Everything here reads — the manifest for the
+# prompt hint, the argument or the terminal for the answer, lib/version.sh to
+# validate it — so the gate's "nothing has been mutated yet" property survives
+# the move intact. It also means the two version strings the pipeline refuses
+# outright (empty, and -dev) now cost a second rather than a full acceptance
+# suite.
 if [ -n "${1:-}" ]; then
     VERSION="$1"
 else
@@ -255,6 +247,10 @@ else
     fi
     printf "Enter new version (e.g., 1.2.3): "
     read -r VERSION
+    # Separate the prompt from the gate's output below. Only on this path —
+    # when the version came in as an argument this block prints nothing, and
+    # the preceding pre-flight already left a blank line.
+    echo ""
 fi
 
 # Validation, tag and pre-release derivation live in lib/version.sh so
@@ -263,6 +259,28 @@ cwm_validate_release_version "$VERSION" || exit 1
 
 TAG=$(cwm_tag_for_version "$VERSION")
 PRERELEASE_FLAG=$(cwm_prerelease_flag "$VERSION")
+
+# --- Pre-flight: release gate (composer test:release) ---
+# Verifies the commit about to be released, not the commit that results from
+# bumping/building it — so this runs before step 1, against what's on disk
+# right now. The version above is handed to it as CWM_RELEASE_VERSION, since
+# nothing on disk names it yet. See lib/testgate.sh for both.
+if [ "$SKIP_TESTS" = "1" ]; then
+    echo "[pre-flight] Skipping composer test:release (--skip-tests)."
+elif ! cwm_has_test_release_script "${PROJECT_ROOT}/composer.json"; then
+    echo "[pre-flight] No composer test:release script — skipping pre-release verification."
+else
+    echo "[pre-flight] Running composer test:release (CWM_RELEASE_VERSION=${VERSION})..."
+    if cwm_run_test_release "$VERSION"; then
+        echo "  test:release passed."
+    elif [ "$DRY_RUN" = "1" ]; then
+        echo "  WARNING: test:release failed. A real run would stop here."
+    else
+        echo ""
+        echo "Error: composer test:release failed. Fix the failure, or pass --skip-tests to release anyway."
+        exit 1
+    fi
+fi
 
 echo ""
 echo "=== ${PKG_NAME} Release ${VERSION} ==="

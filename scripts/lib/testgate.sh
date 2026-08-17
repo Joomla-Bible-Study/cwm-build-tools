@@ -37,3 +37,31 @@ cwm_has_test_release_script() {
         exit(isset($c["scripts"]["test:release"]) ? 0 : 1);
     ' "$composer_json" 2>/dev/null
 }
+
+# Run the project's test:release script with the release target in scope.
+#
+# The gate runs before the bump, by design — it verifies the commit about to
+# be released, not the commit that results from bumping it. The cost is that
+# nothing on disk yet names the version about to ship: versions.json carries
+# `active_development.version` from the *previous* bump and `current.version`
+# from the *previous* release, so an upgrade phase that derives "the build
+# under test" from either compares a version against itself, concludes there
+# is nothing to upgrade to, and stands down. A CWMLivingWord 5.7.0 release
+# passed its gate that way with the upgrade path never exercised — on a
+# release whose headline fix lived in install-scriptfile postflight (#101).
+#
+# CWM_RELEASE_VERSION is that missing fact. It is set as a command prefix
+# rather than exported, so it reaches the gate and nothing else: the bump, the
+# build, the publish and every other subprocess keep the environment they had.
+#
+# Arguments:
+#   $1  The version about to be released (already validated by the caller).
+#
+# Returns:
+#   composer's exit status, unchanged — release.sh branches on it three ways
+#   (pass, dry-run warning, hard stop).
+cwm_run_test_release() {
+    local version="$1"
+
+    CWM_RELEASE_VERSION="$version" composer test:release
+}
