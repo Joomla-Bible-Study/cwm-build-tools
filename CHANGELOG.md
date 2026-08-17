@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`Dev\TestSite` — one implementation of "read `configuration.php`, open a
+  connection, know the prefix".** That primitive was hand-rolled in twelve files
+  across Proclaim and CWMLivingWord, which did not even agree on a driver — six
+  used `mysqli_*` and the rest PDO — so escaping, error handling and "did the
+  connection fail" differed per file. The canonical version already existed
+  inside `ExtensionVerifier`, private to it. (#102)
+
+  `ExtensionVerifier` now uses it, so there is one implementation rather than
+  two: its `loadJoomlaDbConfig()` and `unescapePhpString()` are gone.
+
+  **`configuration.php` wins over `build.properties`.** `InstallConfig` carries a
+  `db` block and the obvious reading is that `TestSite` should use it. It must
+  not — `configuration.php` is what the running site connects with, and when the
+  two disagree the site is right. A harness resetting tables through stale
+  credentials either fails confusingly or succeeds against the wrong database.
+
+  Parsing is separate from connecting, which is what makes it coverable at all:
+  `readConfig()` takes a path and returns values, tested against committed
+  fixture `configuration.php` files. `db()` connects lazily, so a caller that
+  only wants the prefix does not pay for a connection, and errors are exceptions
+  rather than a `false` return that reads as "not installed".
+
+- **`Dev\ExtensionQuery` — "does this site hold this extension, and what is its
+  id".** Proclaim alone had three probes asking it. `folder` is matched when
+  supplied and omitted from the query when it is not, which is not the same as
+  matching `folder = ''`: a caller asking "is element x installed anywhere"
+  wants the row whatever its group, and one naming a group wants only that
+  group. `client_id` behaves the same way — a module can exist as both a site
+  and an administrator extension under one element. (#102)
+
+  `isEnabled()` is deliberately distinct from `exists()`. A disabled extension is
+  installed, and conflating the two reports a failed install for a site where
+  somebody switched something off.
+
+  Covered against an in-memory database rather than by asserting on generated
+  SQL, including both collisions: two plugins sharing an element in different
+  groups, and a module present as both site and administrator.
+
 - **`cwm-lint-comments` — keep issue references out of code comments.** Lifted
   from Proclaim's `build/lint-comments.php`, the only copy, for a rule its own
   header records as spanning three repositories: *"a sweep cleared it across

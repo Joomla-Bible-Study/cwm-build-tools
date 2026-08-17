@@ -57,28 +57,19 @@ final class ExtensionVerifier
             return ['ok' => 0, 'fixed' => 0, 'errors' => 1];
         }
 
-        $db = $this->loadJoomlaDbConfig($install->path);
-
-        if ($db === null) {
-            echo "  ERROR: Could not read configuration.php at {$install->path}\n";
-
-            return ['ok' => 0, 'fixed' => 0, 'errors' => 1];
-        }
-
+        // Connection, credentials and prefix all come from TestSite, which is
+        // the one implementation of "read configuration.php, connect, know the
+        // prefix" (#102). This method used to be that implementation, privately.
         try {
-            $pdo = new \PDO(
-                'mysql:host=' . $db['host'] . ';dbname=' . $db['db'] . ';charset=utf8mb4',
-                $db['user'],
-                $db['password'],
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION],
-            );
-        } catch (\PDOException $e) {
-            echo '  ERROR: DB connection failed: ' . $e->getMessage() . "\n";
+            $site = TestSite::fromPath($install->path);
+            $pdo  = $site->db();
+        } catch (\RuntimeException $e) {
+            echo '  ERROR: ' . $e->getMessage() . "\n";
 
             return ['ok' => 0, 'fixed' => 0, 'errors' => 1];
         }
 
-        $prefix       = $db['dbprefix'];
+        $prefix       = $site->prefix();
         $hasNamespace = $this->hasNamespaceColumn($pdo, $prefix);
         $expected     = array_merge($this->expectedExtensions(), $this->expectedFromPackages($packages));
 
@@ -829,54 +820,6 @@ final class ExtensionVerifier
         $stmt = $pdo->query("SHOW COLUMNS FROM {$prefix}extensions LIKE 'namespace'");
 
         return $stmt instanceof \PDOStatement && $stmt->rowCount() > 0;
-    }
-
-    /**
-     * Read the Joomla DB connection info out of `<joomlaPath>/configuration.php`.
-     *
-     * Joomla's configuration.php is generated and follows a deterministic
-     * `public $key = 'value';` shape; we parse it as text rather than
-     * evaluating arbitrary PHP from disk.
-     *
-     * @return array{host: string, user: string, password: string, db: string, dbprefix: string}|null
-     */
-    private function loadJoomlaDbConfig(string $joomlaPath): ?array
-    {
-        $configFile = $joomlaPath . '/configuration.php';
-
-        if (!is_file($configFile)) {
-            return null;
-        }
-
-        $content = (string) file_get_contents($configFile);
-        $values  = [];
-
-        if (preg_match_all('/public\s+\$(\w+)\s*=\s*([\'"])(.*?)\2\s*;/s', $content, $m, PREG_SET_ORDER)) {
-            foreach ($m as $match) {
-                $values[$match[1]] = $this->unescapePhpString($match[3], $match[2]);
-            }
-        }
-
-        if (!isset($values['db'])) {
-            return null;
-        }
-
-        return [
-            'host'     => $values['host'] ?? 'localhost',
-            'user'     => $values['user'] ?? '',
-            'password' => $values['password'] ?? '',
-            'db'       => $values['db'],
-            'dbprefix' => $values['dbprefix'] ?? 'jos_',
-        ];
-    }
-
-    private function unescapePhpString(string $raw, string $quote): string
-    {
-        if ($quote === "'") {
-            return strtr($raw, ['\\\\' => '\\', "\\'" => "'"]);
-        }
-
-        return stripcslashes($raw);
     }
 
     /**
