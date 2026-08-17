@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#
+# cwm-lint-queries — enforce $db->createQuery() over $db->getQuery(true).
+#
+# A consistency guard, not a correctness one: both spellings return the same
+# DatabaseQuery. It exists because the old spelling grows back on its own —
+# new code copies what it finds nearby.
+#
+# Usage from a consuming project:
+#   composer lint-queries
+#   composer lint-queries -- --warn
+#   composer lint-queries -- --help
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/lint-queries.php" "$@"

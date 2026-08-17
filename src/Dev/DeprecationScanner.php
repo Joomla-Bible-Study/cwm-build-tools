@@ -14,11 +14,16 @@ namespace CWM\BuildTools\Dev;
  * replacement is `ModalSelectField` (declarative) or `import JoomlaDialog from
  * 'joomla.dialog'` in a `type="module"` asset.
  *
- * This scanner walks a project's source tree, applies a fixed ruleset of
- * regexes per file type, and returns one finding per match so `cwm-lint-
- * deprecations` can print them and gate CI. Inputs are project-controlled
- * source files (trusted, per the build-tools threat model) — the scanner only
- * reads, never executes.
+ * This scanner walks a project's source tree, applies a ruleset of regexes per
+ * file type, and returns one finding per match so `cwm-lint-deprecations` can
+ * print them and gate CI. Inputs are project-controlled source files (trusted,
+ * per the build-tools threat model) — the scanner only reads, never executes.
+ *
+ * The ruleset is a constructor argument, so this is also the engine for other
+ * source lints: the tree walk, the symlink guard, the minified-bundle skip and
+ * the exclusion handling are the same work whatever is being matched. See
+ * {@see QueryStyleRules}, which `cwm-lint-queries` feeds in. The default
+ * ruleset — the one the class is named for — is the J5 → J6/J7 deprecations.
  */
 final class DeprecationScanner
 {
