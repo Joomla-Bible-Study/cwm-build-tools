@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#
+# cwm-verify-update-stream — check a published release is reachable by sites.
+#
+# Runs AFTER publish: everything else in the release pipeline runs before it
+# and cannot see what the update stream serves. Asserts the released version
+# has an entry carrying php_minimum and targetplatform — each of which fails
+# silently in production, leaving the release published and offered to nobody.
+#
+# Usage from a consuming project:
+#   composer cwm-verify-update-stream
+#   composer cwm-verify-update-stream -- 1.3.0
+#   composer cwm-verify-update-stream -- --help
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/verify-update-stream.php" "$@"

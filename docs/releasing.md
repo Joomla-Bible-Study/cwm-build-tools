@@ -158,6 +158,43 @@ Always check `--help` for the current flags and any dry-run option:
 composer cwm-release -- --help
 ```
 
+## After the release: is it reachable?
+
+Everything above runs **before** publish, so none of it can see what the update
+stream serves afterwards. That failure is silent by construction — valid XML, a
+clean release, and some population of sites is simply never offered the update.
+Null ARS environments mis-shipped three Proclaim releases exactly that way.
+
+`cwm-release` therefore ends with a post-flight check:
+
+```
+[post-flight] Verifying the published update stream...
+=== update stream check — 1.3.0 ===
+  entries at 1.3.0: 1
+    #1   pkg_example    php_minimum=8.1   targetplatform=5\.[0-9]+
+  OK: the released version is served and usable.
+```
+
+It asserts an `<update>` entry exists at the released version and carries
+`php_minimum` and `targetplatform`. The stream URL comes from the package
+manifest's `<updateservers>`, so a manifest pointing at the wrong stream is
+caught by the same check.
+
+!!! note "It reports; it never fails the release"
+    Nothing it finds can be undone by exiting non-zero at that point — the tag
+    is pushed, the GitHub release is out, ARS has the item. A red pipeline would
+    imply the release did not happen, and would teach people to ignore the one
+    check that runs after it did. Re-run it by hand once ARS has caught up:
+
+    ```bash
+    composer cwm-verify-update-stream -- 1.3.0
+    ```
+
+Project-specific assertions — a legacy component entry, a required sort order —
+stay in the project. `UpdateStreamVerifier::entriesFor()` returns the parsed
+entries in document order with their positions, so a project asserts on top
+rather than forking the fetcher.
+
 ## Step-by-step (when you don't want the full pipeline)
 
 | Step | Command |

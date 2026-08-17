@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<updates>
+    <update>
+        <element>com_example</element>
+        <type>component</type>
+        <version>1.3.0</version>
+        <php_minimum>8.1</php_minimum>
+        <targetplatform name="joomla" version="5\.[0-9]+"/>
+    </update>
+    <update>
+        <element>pkg_example</element>
+        <type>package</type>
+        <version>1.3.0</version>
+        <php_minimum>8.1</php_minimum>
+        <targetplatform name="joomla" version="5\.[0-9]+"/>
+    </update>
+</updates>

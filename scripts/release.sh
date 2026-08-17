@@ -590,6 +590,37 @@ else
 fi
 echo ""
 
+# --- Post-flight: is the published release actually reachable? ---
+#
+# Every other check in this pipeline runs before publish and so cannot see what
+# the update stream serves afterwards. The failure is silent by construction:
+# valid XML, a clean release, and some population of sites is never offered the
+# update again. Null ARS environments mis-shipped three Proclaim releases that
+# way — published fine, offered to nobody.
+#
+# It REPORTS and never fails the run. Nothing it finds can be undone by exiting
+# non-zero at this point: the tag is pushed, the GitHub release is out and ARS
+# has the item. A red pipeline here would imply the release did not happen, and
+# would teach people to ignore the one check that runs after it did. The whole
+# subject of #101 is a check whose result was easy to misread.
+#
+# Skipped under --dry-run: nothing was published, so the stream still describes
+# the previous release and checking it would report on the wrong version.
+if [ "$DRY_RUN" != "1" ] && [ -n "$PKG_MANIFEST" ]; then
+    echo "[post-flight] Verifying the published update stream..."
+
+    if php "${TOOLS_DIR}/scripts/verify-update-stream.php" "$VERSION"; then
+        :
+    else
+        echo ""
+        echo "  WARNING: the update stream does not serve ${VERSION} usably."
+        echo "           The release IS published — this is about whether sites will see it."
+        echo "           Re-check once ARS has caught up:"
+        echo "             composer cwm-verify-update-stream -- ${VERSION}"
+    fi
+    echo ""
+fi
+
 if [ "$DRY_RUN" = "1" ]; then
     echo "=== DRY RUN complete — nothing was changed ==="
     echo "  Re-run without --dry-run to release ${VERSION}."
