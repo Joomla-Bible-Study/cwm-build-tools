@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# cwm-reset-testsite — remove an extension family from every role=test install.
+#
+# A repeatable install test has to start from a known state: a stale
+# #__extensions row makes Joomla route a fresh install to update(), and stale
+# tables mask CREATE TABLE / ADD COLUMN failures.
+#
+# Only installs marked `role = test` in build.properties are touched.
+#
+# Usage from a consuming project:
+#   composer cwm-reset-testsite
+#   composer cwm-reset-testsite -- --dry-run
+#   composer cwm-reset-testsite -- --help
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/reset-testsite.php" "$@"

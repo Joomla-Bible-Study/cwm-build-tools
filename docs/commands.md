@@ -32,6 +32,7 @@ matching Composer script (`composer cwm-init` → `vendor/bin/cwm-init`).
 | `cwm-clean` | Remove every dev symlink `cwm-link` created. |
 | `cwm-verify` | Confirm each install has every project sub-extension registered in `#__extensions`; detects `manifest_cache` drift. **Exit non-zero** on mismatch. |
 | `cwm-install-zip` | Install the built dist zip into every Joomla install. |
+| `cwm-reset-testsite` | Remove an extension family from every `role = test` install — extension rows, schema rows, its tables, assets/categories/menus, and installed directories — so the next install starts genuinely clean. Prints the family **and** the retained set every run. **Exit 2** when a retained extension did not survive. |
 | `cwm-baseline` | Download the released package an upgrade test should upgrade *from* — the newest release older than the version under test, preferring stable. **Exit 3** when no usable baseline exists (a first release), which is a status, not a failure. See [the release gate](releasing.md#the-release-gate). |
 
 See [How to use → everyday commands](how-to-use.md#3-everyday-commands) for the

@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`cwm-reset-testsite` — remove an extension family from every `role = test`
+  install.** Both consumers had written this and their copies had drifted 356
+  differing lines apart. A repeatable install test has to begin from a known
+  state: a stale `#__extensions` row makes Joomla route a fresh install to
+  `update()`, so the "clean install" phase quietly becomes an upgrade, and stale
+  tables mask `CREATE TABLE` / `ADD COLUMN` failures. (#102 item 3)
+
+  **The retained set is declared and printed, every run.** What a reset leaves
+  behind is the load-bearing part and the part nobody can see — a family
+  expressed as `element LIKE '%scripture%'` sweeps up extensions its author
+  never considered, and the copies this replaces reported only a row count.
+  `retain[]` overrides a family match, is named in the output even when empty,
+  and is re-checked afterwards; a retained extension that vanished exits **2**,
+  because the family matched more than intended and the next run would start
+  from a state nobody described.
+
+  Tables are discovered from `information_schema` by prefix rather than read
+  from a list, since a table added by a forgotten migration is exactly the
+  residue that masks a later failure. Directory removal refuses paths that
+  resolve outside the site root and unlinks symlinked directories rather than
+  recursing into them.
+
+  Only `role = test` installs are ever touched. `--dry-run` prints the plan.
+
 - **`Dev\TestSite` reads `dbtype` and speaks both databases.** The primitive
   every consumer is about to migrate twelve files onto was MySQL-only in four
   places, silently: a `mysql:` DSN with `charset=utf8mb4`, and `SHOW TABLES` /

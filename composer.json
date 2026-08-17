@@ -62,7 +62,8 @@
         "bin/cwm-joomla-cms-deps",
         "bin/cwm-baseline",
         "bin/cwm-lint-queries",
-        "bin/cwm-lint-comments"
+        "bin/cwm-lint-comments",
+        "bin/cwm-reset-testsite"
     ],
     "config": {
         "sort-packages": true,
