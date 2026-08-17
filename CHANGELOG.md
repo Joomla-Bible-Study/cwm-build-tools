@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- **A pre-release no longer moves `current.version` or `next.*` in
+  `versions.json`.** `writeVersionsJsonRelease()` wrote `$version` into
+  `current.version` unconditionally, but that field is documented — in its own
+  default description, and in the template this package ships — as the *last
+  stable release*. Releasing `10.4.0-beta1` recorded a pre-release there. (#103)
+
+  It matters because consumers read the field as what its description says.
+  Proclaim's upgrade harness takes `current.version` as the artifact users are
+  on and installs it as the baseline to upgrade from, so a beta recorded there
+  becomes the state of the world for the next upgrade test.
+
+  `next.*` follows for the same reason. It is derived from the last stable
+  release, and after `10.3.2-beta1` the next release is `10.3.2` itself — which
+  is what `next.patch` already held, computed from `10.3.1`. Advancing it to
+  `10.3.3` named a version that skipped the one being stabilised. `_updated`
+  stamps when those pointers last moved, so it stays put too, and the whole
+  write becomes a no-op that says why.
+
+  A malformed version still throws rather than being waved through as "not
+  stable, nothing to do" — `computeNexts()` runs first, as it did before.
+
+  Breaking for any project that releases pre-releases and reads either field.
+  Nothing else in the pipeline changes: the tag, the GitHub release and the
+  changelog all still record that the pre-release happened. `versions.json` was
+  never that record.
+
 ### Fixed
 
 - **`release.sh` now tells the `test:release` gate which version is about to

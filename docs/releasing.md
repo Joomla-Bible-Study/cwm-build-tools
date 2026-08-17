@@ -55,7 +55,8 @@ later step see the environment they always did.
     Neither field names the release in progress while the gate is running.
     `active_development.version` is written by `cwm-bump`, which has not run
     yet, so it holds the *previous* bump's value. `current.version` is written
-    by step 8, after publishing, so it holds the *previous* release.
+    by step 8, after publishing, and only for a stable release, so it holds the
+    *previous stable* one.
 
     An upgrade phase that reads either as "the build under test" and compares it
     against a baseline resolved the same way finds them equal, concludes there

@@ -535,7 +535,11 @@ elif [ "$DRY_RUN" = "1" ]; then
     else
         cwm_skip_in_dry_run "update ${VERSIONS_FILE} on ${RELEASE_BRANCH}, then commit and push it"
     fi
-    echo "  Would set current.version=${VERSION}, recompute next.{patch,minor,major}, refresh _updated."
+    if [ -n "$PRERELEASE_FLAG" ]; then
+        echo "  Would leave ${VERSIONS_FILE} unchanged — current/next track stable releases."
+    else
+        echo "  Would set current.version=${VERSION}, recompute next.{patch,minor,major}, refresh _updated."
+    fi
 elif [ -n "$DEV_BRANCH" ]; then
     # Project uses separate dev branch (versions.json lives there, not on release branch)
     #
