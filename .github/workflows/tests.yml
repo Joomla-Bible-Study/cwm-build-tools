@@ -139,7 +139,7 @@ jobs:
         # fixture would defeat the test.
         run: |
           pip install codespell
-          codespell --ignore-words-list unparseable,updateing,titel \
+          codespell --ignore-words-list unparseable,updateing,titel,hastable \
             README.md CHANGELOG.md docs/ templates/ scripts/ src/ tests/
 
       - name: Check Python syntax
