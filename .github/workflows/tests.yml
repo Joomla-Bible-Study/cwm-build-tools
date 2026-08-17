@@ -96,6 +96,19 @@ jobs:
           coverage: none
           tools: composer:v2
 
+      # Same cache the test job has had all along. Without it this job pulled
+      # every dist archive from codeload on every run, which made it the only
+      # job that could not survive GitHub rate-limiting them: during the
+      # 2026-08-17 incident the three PHP jobs restored from cache and passed
+      # while this one failed four times on HTTP 429, before running a single
+      # check. The key matches the test job's 8.3 entry so either can warm it.
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/composer
+          key: composer-8.3-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-8.3-
+
       - name: Install dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
 
