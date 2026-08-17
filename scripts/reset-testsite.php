@@ -60,7 +60,19 @@ CONFIGURATION  (testSite.reset)
                       "bsms_" drops jos_bsms_*.
   components[]        Component names for #__assets / #__categories cleanup.
   menuLinkPatterns[]  LIKE patterns matched against #__menu.link.
+  modulePatterns[]    LIKE patterns for #__modules.module. Instances are not
+                      the extension row, and their #__modules_menu assignments
+                      go with them.
+  updateSiteNamePatterns[]
+                      LIKE patterns for #__update_sites.name. A stale one keeps
+                      Joomla polling for something no longer installed, and a
+                      reinstall will not re-add it.
+  actionLogPatterns[] LIKE patterns for the action-log registrations.
   directories[]       Install directories to remove, relative to the site root.
+  fileGlobs[]         Loose files to remove, as globs relative to the site
+                      root. Install manifests are the load-bearing case: their
+                      presence makes a fresh install register as an UPDATE and
+                      run ALTER SQL against tables that do not exist yet.
 
 SAFETY
   Only `role = test` installs are touched, ever. Never point a development or
@@ -191,11 +203,15 @@ foreach ($installs as $install) {
 
     $counts = $reset->purgeDatabase();
     $dirs   = $reset->purgeDirectories();
+    $files  = $reset->purgeFiles();
 
     echo "  removed: {$counts['extensions']} extension row(s), {$counts['schemas']} schema row(s), "
         . count($counts['tables']) . ' table(s), '
-        . "{$counts['assets']} asset(s), {$counts['categories']} category(ies), {$counts['menus']} menu item(s)\n";
+        . "{$counts['assets']} asset(s), {$counts['categories']} category(ies), {$counts['menus']} menu item(s),\n";
+    echo "           {$counts['modules']} module instance(s), {$counts['updateSites']} update site(s), "
+        . "{$counts['actionLogs']} action-log row(s)\n";
     echo '  directories: ' . count($dirs['removed']) . ' removed, ' . count($dirs['unlinked']) . " symlink(s) unlinked\n";
+    echo '  loose files: ' . count($files) . " removed\n";
 
     foreach ($reset->retainedStatus() as $element => $survived) {
         if ($survived) {
