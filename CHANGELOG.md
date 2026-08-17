@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`cwm-verify-update-stream`, and a post-publish step in `release.sh` to run
+  it from.** The pipeline had nine steps and no verification after publishing,
+  so the one class of failure that only exists post-publish had nowhere to be
+  caught: the release goes out, the feed stays valid, and some population of
+  sites is never offered the update. Null ARS environments mis-shipped three
+  Proclaim releases that way — published fine, offered to nobody. (#106)
+
+  It asserts an `<update>` entry exists at the released version and carries
+  `php_minimum` and `targetplatform`, reading the stream URL from the package
+  manifest's `<updateservers>` so a manifest pointing at the wrong stream is
+  caught by the same check.
+
+  **It reports and never fails the release.** Nothing it finds can be undone by
+  exiting non-zero at that point — the tag is pushed, the GitHub release is out,
+  ARS has the item. A red pipeline would imply the release did not happen, and
+  would teach people to ignore the one check that runs after it did.
+
+  Project-specific assertions stay with the project. Proclaim's legacy
+  `com_proclaim` entry and its required sort order encode one extension's
+  migration history, so `entriesFor()` returns the parsed entries in document
+  order with their positions — position being what decides a tie, since Joomla
+  keeps one `$latest` per feed and replaces it only on a strictly greater
+  version — and a project asserts on top rather than forking the fetcher.
+
+  Parsing is split from fetching and tested against committed feeds, including
+  wrong ones. A post-publish check only ever run against a healthy production
+  stream is a check nobody knows can fail.
+
 - **`cwm-reset-testsite` — remove an extension family from every `role = test`
   install.** Both consumers had written this and their copies had drifted 356
   differing lines apart. A repeatable install test has to begin from a known

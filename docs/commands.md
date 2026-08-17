@@ -46,6 +46,7 @@ typical day-to-day loop.
 | `cwm-build` | Build one installable extension zip from the `build` block. Runs the `preBuild` hook and the optional [`verifyAssets`](javascript-and-joomladialog.md#72-buildverifyassets-fail-loudly-if-an-asset-didnt-build) check first. |
 | `cwm-package` | Assemble a multi-extension Joomla **package** zip from child extension zips. |
 | `cwm-release` | Full release pipeline: bump → substitute tokens → build → ARS publish → `versions.json` + git push. |
+| `cwm-verify-update-stream` | **After** a release: fetch the update stream the package manifest declares and assert the released version is served with `php_minimum` and `targetplatform`. Each of those fails silently in production — published fine, offered to nobody. `cwm-release` runs it as a post-flight step and reports rather than fails. |
 | `cwm-changelog` | Generate a Joomla changelog XML entry from a GitHub release. |
 | `cwm-article` | Post a "&lt;Extension&gt; X.Y.Z Released" announcement article. |
 

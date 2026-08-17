@@ -63,7 +63,8 @@
         "bin/cwm-baseline",
         "bin/cwm-lint-queries",
         "bin/cwm-lint-comments",
-        "bin/cwm-reset-testsite"
+        "bin/cwm-reset-testsite",
+        "bin/cwm-verify-update-stream"
     ],
     "config": {
         "sort-packages": true,
