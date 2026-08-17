@@ -59,7 +59,8 @@
         "bin/cwm-install-zip",
         "bin/cwm-joomla-install",
         "bin/cwm-joomla-latest",
-        "bin/cwm-joomla-cms-deps"
+        "bin/cwm-joomla-cms-deps",
+        "bin/cwm-baseline"
     ],
     "config": {
         "sort-packages": true,
