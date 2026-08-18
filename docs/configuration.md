@@ -212,10 +212,6 @@ builder.j5.role        = dev          # dev | test
 builder.j5.path        = /path/to/joomla5
 builder.j5.url         = https://j5-dev.local
 builder.j5.version     = 5.4.2
-builder.j5.db_host     = localhost
-builder.j5.db_user     =
-builder.j5.db_pass     =
-builder.j5.db_name     =
 builder.j5.admin_user  = admin
 builder.j5.admin_pass  = admin
 builder.j5.admin_email = admin@example.com
@@ -225,6 +221,17 @@ builder.j5.admin_email = admin@example.com
   configured by its `builder.X.*` keys.
 - `role` — `dev` (symlink target) or `test` (zip-install target).
 - `paths.<package>` — flat path keys for cross-package (CWM sibling) resolution.
+
+!!! note "No database credentials here"
+    `cwm-setup` used to prompt for `db_host` / `db_user` / `db_pass` /
+    `db_name`. It no longer does, and it removes them from a file that has
+    them. Every command that touches a database resolves credentials from the
+    install's own `configuration.php` — that is what the site actually connects
+    with, and when the two disagree the site is right. A `db_pass` here was a
+    password at rest that nothing read.
+
+    Files that still carry the keys keep parsing; they are simply not written
+    back.
 
 !!! warning "Format compatibility"
     The reader accepts the canonical **flat** format above and the legacy INI
