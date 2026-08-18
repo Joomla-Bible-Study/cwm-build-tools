@@ -500,10 +500,6 @@ final class PropertiesReader
                 $lines[] = "{$prefix}.path        = {$install->path}";
                 $lines[] = "{$prefix}.url         = " . ($install->url ?? '');
                 $lines[] = "{$prefix}.version     = " . ($install->version ?? '');
-                $lines[] = "{$prefix}.db_host     = " . $install->dbHost();
-                $lines[] = "{$prefix}.db_user     = " . $install->dbUser();
-                $lines[] = "{$prefix}.db_pass     = " . $install->dbPass();
-                $lines[] = "{$prefix}.db_name     = " . $install->dbName();
                 $lines[] = "{$prefix}.admin_user  = " . $install->adminUser();
                 $lines[] = "{$prefix}.admin_pass  = " . $install->adminPass();
                 $lines[] = "{$prefix}.admin_email = " . $install->adminEmail();

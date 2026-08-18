@@ -49,9 +49,13 @@ WHAT IT DOES
       tooling may wipe it — never point it at a working install)
     - dev URL (informational; not required)
     - target Joomla version (used by cwm-joomla-install)
-    - DB credentials, admin credentials (reserved; cwm-verify reads
-      configuration.php directly — these are captured for future use by
-      cwm-joomla-install when it bootstraps a fresh Joomla checkout)
+    - admin credentials (used by cwm-joomla-install when it bootstraps a
+      fresh Joomla checkout)
+
+  It no longer asks for database credentials, and removes any it finds. Every
+  command that touches a database resolves them from the install's own
+  configuration.php, which is what the site actually connects with; a
+  db_pass in build.properties was a password at rest that nothing read.
 
   Writes build.properties (INI sections) in the current working directory.
   This file is gitignored — secrets stay on your machine.
@@ -161,11 +165,6 @@ while (true) {
     $url     = ask("  Dev URL (optional)", $existing?->url ?? "https://{$id}-dev.local");
     $version = ask("  Default Joomla version", $existing?->version ?? '5.4.2');
 
-    $dbHost = ask("  DB host", $existing?->dbHost() ?? 'localhost');
-    $dbUser = ask("  DB user", $existing?->dbUser() ?? '');
-    $dbPass = ask("  DB password", $existing?->dbPass() ?? '');
-    $dbName = ask("  DB name", $existing?->dbName() ?? '');
-
     $adminUser  = ask("  Admin user", $existing?->adminUser() ?? 'admin');
     $adminPass  = ask("  Admin password", $existing?->adminPass() ?? 'admin');
     $adminEmail = ask("  Admin email", $existing?->adminEmail() ?? 'admin@example.com');
@@ -175,10 +174,6 @@ while (true) {
         'url'        => $url,
         'version'    => $version,
         'role'       => $role,
-        'dbHost'     => $dbHost,
-        'dbUser'     => $dbUser,
-        'dbPass'     => $dbPass,
-        'dbName'     => $dbName,
         'adminUser'  => $adminUser,
         'adminPass'  => $adminPass,
         'adminEmail' => $adminEmail,
@@ -194,9 +189,33 @@ if ($installs === []) {
     exit(0);
 }
 
+// ⚠️ Say what just happened to the credential block, once, at the point the
+// developer can act on it. cwm-setup no longer prompts for db_host/user/pass/
+// name and no longer writes them: nothing has read them since Dev\TestSite
+// took over, which reads the site's own configuration.php instead. Silently
+// dropping a stored password would be worse than leaving it -- the point is
+// that it stops existing on disk, and that only happens if the developer
+// knows to look.
+$carriedCredentials = array_values(array_filter(
+    $installs,
+    static fn (InstallConfig $i): bool => $i->dbPass() !== '' || $i->dbUser() !== '',
+));
+
 $reader->write($installs);
 
 echo "Wrote " . count($installs) . " install(s) to {$reader->path()}.\n";
+
+if ($carriedCredentials !== []) {
+    $ids = implode(', ', array_map(static fn (InstallConfig $i): string => $i->id, $carriedCredentials));
+
+    echo "\n";
+    echo "  Note: the db_host / db_user / db_pass / db_name block has been removed from\n";
+    echo "  this file. It was declared for {$ids} and nothing read it — every command\n";
+    echo "  that touches a database resolves credentials from the install's own\n";
+    echo "  configuration.php, which is what the site actually connects with.\n";
+    echo "\n";
+    echo "  If those values are recorded anywhere else, that copy is now the only one.\n";
+}
 echo "  Ids: " . implode(', ', array_map(static fn (InstallConfig $c): string => $c->id, $installs)) . "\n\n";
 
 echo "Make sure 'build.properties' is gitignored — never commit it.\n";
