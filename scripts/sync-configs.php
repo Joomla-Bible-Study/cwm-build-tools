@@ -81,6 +81,12 @@ USAGE
 
 OPTIONS
   --dry-run    Preview only.
+  --check      Preview only, and exit 1 if any managed file is out of date.
+               For CI. Only files this tool maintains count -- phpunit.xml and
+               docker-compose.databases.yml are seeded once and never updated,
+               so not taking them up is not drift. The advisory lines about a
+               locally-owned .editorconfig or a customised .php-cs-fixer.dist.php
+               are choices, not decay, and do not affect the exit code.
   -h, --help   This text.
 
 RELATED
@@ -92,8 +98,41 @@ CWM_HELP;
     exit(0);
 }
 
-$opts   = getopt('', ['dry-run']);
-$dryRun = isset($opts['dry-run']);
+$opts   = getopt('', ['dry-run', 'check']);
+$check  = isset($opts['check']);
+
+// --check never writes. It answers "is anything out of date" and says so in the
+// exit code, so CI can gate on it the way it gates on the lints.
+$dryRun = $check || isset($opts['dry-run']);
+
+/**
+ * Managed files this run would have changed.
+ *
+ * ⚠️ Only files this tool *maintains* count. `phpunit.xml` and
+ * `docker-compose.databases.yml` are seeded once and never updated -- they are
+ * an offer, not a managed file, and a project that has not taken them up is not
+ * out of date. Failing CI over that would train people to ignore the check,
+ * which is the failure this exists to prevent rather than cause.
+ *
+ * The advisory lines are excluded for the same reason: `.editorconfig: locally
+ * owned`, a customised `.php-cs-fixer.dist.php`, and the `package.json`
+ * lint:js hint all describe a deliberate local choice, not decay.
+ *
+ * @var list<string>
+ */
+$GLOBALS['cwmSyncDrift'] = [];
+
+/**
+ * Record that a managed file is out of date.
+ *
+ * @param   string  $file  The file, as the reader would name it.
+ *
+ * @return  void
+ */
+function recordDrift(string $file): void
+{
+    $GLOBALS['cwmSyncDrift'][] = $file;
+}
 
 $configFile    = $projectRoot . '/cwm-build.config.json';
 $projectConfig = is_file($configFile) ? json_decode(file_get_contents($configFile), true) : [];
@@ -111,6 +150,33 @@ syncDatabaseComposeFile($projectRoot, $templates, $dryRun);
 syncEslint($projectRoot, $templates, $projectConfig, $dryRun);
 checkEslintInvocation($projectRoot);
 checkProfileHints($projectConfig, $toolsRoot);
+
+if ($check) {
+    $drift = $GLOBALS['cwmSyncDrift'];
+
+    echo "\n";
+
+    if ($drift === []) {
+        echo "Managed config is up to date.\n";
+
+        exit(0);
+    }
+
+    // ⚠️ Exit 1, so CI can gate on this. A managed block that has silently
+    // fallen behind is invisible otherwise -- it is found by someone happening
+    // to run a sync, which is how Proclaim's .gitignore drifted unnoticed.
+    echo 'Managed config is out of date (' . \count($drift) . "):\n";
+
+    foreach ($drift as $file) {
+        echo "  - {$file}\n";
+    }
+
+    echo "\nRun `composer sync-configs` to bring them up to date.\n";
+    echo "Anything above this summary without a `would` is advice, not drift,\n";
+    echo "and does not affect this exit code.\n";
+
+    exit(1);
+}
 
 echo $dryRun ? "(dry-run; no files written)\n" : "Done.\n";
 
@@ -135,6 +201,7 @@ function syncGitignore(string $projectRoot, string $templates, array $config, bo
     }
 
     if ($dryRun) {
+        recordDrift('.gitignore');
         echo ".gitignore: would update (dry-run)\n";
         echo "  - existing length: " . \strlen($existing) . " bytes\n";
         echo "  - new length:      " . \strlen($newContent) . " bytes\n";
@@ -361,6 +428,7 @@ function syncBuildDistProperties(string $projectRoot, string $templates, bool $d
     }
 
     if ($dryRun) {
+        recordDrift('build.dist.properties');
         echo "build.dist.properties: would " . ($existing === '' ? 'create' : 'update') . " (dry-run)\n";
 
         return;
@@ -415,6 +483,7 @@ function syncEditorConfig(string $projectRoot, string $templates, bool $dryRun):
     }
 
     if ($dryRun) {
+        recordDrift('.editorconfig');
         echo '.editorconfig: would ' . ($existing === '' ? 'create' : 'update') . " (dry-run)\n";
 
         return;
@@ -470,6 +539,7 @@ function syncPhpCsFixer(string $projectRoot, bool $dryRun): void
     }
 
     if ($dryRun) {
+        recordDrift('.php-cs-fixer.dist.php');
         echo '.php-cs-fixer.dist.php: would ' . ($existing === '' ? 'create' : 'update') . " wrapper (dry-run)\n";
 
         return;

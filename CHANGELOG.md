@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`cwm-sync-configs --check`** — preview only, exit 1 if any managed config is
+  out of date. For CI, alongside the lints.
+
+  A managed block that has quietly fallen behind is invisible: it gets found
+  when someone happens to run a sync. That is how Proclaim's `.gitignore`
+  drifted unnoticed, and running `--check` across the four consumers today found
+  three stale files that nothing was reporting.
+
+  ⚠️ Only files the tool **maintains** count. `phpunit.xml` and
+  `docker-compose.databases.yml` are seeded once and never updated — they are an
+  offer, and a project that has not taken one up is not out of date. Advisory
+  lines (a locally-owned `.editorconfig`, a customised `.php-cs-fixer.dist.php`,
+  the `package.json` lint hint) describe a deliberate choice, not decay, and do
+  not affect the exit code. A check that always fails is one people learn to
+  ignore, which is the failure this exists to prevent rather than cause.
+
 ## [1.27.1] - 2026-08-18
 
 ### Fixed
