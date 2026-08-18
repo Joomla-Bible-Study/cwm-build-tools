@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`--help` now works outside a configured project, for the commands that had
+  a help text all along.** `cwm-build`, `cwm-install-zip`, `cwm-link`,
+  `cwm-link-check`, `cwm-package`, `cwm-verify` and `cwm-bump` checked for
+  `cwm-build.config.json` in their `bin/` wrapper *before* reaching the script
+  that handles `--help` — so reading what a command does required already
+  having set it up, which is the wrong way round.
+
+  `cwm-bump` also gained the help text it never had.
+
+  A suite-wide test now asserts two things for **every** `cwm-*` binary at
+  once: none writes anything when asked for `--help`, and the set that still
+  lacks a help text is exactly the expected list — so fixing one without
+  updating the list fails, and so does a regression that adds one.
+
 - **`cwm-sync-configs --help` wrote to your project instead of printing help.**
   `getopt()` ignores an unrecognised flag, so `--help` fell straight through to
   the sync and rewrote `.gitignore`, `build.dist.properties`, `.editorconfig`,
