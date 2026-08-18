@@ -39,6 +39,38 @@
 #
 set -euo pipefail
 
+# ⚠️ Before the config check below. Asking a command what it does must work
+# outside a configured project -- that is exactly when someone reads help.
+case "${1:-}" in
+    -h|--help)
+        cat <<'CWM_HELP'
+cwm-ars-create-stream — create an ARS update stream under a category.
+
+WHAT IT DOES
+  Creates the update stream a Joomla extension's <updateservers> block points
+  at, under an existing ARS category. One stream per extension; a release then
+  publishes into it.
+
+PREREQUISITES
+  - cwm-build.config.json with an `ars.endpoint` and the category id.
+  - An ARS API token, from 1Password or ARS_API_TOKEN.
+
+USAGE
+  composer ars-create-stream -- --name "Proclaim" --category 5
+
+OPTIONS
+  --name <name>       Stream name, as it appears in ARS.
+  --category <id>     Category to create it under.
+  -h, --help          This text.
+
+RELATED
+  composer ars-list        # find the category id
+  composer ars-publish     # publish into the stream once it exists
+CWM_HELP
+        exit 0
+        ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/optoken.sh
 source "${SCRIPT_DIR}/lib/optoken.sh"

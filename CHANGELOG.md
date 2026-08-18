@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Every `cwm-*` command now answers `--help`.** The last eight did not: the
+  four `cwm-ars-*`, `cwm-article`, `cwm-changelog`, `cwm-release` and
+  `cwm-sync-languages`.
+
+  Three different reasons, none of them "nobody wrote the text":
+  `cwm-release`'s help existed but its `bin/` wrapper checked for
+  `cwm-build.config.json` first; the ARS and changelog scripts loaded config
+  before parsing arguments; `cwm-ars-reorder` printed its own header with `sed`,
+  whose first line was blank; and `cwm-sync-languages` passed `--help` to a
+  Python script that parses `sys.argv` by hand and ignored it — exit 0, no
+  output, which reads as success.
+
+  The suite-wide test that tracked the gap now expects the list to be **empty**,
+  so a new command shipping without help fails it.
+
+### Added
+
 - **`cwm-sync-configs --check`** — preview only, exit 1 if any managed config is
   out of date. For CI, alongside the lints.
 

@@ -26,6 +26,36 @@
 #
 set -euo pipefail
 
+# ⚠️ Before the config check below. Asking a command what it does must work
+# outside a configured project -- that is exactly when someone reads help.
+case "${1:-}" in
+    -h|--help)
+        cat <<'CWM_HELP'
+cwm-changelog — generate a Joomla changelog XML entry from a GitHub release.
+
+WHAT IT DOES
+  Reads the GitHub release notes for a version and writes the matching
+  <changelog> entry into the project's changelog XML — the file Joomla shows in
+  the update dialog. Existing entries are left alone.
+
+PREREQUISITES
+  - cwm-build.config.json naming the changelog file and the GitHub repo.
+  - `gh`, authenticated.
+  - A published GitHub release for that version.
+
+USAGE
+  composer changelog -- 1.2.3
+
+OPTIONS
+  -h, --help   This text.
+
+RELATED
+  composer release     # the pipeline, which calls this after tagging
+CWM_HELP
+        exit 0
+        ;;
+esac
+
 PROJECT_ROOT="$(pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"

@@ -19,4 +19,39 @@ set -euo pipefail
 
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# sync-languages.py parses sys.argv by hand and has no argparse, so --help
+# reached it and was silently ignored -- exit 0, no output, which reads as
+# success. Answered here instead.
+case "${1:-}" in
+    -h|--help)
+        cat <<'CWM_HELP'
+cwm-sync-languages — mirror and translate the project's Joomla language files.
+
+WHAT IT DOES
+  Copies every key from the source language into the other locales the project
+  ships, and fills anything missing using Google Translate. Existing
+  translations are left alone unless --force is given.
+
+  Translations are checked before they are accepted: placeholders, format
+  specifiers and HTML tags must survive intact, because a translated
+  placeholder never substitutes at runtime.
+
+PREREQUISITES
+  - python3
+  - A Google Translate API key, from 1Password or GOOGLE_TRANSLATE_API_KEY.
+
+USAGE
+  composer sync-languages                    # mirror keys, fill the gaps
+  composer sync-languages -- --force         # re-translate everything
+  composer sync-languages -- setup           # store the API key in 1Password
+
+OPTIONS
+  --force                  Re-translate keys that already have a translation.
+  --project-root <path>    Operate on another project. Defaults to $PWD.
+  -h, --help               This text.
+CWM_HELP
+        exit 0
+        ;;
+esac
+
 exec python3 "${TOOLS_DIR}/scripts/sync-languages.py" "$@"

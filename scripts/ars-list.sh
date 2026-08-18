@@ -16,6 +16,41 @@
 #
 set -euo pipefail
 
+# ⚠️ Before the config check below. Asking a command what it does must work
+# outside a configured project -- that is exactly when someone reads help.
+case "${1:-}" in
+    -h|--help)
+        cat <<'CWM_HELP'
+cwm-ars-list — list ARS categories, update streams and releases.
+
+WHAT IT DOES
+  Reads the Akeeba Release System behind the endpoint in
+  cwm-build.config.json and prints what is there. Use it to find the
+  categoryId and updateStreamId a new project needs, and to check what a
+  release actually published.
+
+PREREQUISITES
+  - cwm-build.config.json with an `ars.endpoint`.
+  - An ARS API token, from 1Password (ars.tokenItem / ars.tokenVault) or
+    ARS_API_TOKEN in the environment.
+
+USAGE
+  composer ars-list                    # categories and update streams
+  composer ars-list -- categories      # categories only
+  composer ars-list -- streams         # update streams only
+  composer ars-list -- releases 3      # releases in category 3
+
+OPTIONS
+  -h, --help   This text.
+
+RELATED
+  composer ars-publish     # push a built artifact to ARS
+  composer ars-reorder     # space out a category's ordering
+CWM_HELP
+        exit 0
+        ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/optoken.sh
 source "${SCRIPT_DIR}/lib/optoken.sh"
