@@ -30,6 +30,25 @@ jobs:
     name: PHP ${{ matrix.php }}
     runs-on: ubuntu-latest
 
+    services:
+      # tests/Dev/TestSiteIntrospectionTest.php reads information_schema, which
+      # the in-memory SQLite the rest of the suite uses does not have. Without a
+      # real server those tests skip, and hasTable/hasColumn/hasIndex go back to
+      # having no coverage while the suite still reports green -- so the test
+      # fails rather than skips when CI is set and this service is missing.
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: cwm_build_tools_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
     strategy:
       fail-fast: false
       matrix:
@@ -55,7 +74,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: json, simplexml, zip
+          extensions: json, simplexml, zip, pdo_mysql
           coverage: none
           tools: composer:v2
 
@@ -80,6 +99,62 @@ jobs:
       - name: Run tests
         # composer test runs PHPUnit and the Python suite.
         run: composer test
+        env:
+          CWM_TEST_MYSQL_DSN: 'mysql:host=127.0.0.1;port=3306;dbname=cwm_build_tools_test'
+          CWM_TEST_MYSQL_USER: root
+          CWM_TEST_MYSQL_PASSWORD: root
+
+  mariadb:
+    # The same introspection tests against the other engine our users actually
+    # run. One PHP version is enough: what is being checked is the server's
+    # information_schema, not the language binding. Kept as its own job rather
+    # than a matrix dimension because a service container cannot be selected
+    # per-entry, and crossing three PHP versions with two engines would triple
+    # the suite to cover a difference that lives entirely in the server.
+    name: MariaDB introspection
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: cwm_build_tools_test
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: json, simplexml, zip, pdo_mysql
+          coverage: none
+          tools: composer:v2
+
+      - name: Cache Composer packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/composer
+          key: composer-8.4-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-8.4-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Run introspection tests
+        run: vendor/bin/phpunit tests/Dev/TestSiteIntrospectionTest.php --testdox
+        env:
+          CWM_TEST_MYSQL_DSN: 'mysql:host=127.0.0.1;port=3307;dbname=cwm_build_tools_test'
+          CWM_TEST_MYSQL_USER: root
+          CWM_TEST_MYSQL_PASSWORD: root
 
   lint:
     name: Coding standards

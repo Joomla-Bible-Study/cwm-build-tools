@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Real-database coverage for `TestSite`'s introspection methods.**
+  `hasTable()`, `hasColumn()` and `hasIndex()` read `information_schema`, which
+  the in-memory SQLite the rest of the suite uses does not have — so all three
+  had **no tests at all**, while Proclaim and CWMLivingWord came to depend on
+  them for deciding whether a migration landed, whether a table survived an
+  uninstall, and whether an index was created. `hasIndex()` shipped in v1.25.0
+  verified only by hand against one live site. (#124)
+
+  14 tests against a real server, covering what a live site could not: a
+  composite index (two rows in `information_schema.statistics` for one index),
+  a unique index, an index name shared by two tables, and a decoy table proving
+  the check is an equality match rather than `SHOW TABLES LIKE` — the bug found
+  three times in consumers, where `_` in a Joomla prefix is a wildcard.
+
+  CI runs them against **MySQL 8.4** and **MariaDB 11.4**. Locally they skip
+  unless `CWM_TEST_MYSQL_DSN` is set; **in CI they fail rather than skip**,
+  because a suite that silently covers nothing reads exactly like one that
+  passes.
+
 ## [1.25.0] - 2026-08-18
 
 ### Added
