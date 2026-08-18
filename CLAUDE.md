@@ -279,6 +279,21 @@ developer-supplied:
 
 Run commands are at the top of this file. Conventions worth knowing:
 
+- **`tests/Dev/TestSiteIntrospectionTest.php` needs a real MySQL.**
+  `hasTable`/`hasColumn`/`hasIndex` read `information_schema`, which SQLite
+  does not have. Set `CWM_TEST_MYSQL_DSN` (plus `CWM_TEST_MYSQL_USER` /
+  `CWM_TEST_MYSQL_PASSWORD`) to run them:
+
+  ```bash
+  CWM_TEST_MYSQL_DSN='mysql:host=127.0.0.1;port=8889;dbname=some_db' \
+    CWM_TEST_MYSQL_USER=root CWM_TEST_MYSQL_PASSWORD=root composer test
+  ```
+
+  They create tables under a `cwmtest_` prefix in the database the DSN names
+  and drop them in `tearDown()` — no `CREATE DATABASE`, so a mistake costs three
+  tables rather than a schema. Without the variable they skip locally; **in CI
+  they fail**, because a silently-skipping test leaves the suite green while
+  covering nothing.
 - Tests use **real fixture XML files** committed to
   `tests/fixtures/manifests/`. Don't generate fixtures on the fly —
   they're meant to be reviewable in PRs.
