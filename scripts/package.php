@@ -20,6 +20,7 @@ declare(strict_types=1);
 // any project with a subBuild include while the unit tests stayed green:
 // they run under Composer's autoloader, which this does not have.
 // `tests/Cli/PackageCliTest.php` runs this file for real to catch that.
+require_once __DIR__ . '/../src/Build/ZipEntry.php';
 require_once __DIR__ . '/../src/Build/BuildConfig.php';
 require_once __DIR__ . '/../src/Build/ManifestReader.php';
 require_once __DIR__ . '/../src/Build/Prompt.php';

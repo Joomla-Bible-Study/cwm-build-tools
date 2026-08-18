@@ -340,7 +340,7 @@ final class Packager
         }
 
         $manifestEntry = basename($this->config->manifest);
-        $zip->addFile($manifestPath, $manifestEntry);
+        ZipEntry::add($zip, $manifestPath, $manifestEntry);
         $this->log("  + $manifestEntry");
 
         if ($this->config->installer !== null) {
@@ -348,7 +348,7 @@ final class Packager
 
             if (is_file($installerAbs)) {
                 $entry = basename($this->config->installer);
-                $zip->addFile($installerAbs, $entry);
+                ZipEntry::add($zip, $installerAbs, $entry);
                 $this->log("  + $entry");
             }
         }
@@ -360,7 +360,7 @@ final class Packager
                 throw new \RuntimeException("package.languageFiles: source not found: {$lang['from']}");
             }
 
-            $zip->addFile($fromAbs, $lang['to']);
+            ZipEntry::add($zip, $fromAbs, $lang['to']);
             $this->log("  + {$lang['to']}");
         }
 
@@ -368,7 +368,7 @@ final class Packager
 
         foreach ($stagedChildren as $child) {
             $entry = $prefix . $child['outputName'];
-            $zip->addFile($child['path'], $entry);
+            ZipEntry::add($zip, $child['path'], $entry);
             $this->log("  + $entry");
         }
 
