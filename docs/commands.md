@@ -18,7 +18,7 @@ matching Composer script (`composer cwm-init` → `vendor/bin/cwm-init`).
 |---|---|
 | `cwm-init` | Scaffold a `cwm-build.config.json` and run an initial config sync. Detects extension type/layout and pre-fills every prompt. Idempotent. |
 | `cwm-setup` | Interactive wizard that writes **`build.properties`** (your local Joomla install paths, URLs, DB/admin creds). Per-developer; never committed. |
-| `cwm-sync-configs` | Refresh managed config blocks in the consuming project — the `.gitignore` managed block and `eslint.config.mjs`. Only touches text between explicit markers. |
+| `cwm-sync-configs` | Refresh managed config blocks in the consuming project — the `.gitignore` managed block and `eslint.config.mjs`. Only touches text between explicit markers. `--check` previews and **exits 1** on drift, for CI — only maintained files count, not the seeded-once ones. |
 
 ## Local dev environment
 
