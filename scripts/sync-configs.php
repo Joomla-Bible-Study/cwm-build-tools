@@ -43,6 +43,55 @@ $projectRoot = getcwd();
 $toolsRoot   = realpath(__DIR__ . '/..');
 $templates   = $toolsRoot . '/templates';
 
+// ⚠️ Before anything else. getopt() ignores an unrecognised flag, so `--help`
+// used to fall straight through to the sync and write to the project —
+// .gitignore, build.dist.properties, .editorconfig, phpunit.xml and the rest.
+// Asking a command what it does must never be the thing that changes your
+// working tree.
+if (in_array('--help', $argv, true) || in_array('-h', $argv, true)) {
+    echo <<<CWM_HELP
+cwm-sync-configs — refresh the config files this toolchain manages.
+
+WHAT IT DOES
+  Writes the managed blocks and files each consuming project shares:
+
+    .gitignore              managed block only; lines outside the markers are
+                            never touched
+    build.dist.properties   full replace from the canonical template — this is
+                            the committed example, not the file you configure.
+                            Your own settings live in build.properties, which
+                            is gitignored and never written here.
+    .editorconfig           full replace, but only of a copy this tool wrote
+    .php-cs-fixer.dist.php  regenerates the wrapper unless you customised it
+    phpunit.xml             created once, never overwritten
+    eslint.config.mjs       starter wrapper when no config exists
+    docker-compose.databases.yml
+                            created once, never overwritten
+
+  The rule across all of them: a file you wrote is never silently replaced.
+  Either the tool can prove it wrote the file, or it leaves it alone and says
+  so.
+
+PREREQUISITES
+  - cwm-build.config.json in the current directory.
+
+USAGE
+  composer sync-configs              # apply
+  composer sync-configs -- --dry-run # print what would change, write nothing
+
+OPTIONS
+  --dry-run    Preview only.
+  -h, --help   This text.
+
+RELATED
+  composer setup        # write build.properties (your local installs)
+  composer cwm-init     # first-time scaffolding for a new consumer
+
+CWM_HELP;
+
+    exit(0);
+}
+
 $opts   = getopt('', ['dry-run']);
 $dryRun = isset($opts['dry-run']);
 
