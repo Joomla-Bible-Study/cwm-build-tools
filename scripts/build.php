@@ -15,6 +15,7 @@ declare(strict_types=1);
  * pruning, auto-run pre-build, and the 3-way version prompt.
  */
 
+require_once __DIR__ . '/../src/Build/ZipEntry.php';
 require_once __DIR__ . '/../src/Build/BuildConfig.php';
 require_once __DIR__ . '/../src/Build/ManifestReader.php';
 require_once __DIR__ . '/../src/Build/Prompt.php';

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Artifacts are now reproducible: the same source tree produces the same
+  bytes.** `ZipArchive` records each entry's filesystem mtime, so a rebuild that
+  changed nothing but timestamps produced a different artifact — at the *same
+  size*, which is why it stayed invisible. Every entry is now written at a fixed
+  timestamp through `Build\ZipEntry`. (#134)
+
+  This is the cause behind #132. `pkg_licenseportal` 1.5.0 published a local
+  artifact and a GitHub asset of identical length, 389213 bytes, with different
+  hashes. It also explains the part of that report that had no explanation —
+  "the differences are entirely in built media" — because a rebuild regenerates
+  only `media/js/**`, so only those entries take new mtimes and the diff follows
+  what was rebuilt rather than what changed.
+
+  Worth knowing when comparing releases: **artifact bytes change with this
+  release** even for unchanged sources, because timestamps that used to vary are
+  now fixed. Nothing reads an artifact's mtimes — Joomla reads the manifest and
+  the files — so no consumer behaviour changes.
+
+  Adding an entry and normalising its timestamp are one operation rather than
+  two calls, and a test asserts no writer in `src/Build` calls `addFile()`
+  directly: the alternative rots the first time someone adds a call site, and
+  the symptom is invisible until two artifacts are hashed by hand.
+
+  #132's fix stands and is still what protects a publish — it hashes the asset
+  that is actually served. This removes the cause rather than the symptom, and
+  makes "was this built from this tag?" answerable by rebuilding.
+
 ### Fixed
 
 - **`cwm-ars-publish` advertised the checksums of a local file, not of the bytes

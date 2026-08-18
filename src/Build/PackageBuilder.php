@@ -111,7 +111,7 @@ final class PackageBuilder
         }
 
         $manifestEntry = basename($this->config->manifest);
-        $zip->addFile($manifestPath, $manifestEntry);
+        ZipEntry::add($zip, $manifestPath, $manifestEntry);
         $this->log("  + $manifestEntry");
 
         if ($this->config->scriptFile !== null) {
@@ -119,7 +119,7 @@ final class PackageBuilder
 
             if (is_file($scriptAbs)) {
                 $scriptEntry = basename($this->config->scriptFile);
-                $zip->addFile($scriptAbs, $scriptEntry);
+                ZipEntry::add($zip, $scriptAbs, $scriptEntry);
                 $this->log("  + $scriptEntry");
             }
         }
@@ -552,7 +552,7 @@ final class PackageBuilder
 
             $entryPath = $zipPrefix === '' ? $relativePath : rtrim($zipPrefix, '/') . '/' . $relativePath;
 
-            $zip->addFile($filePath, $entryPath);
+            ZipEntry::add($zip, $filePath, $entryPath);
             $this->log("  + $entryPath");
         }
     }
