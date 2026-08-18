@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`TestSite::hasIndex()` and `ExtensionQuery::schemaVersion()`** — the last
+  two primitives a migration harness needs before it can drop hand-rolled
+  `mysqli`. (#102)
+
+  `hasIndex()` answers the question no other check can: a migration that adds
+  an index leaves the table and every column exactly as they were, so a harness
+  verifying only those passes whether or not the index landed. Unlike
+  `hasTable()`/`hasColumn()` it is **MySQL/MariaDB only** —
+  `information_schema.STATISTICS` is not standard and PostgreSQL uses
+  `pg_indexes` — so it returns false on Postgres and says so in its docblock,
+  per the MySQL/MariaDB-only decision.
+
+  `schemaVersion()` reads `#__schemas`: the highest schema file Joomla actually
+  executed, as against `version()`, which reads `manifest_cache` — what the
+  package claimed. The two disagree in exactly the case a migration harness
+  exists to catch: an update that copies files but whose SQL never ran moves
+  the first forward and leaves the second behind. A harness asking only
+  `version()` reports that as a clean upgrade.
+
 ### Changed
 
 - **Artifacts are now reproducible: the same source tree produces the same

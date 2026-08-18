@@ -128,6 +128,39 @@ final class ExtensionQuery
     }
 
     /**
+     * The schema version Joomla recorded for this extension, from `#__schemas`.
+     *
+     * Distinct from {@see version()} and the two disagree in the case that
+     * matters. `version()` reads `manifest_cache` — what the package said it
+     * was. This reads the highest schema file Joomla actually executed. An
+     * update that copies files but whose SQL never ran leaves the first moved
+     * forward and this one behind, which is precisely the failure a migration
+     * harness exists to catch, and it is invisible if you only ask one of them.
+     *
+     * Null when the extension is absent or has no schema row — the second is
+     * normal for anything shipping no SQL, so callers should not read null as
+     * failure without checking {@see exists()} first.
+     */
+    public function schemaVersion(string $type, string $element, ?string $folder = null, ?int $clientId = null): ?string
+    {
+        $id = $this->id($type, $element, $folder, $clientId);
+
+        if ($id === null) {
+            return null;
+        }
+
+        $stmt = $this->site->db()->prepare(
+            'SELECT version_id FROM ' . $this->site->table('#__schemas')
+            . ' WHERE extension_id = ?'
+        );
+        $stmt->execute([$id]);
+
+        $version = $stmt->fetchColumn();
+
+        return $version === false ? null : (string) $version;
+    }
+
+    /**
      * Every registered extension whose element matches, across all groups.
      *
      * The "which of these did we actually install" question, and the one that
