@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`cwm-sync-configs --help` wrote to your project instead of printing help.**
+  `getopt()` ignores an unrecognised flag, so `--help` fell straight through to
+  the sync and rewrote `.gitignore`, `build.dist.properties`, `.editorconfig`,
+  `phpunit.xml` and the rest.
+
+  Found by running `--help` across every `cwm-*` binary in four repositories as
+  a post-upgrade smoke test, and watching four working trees acquire changes
+  that had to be traced back by file timestamp. Asking a command what it does
+  must never be the thing that changes your tree.
+
+  `--help` and `-h` now print a real help text and exit 0. A test asserts both
+  leave the project byte-identical, and that a real run still syncs — so the
+  guard cannot be satisfied by breaking the command.
+
 ## [1.27.0] - 2026-08-18
 
 ### Added

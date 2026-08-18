@@ -93,4 +93,38 @@ AFTER="$(md5 -q "${PROJECT}/docker-compose.databases.yml" 2>/dev/null || md5sum 
 
 assert_equals "${EDITED}" "${AFTER}" "re-running must not overwrite a customised compose file"
 
+# --- asking for help must never write ----------------------------------------
+#
+# getopt() ignores an unrecognised flag, so `--help` fell through to the sync
+# and wrote .gitignore, build.dist.properties, .editorconfig, phpunit.xml and
+# the rest into the project. Found by running `--help` across every cwm-*
+# binary in four repositories as a smoke test, and watching four working trees
+# acquire changes.
+
+HELPPROJ="${WORK}/helpproject"
+mkdir -p "${HELPPROJ}"
+printf '{"name":"demo/x"}\n' > "${HELPPROJ}/composer.json"
+printf '{"extension":{"name":"demo","type":"component"}}\n' > "${HELPPROJ}/cwm-build.config.json"
+
+BEFORE="$(cd "${HELPPROJ}" && ls | sort | tr '\n' ' ')"
+
+for FLAG in --help -h; do
+    ( cd "${HELPPROJ}" && php "${SYNC}" "${FLAG}" >/dev/null 2>&1 )
+    AFTER="$(cd "${HELPPROJ}" && ls | sort | tr '\n' ' ')"
+    assert_equals "${BEFORE}" "${AFTER}" "${FLAG} must not write to the project"
+done
+
+HELP_OUT="$( cd "${HELPPROJ}" && php "${SYNC}" --help 2>&1 )"
+assert_contains "${HELP_OUT}" "cwm-sync-configs —" "--help prints help"
+assert_contains "${HELP_OUT}" "--dry-run" "--help documents the dry-run flag"
+
+# The sync itself still has to work, or the guard above could be satisfied by
+# breaking the command.
+( cd "${HELPPROJ}" && php "${SYNC}" >/dev/null 2>&1 )
+if [ -f "${HELPPROJ}/phpunit.xml" ]; then
+    assert_equals "syncs" "syncs" "a real run still writes"
+else
+    assert_equals "syncs" "did not sync" "a real run must still write"
+fi
+
 finish
