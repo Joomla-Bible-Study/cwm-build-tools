@@ -32,6 +32,45 @@ require_once __DIR__ . '/../src/Build/ManifestVersionWriter.php';
 require_once __DIR__ . '/../src/Release/VersionTracker.php';
 require_once __DIR__ . '/../src/Config/ProfileResolver.php';
 
+// Before the config check: asking a command what it does must work outside a
+// configured project, which is exactly where someone reads help from.
+if (in_array('--help', $argv, true) || in_array('-h', $argv, true)) {
+    echo <<<CWM_HELP
+cwm-bump — write a new version into every manifest this project ships.
+
+WHAT IT DOES
+  Reads cwm-build.config.json and writes the version into every manifest under
+  manifests.extensions[], plus manifests.package when one is declared. Also
+  syncs versions.json and package.json where the profile asks for it, so the
+  version a build labels itself with and the version its manifests carry cannot
+  drift apart.
+
+  The creation date defaults to today; -d overrides it for a reproducible build.
+
+PREREQUISITES
+  - cwm-build.config.json in the current directory.
+
+USAGE
+  composer cwm-bump -- -v 1.2.3
+  composer cwm-bump -- -v 1.2.3 --component plugin
+  composer cwm-bump -- -v 1.2.3 -d "2026-05-15"
+
+OPTIONS
+  -v <version>          Required. The version to write.
+  --component <type>    Bump only one component type (component, plugin,
+                        module, library, package).
+  -d <date>             Override the creationDate written into manifests.
+  -h, --help            This text.
+
+RELATED
+  composer cwm-build      # build the zip once the version is written
+  composer cwm-release    # the full pipeline, which bumps for you
+
+CWM_HELP;
+
+    exit(0);
+}
+
 $projectRoot = getcwd();
 $configFile  = $projectRoot . '/cwm-build.config.json';
 
