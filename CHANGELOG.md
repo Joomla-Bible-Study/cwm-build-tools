@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-08-18
+
 ### Added
 
 - **`TestSite::hasIndex()` and `ExtensionQuery::schemaVersion()`** — the last
