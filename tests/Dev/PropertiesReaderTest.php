@@ -252,8 +252,45 @@ final class PropertiesReaderTest extends TestCase
         self::assertSame('j5', $roundTripped[0]->id);
         self::assertSame('/opt/joomla5', $roundTripped[0]->path);
         self::assertSame('https://j5.local', $roundTripped[0]->url);
-        self::assertSame('db.local', $roundTripped[0]->dbHost());
         self::assertSame('admin@example.com', $roundTripped[0]->adminEmail());
+
+        // ⚠️ The database block deliberately does NOT round-trip. Nothing has
+        // read it since Dev\TestSite began resolving credentials from the
+        // install's own configuration.php, so writing it back would keep a
+        // password on disk that no code path uses. See #131.
+        self::assertSame('localhost', $roundTripped[0]->dbHost(), 'the default, not what was written');
+        self::assertSame('', $roundTripped[0]->dbPass());
+    }
+
+    #[Test]
+    public function rewriting_drops_a_stored_database_password(): void
+    {
+        // The outcome #131 is actually for: a developer whose file predates
+        // this ends up without the credential rather than merely un-prompted
+        // for it. Asserting on the file text, because "the accessor returns
+        // empty" would also pass if the line were still sitting there.
+        $path = $this->writeProperties(<<<INI
+            installs = j5
+
+            [j5]
+            path = /opt/joomla5
+            db_host = db.local
+            db_user = root
+            db_pass = supersecret
+            db_name = j5
+            INI);
+
+        $reader = new PropertiesReader($path);
+        self::assertSame('supersecret', $reader->installs()[0]->dbPass(), 'still parsed, for files that have it');
+
+        $reader->write($reader->installs());
+
+        $rewritten = (string) file_get_contents($path);
+
+        self::assertStringNotContainsString('supersecret', $rewritten);
+        self::assertStringNotContainsString('db_pass', $rewritten);
+        self::assertStringNotContainsString('db_host', $rewritten);
+        self::assertStringContainsString('/opt/joomla5', $rewritten, 'the rest of the install survives');
     }
 
     #[Test]

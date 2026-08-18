@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- **`cwm-setup` no longer asks for database credentials, and removes any it
+  finds.** Four prompts — `db_host`, `db_user`, `db_pass`, `db_name` — captured
+  values that nothing read. Every command that touches a database resolves them
+  from the install's own `configuration.php`, which is what the site actually
+  connects with. (#131)
+
+  A `db_pass` in `build.properties` was therefore a password at rest that no
+  code path used: it could leak and could not be missed. Re-running
+  `cwm-setup` now writes the file without that block and prints a one-time
+  note saying so, because silently deleting a stored credential would be worse
+  than leaving it — the point is that the developer knows it is gone.
+
+  **Existing files keep parsing.** `PropertiesReader` still reads the keys and
+  `InstallConfig` still exposes the accessors, so nothing breaks on a file that
+  has them; they simply are not written back. The one consumer that read them
+  — `CWMLivingWord/build/seed_scenarios.php` — moved to `TestSite` first
+  (CWMLivingWord#161), which also fixed it taking credentials from
+  `build.properties` while reading the prefix from `configuration.php`.
+
 ### Added
 
 - **Real-database coverage for `TestSite`'s introspection methods.**
