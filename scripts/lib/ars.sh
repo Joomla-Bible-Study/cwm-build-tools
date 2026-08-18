@@ -86,3 +86,58 @@ ok = isinstance(v, list) and len(v) > 0 \
 sys.exit(0 if ok else 1)
 " "$1" 2>/dev/null
 }
+
+# Whether a local artifact is byte-identical to the asset users will download.
+#
+# ARS items of `type: link` point at the GitHub release asset, so the bytes a
+# site downloads are the asset's — not the file that happened to be in
+# build/dist when publish ran. Publishing the local file's checksums when the
+# two differ makes Joomla download the asset, compare it against the advertised
+# sha512, and refuse the update. The feed stays valid and ARS reports success,
+# so the only place the mismatch shows is a site trying to update.
+#
+# It is not a rare accident. gzip stores an mtime in its header, so any project
+# whose build emits `.gz` — the shared rollup config does — produces different
+# bytes from identical sources. A rebuild anywhere between building and
+# publishing is enough.
+#
+# Compared here rather than by always downloading, so the common case stays
+# cheap: GitHub reports the asset's size and a sha256 digest, and when both
+# agree with the local file the local checksums are provably the served ones.
+#
+# Arguments:
+#   $1  Local file size in bytes.
+#   $2  Local sha256, lowercase hex.
+#   $3  Asset size in bytes, from `gh release view --json assets`.
+#   $4  Asset digest, e.g. `sha256:abc…`. May be empty on older releases.
+#
+# Returns:
+#   0  identical — the local checksums describe the served bytes
+#   1  different — the asset must be hashed instead
+#   2  undecidable — no digest to compare, so the asset must be hashed
+cwm_ars_local_matches_asset() {
+    local local_size="$1"
+    local local_sha256="$2"
+    local asset_size="$3"
+    local asset_digest="$4"
+
+    # Size is the cheap half and catches the common case on its own: it would
+    # have caught pkg_licenseportal 1.5.1 (392410 vs 388404 bytes) for free.
+    if [ -n "$asset_size" ] && [ "$asset_size" != "$local_size" ]; then
+        return 1
+    fi
+
+    # No digest — GitHub added the field relatively recently, and an older
+    # release will not carry one. Equal sizes are not proof: 1.5.0 had
+    # identical byte counts and different content, which is exactly the case
+    # that hid for two releases.
+    if [ -z "$asset_digest" ] || [ "$asset_digest" = "null" ]; then
+        return 2
+    fi
+
+    if [ "${asset_digest#sha256:}" = "$local_sha256" ]; then
+        return 0
+    fi
+
+    return 1
+}
