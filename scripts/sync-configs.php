@@ -58,6 +58,7 @@ syncBuildDistProperties($projectRoot, $templates, $dryRun);
 syncEditorConfig($projectRoot, $templates, $dryRun);
 syncPhpCsFixer($projectRoot, $dryRun);
 syncPhpunit($projectRoot, $templates, $dryRun);
+syncDatabaseComposeFile($projectRoot, $templates, $dryRun);
 syncEslint($projectRoot, $templates, $projectConfig, $dryRun);
 checkEslintInvocation($projectRoot);
 checkProfileHints($projectConfig, $toolsRoot);
@@ -427,6 +428,41 @@ function syncPhpCsFixer(string $projectRoot, bool $dryRun): void
 
     file_put_contents($target, $wrapper);
     echo '.php-cs-fixer.dist.php: ' . ($existing === '' ? 'created' : 'updated') . " wrapper\n";
+}
+
+/**
+ * Offer the disposable database compose file, once.
+ *
+ * Like phpunit.xml this never updates an existing copy: ports, and whether
+ * MariaDB is wanted at all, are the developer's own choices, and a "refresh"
+ * would overwrite them with a guess.
+ *
+ * Opt-in by nature -- the file does nothing until someone runs
+ * `docker compose` against it, and nothing in the toolchain reads it. It is
+ * here because schema work needs a database that is *known empty*, and every
+ * consumer would otherwise solve that separately.
+ */
+function syncDatabaseComposeFile(string $projectRoot, string $templates, bool $dryRun): void
+{
+    $source = $templates . '/docker-compose.databases.yml';
+    $target = $projectRoot . '/docker-compose.databases.yml';
+
+    if (!is_file($source)) {
+        return;
+    }
+
+    if (is_file($target)) {
+        return;
+    }
+
+    if ($dryRun) {
+        echo "docker-compose.databases.yml: would create from boilerplate (dry-run)\n";
+
+        return;
+    }
+
+    file_put_contents($target, (string) file_get_contents($source));
+    echo "docker-compose.databases.yml: created — `docker compose -f docker-compose.databases.yml up -d` for a known-empty MySQL/MariaDB\n";
 }
 
 /**

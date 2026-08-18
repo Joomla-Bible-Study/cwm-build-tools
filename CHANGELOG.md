@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`templates/docker-compose.databases.yml`**, distributed by
+  `cwm-sync-configs` — a MySQL 8.4 and MariaDB 11.4 pair on non-default ports,
+  so schema work has a database that is *known empty*. A leftover table from
+  the previous attempt turns a real failure into a pass. (#124)
+
+  Created once and never updated: ports, and whether MariaDB is wanted at all,
+  are the developer's choices. Nothing in the toolchain reads the file — it does
+  nothing until someone runs `docker compose` against it.
+
+  ⚠️ The reset is **`down -v`**, not `down`: both images declare a VOLUME for
+  their data directory, so a plain `down` leaves an anonymous volume behind and
+  the next `up` inherits it — the exact failure the file exists to prevent. A
+  tmpfs data directory would remove the need for the flag and was tried first;
+  MySQL 8 defaults `innodb_flush_method` to `O_DIRECT`, which tmpfs does not
+  support, so the server does not start. A test asserts the documented reset
+  keeps the flag.
+
+  PostgreSQL is deliberately absent, per the MySQL/MariaDB-only decision.
+
 ## [1.26.0] - 2026-08-18
 
 ### Changed (breaking)
