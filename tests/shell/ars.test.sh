@@ -52,4 +52,35 @@ assert_equals "fail" "$(check_envs '{"45": true}')" "an object is refused"
 assert_equals "fail" "$(check_envs '["45", ""]')" "a blank id inside the array is refused"
 assert_equals "fail" "$(check_envs 'not json')" "malformed JSON is refused"
 
+# --- Local artifact vs the asset users download (#132) --------------------------
+# ARS `type: link` items point at the GitHub asset, so publishing the local
+# file's checksums when the two differ makes Joomla refuse the update while the
+# feed stays valid and ARS reports success.
+
+# Identical: the local checksums provably describe the served bytes.
+cwm_ars_local_matches_asset 389213 "abc123" 389213 "sha256:abc123"
+assert_equals "0" "$?" "same size and digest means the local file is the served bytes"
+
+# Different size — the cheap half. This is pkg_licenseportal 1.5.1: 392410
+# served against 388404 local, which a size check alone would have caught.
+cwm_ars_local_matches_asset 388404 "31d1fb0d6f36" 392410 "sha256:f7cf344d2a33"
+assert_equals "1" "$?" "a size difference is enough to know they differ"
+
+# Same size, different content. This is 1.5.0, and the reason size alone is not
+# enough: identical byte counts, different bytes, hidden for two releases.
+cwm_ars_local_matches_asset 389213 "72e5ae2db827" 389213 "sha256:b3c16981a684"
+assert_equals "1" "$?" "equal sizes with different digests still differ"
+
+# No digest: undecidable, not "fine". GitHub added the field recently, so an
+# older release carries none — and 1.5.0 proves equal sizes prove nothing.
+cwm_ars_local_matches_asset 389213 "72e5ae2db827" 389213 ""
+assert_equals "2" "$?" "a missing digest is undecidable rather than a match"
+
+cwm_ars_local_matches_asset 389213 "72e5ae2db827" 389213 "null"
+assert_equals "2" "$?" "gh's literal null is treated as no digest"
+
+# A size mismatch outranks a missing digest: already known to differ.
+cwm_ars_local_matches_asset 100 "aaa" 200 ""
+assert_equals "1" "$?" "a size difference decides even without a digest"
+
 finish

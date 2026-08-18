@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`cwm-ars-publish` advertised the checksums of a local file, not of the bytes
+  users download.** An ARS `type: link` item points at the GitHub release asset,
+  so a site downloads *that* — not whatever sat in `build/dist` when publish
+  ran. When the two diverged, Joomla fetched the asset, compared it against the
+  advertised `sha512`, and refused the update, while the feed stayed valid and
+  ARS reported success. It went unnoticed across two consecutive
+  `pkg_licenseportal` releases. (#132)
+
+  The local file is now only trusted once it is *shown* to be the served bytes:
+  the asset's `size` and `sha256` digest come back from `gh release view`, and
+  when either disagrees — or no digest is reported — the asset itself is
+  downloaded and hashed. The common case still costs nothing, and the run says
+  which path it took.
+
+  If the asset cannot be downloaded to hash, publishing **stops**. Advertising
+  the local checksums there would break the integrity check on every site, which
+  is worse than not publishing.
+
+  The comparison is in `lib/ars.sh` and tested against both observed failures:
+  the 1.5.1 pair, which a size check alone would have caught, and the 1.5.0
+  pair, which had *identical* byte counts and different content — the case that
+  makes size alone insufficient.
+
 ## [1.24.0] - 2026-08-17
 
 ### Added

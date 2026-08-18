@@ -206,14 +206,63 @@ if [ -z "$ASSET_INFO" ]; then
 fi
 
 FILESIZE=$(echo "$ASSET_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin)['size'])" 2>/dev/null || echo "0")
+ASSET_DIGEST=$(echo "$ASSET_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin).get('digest') or '')" 2>/dev/null || echo "")
 
-# --- Compute checksums from local file ---
+# --- Checksums must describe the bytes users download ---
+#
+# This item is `type: link`: it points at the GitHub asset, so a site downloads
+# THAT, not whatever is in build/dist right now. Publishing the local file's
+# checksums when the two differ makes Joomla fetch the asset, compare it
+# against the advertised sha512 and refuse the update — while the feed stays
+# valid and ARS reports success (#132).
+#
+# So the local file is only trusted once it is shown to be the served bytes.
+# When it is not, the asset itself is downloaded and hashed.
 echo "Computing checksums..."
-MD5=$(md5 -q "$ZIP_PATH" 2>/dev/null || md5sum "$ZIP_PATH" 2>/dev/null | cut -d' ' -f1 || echo "")
-SHA1=$(shasum -a 1 "$ZIP_PATH" 2>/dev/null | cut -d' ' -f1 || echo "")
-SHA256=$(shasum -a 256 "$ZIP_PATH" 2>/dev/null | cut -d' ' -f1 || echo "")
-SHA384=$(shasum -a 384 "$ZIP_PATH" 2>/dev/null | cut -d' ' -f1 || echo "")
-SHA512=$(shasum -a 512 "$ZIP_PATH" 2>/dev/null | cut -d' ' -f1 || echo "")
+HASH_SOURCE="$ZIP_PATH"
+LOCAL_SIZE=$(wc -c < "$ZIP_PATH" | tr -d ' ')
+LOCAL_SHA256=$(shasum -a 256 "$ZIP_PATH" 2>/dev/null | cut -d' ' -f1 || echo "")
+
+cwm_ars_local_matches_asset "$LOCAL_SIZE" "$LOCAL_SHA256" "$FILESIZE" "$ASSET_DIGEST"
+MATCH_STATUS=$?
+
+if [ "$MATCH_STATUS" -ne 0 ]; then
+    if [ "$MATCH_STATUS" -eq 1 ]; then
+        echo "  The local artifact is NOT the published asset:"
+        echo "    local: ${LOCAL_SIZE} bytes, sha256 ${LOCAL_SHA256}"
+        echo "    asset: ${FILESIZE} bytes, ${ASSET_DIGEST:-no digest reported}"
+        echo "  Hashing the asset instead, so the update stream advertises what sites receive."
+        echo "  (A rebuild between build and publish is the usual cause: gzip records an"
+        echo "   mtime, so .gz output differs from identical sources.)"
+    else
+        echo "  GitHub reported no digest for this asset, so the local file cannot be"
+        echo "  shown to be the served bytes. Hashing the asset to be certain."
+    fi
+
+    ASSET_DIR=$(mktemp -d)
+
+    if gh release download "$TAG" --repo "${GH_OWNER}/${GH_REPO}" \
+            --pattern "$ZIP_NAME" --dir "$ASSET_DIR" >/dev/null 2>&1 \
+        && [ -f "${ASSET_DIR}/${ZIP_NAME}" ]; then
+        HASH_SOURCE="${ASSET_DIR}/${ZIP_NAME}"
+    else
+        echo "Error: could not download ${ZIP_NAME} from ${TAG} to checksum it."
+        echo "  Publishing the local file's checksums would advertise bytes no site receives,"
+        echo "  and every update would fail its integrity check. Refusing to publish."
+        rm -rf "$ASSET_DIR"
+        exit 1
+    fi
+else
+    echo "  Local artifact matches the published asset (${LOCAL_SIZE} bytes, sha256 verified)."
+fi
+
+MD5=$(md5 -q "$HASH_SOURCE" 2>/dev/null || md5sum "$HASH_SOURCE" 2>/dev/null | cut -d' ' -f1 || echo "")
+SHA1=$(shasum -a 1 "$HASH_SOURCE" 2>/dev/null | cut -d' ' -f1 || echo "")
+SHA256=$(shasum -a 256 "$HASH_SOURCE" 2>/dev/null | cut -d' ' -f1 || echo "")
+SHA384=$(shasum -a 384 "$HASH_SOURCE" 2>/dev/null | cut -d' ' -f1 || echo "")
+SHA512=$(shasum -a 512 "$HASH_SOURCE" 2>/dev/null | cut -d' ' -f1 || echo "")
+
+[ -n "${ASSET_DIR:-}" ] && rm -rf "$ASSET_DIR"
 
 # --- Assemble the release notes ---
 #
