@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-08-18
+
 ### Changed (breaking)
 
 - **`cwm-setup` no longer asks for database credentials, and removes any it
