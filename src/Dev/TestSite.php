@@ -32,6 +32,30 @@ use RuntimeException;
  * PDO from `InstallConfig`; this class is specifically "the database this site
  * is using".
  *
+ * ## When to use Joomla's driver instead
+ *
+ * Two kinds of script touch a site's database, and they want different things.
+ *
+ * A script that only needs to *ask questions* — is this extension registered,
+ * does that table exist, how many rows — wants this class: no Joomla boot, no
+ * JPATH constants, and the parsing half is unit-testable without a site.
+ *
+ * A script that needs to *run Joomla's own logic* must boot Joomla and use
+ * `Joomla\Database\DatabaseInterface`, because that machinery resolves its
+ * driver through `Factory`. `verify-schema-check.php` is the example: `ChangeSet`
+ * and `ChangeItem` read `Factory::$database`, so nothing else will do. A test
+ * bootstrap pretending to be Joomla is the same case — there, `require`-ing
+ * `configuration.php` is the point, because defining `JConfig` is how Joomla's
+ * Config provider gets credentials.
+ *
+ * The two do not bridge. Joomla's default driver is mysqli-backed
+ * (`MysqliDriver` sets `$connection = mysqli_init()`), and this class is PDO, so
+ * there is no `fromJoomla()` to wrap one in the other. A script that has already
+ * booted Joomla and also wants {@see ExtensionQuery} simply calls
+ * {@see fromPath()} as well: a second, read-only connection to the same
+ * database, which costs little and keeps both surfaces honest about what they
+ * are.
+ *
  * ## Parsing is separate from connecting
  *
  * {@see readConfig()} is pure and takes a path, so it is tested against fixture
