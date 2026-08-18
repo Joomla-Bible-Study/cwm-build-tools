@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-08-18
+
 ### Added
+
 
 - **Every `cwm-*` command now answers `--help`.** The last eight did not: the
   four `cwm-ars-*`, `cwm-article`, `cwm-changelog`, `cwm-release` and
@@ -24,7 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   The suite-wide test that tracked the gap now expects the list to be **empty**,
   so a new command shipping without help fails it.
 
-### Added
 
 - **`cwm-sync-configs --check`** — preview only, exit 1 if any managed config is
   out of date. For CI, alongside the lints.
