@@ -49,7 +49,41 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         -h|--help)
-            sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+            # ⚠️ A written text, not `sed` over this file's own header. That
+            # printed whatever happened to be on lines 2-24, which began with a
+            # bare `#` -- so the first line of help was blank, and anything
+            # checking that help names its command saw nothing.
+            cat <<'CWM_HELP'
+cwm-ars-reorder — space out an ARS category's ordering.
+
+WHAT IT DOES
+  ARS reads "latest" as the *lowest* `ordering` in a category, so a category
+  whose lowest value is already taken has no room for the next release, and a
+  tie there is what makes the Latest Releases page stick on an old version.
+
+  This renumbers the category with a stride, newest first, so the newest
+  release holds the lowest value and there is room to publish below it.
+
+  Plans by default and writes nothing. Pass --apply to make the change.
+
+PREREQUISITES
+  - cwm-build.config.json with an `ars.endpoint`.
+  - An ARS API token, from 1Password or ARS_API_TOKEN.
+
+USAGE
+  composer ars-reorder -- --category 5            # print the plan
+  composer ars-reorder -- --category 5 --apply    # make the change
+
+OPTIONS
+  --category <id>   The category to renumber.
+  --stride <n>      Gap between releases. Default 100.
+  --apply           Write the change. Without it, nothing is written.
+  -h, --help        This text.
+
+RELATED
+  composer ars-list       # find the category id
+  composer ars-publish    # what refuses when a category has no room
+CWM_HELP
             exit 0
             ;;
         *)

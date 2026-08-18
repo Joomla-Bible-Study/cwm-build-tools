@@ -64,6 +64,40 @@
 
 set -euo pipefail
 
+# ⚠️ Before the config check below. Asking a command what it does must work
+# outside a configured project -- that is exactly when someone reads help.
+case "${1:-}" in
+    -h|--help)
+        cat <<'CWM_HELP'
+cwm-article — post a release announcement article to christianwebministries.org.
+
+WHAT IT DOES
+  Publishes a "<Extension> X.Y.Z Released" article in the standard CWM format
+  and features it on the front page, un-featuring the previous release
+  announcement. Extension name, package manifest and GitHub repo come from
+  cwm-build.config.json.
+
+  ⚠️ This posts to the live CWM site.
+
+PREREQUISITES
+  - cwm-build.config.json with the announcement block.
+  - Joomla API credentials for christianwebministries.org, from 1Password.
+
+USAGE
+  composer article                              # version from the manifest
+  composer article -- 10.3.1                    # a specific version
+  composer article -- 10.3.1 path/to/bullets.txt
+
+OPTIONS
+  -h, --help   This text.
+
+RELATED
+  composer release     # the pipeline, which calls this last
+CWM_HELP
+        exit 0
+        ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(pwd)"
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"

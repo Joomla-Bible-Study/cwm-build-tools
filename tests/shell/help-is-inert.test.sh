@@ -35,10 +35,17 @@ trap 'rm -rf "${WORK}"' EXIT
 PROJECT="${WORK}/empty"
 mkdir -p "${PROJECT}"
 
-# Commands that do not yet print help. Each exits non-zero with its own usage
-# or a missing-prerequisite error — none of them writes — but they do not meet
-# the documented shape yet.
-KNOWN_MISSING="cwm-ars-create-stream cwm-ars-list cwm-ars-publish cwm-ars-reorder cwm-article cwm-changelog cwm-release cwm-sync-languages"
+# ⚠️ Empty, and it should stay that way.
+#
+# This began as a list of eight -- the four cwm-ars-*, cwm-article,
+# cwm-changelog, cwm-release and cwm-sync-languages -- none of which printed
+# help. They all do now, so the assertion below reads "no command lacks a help
+# text" rather than "these ones are excused".
+#
+# A new command that ships without help fails here, which is the point: the list
+# existed so the gap could not be forgotten, and an empty list is the strongest
+# form of that.
+KNOWN_MISSING=""
 
 MISSING_FOUND=""
 WROTE=""
@@ -64,8 +71,15 @@ done
 assert_equals "" "${WROTE}" "no command may write anything when asked for --help"
 
 # Compared as sorted sets so the assertion does not depend on glob order.
-EXPECTED="$(echo ${KNOWN_MISSING} | tr ' ' '\n' | sort | tr '\n' ' ')"
-ACTUAL="$(echo ${MISSING_FOUND} | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+# Blank lines are dropped on both sides and the result trimmed, so an empty list
+# compares equal to an empty list -- `echo "" | tr` yields a space, not nothing,
+# which made the two differ while both were empty.
+normalise() {
+    echo "$1" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ' | sed 's/ *$//'
+}
+
+EXPECTED="$(normalise "${KNOWN_MISSING}")"
+ACTUAL="$(normalise "${MISSING_FOUND}")"
 
 assert_equals "${EXPECTED}" "${ACTUAL}" "exactly the known commands lack a --help text"
 

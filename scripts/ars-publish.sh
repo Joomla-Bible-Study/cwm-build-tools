@@ -52,6 +52,44 @@
 #
 set -euo pipefail
 
+# ⚠️ Before the config check below. Asking a command what it does must work
+# outside a configured project -- that is exactly when someone reads help.
+case "${1:-}" in
+    -h|--help)
+        cat <<'CWM_HELP'
+cwm-ars-publish — push a built artifact to Akeeba Release System.
+
+WHAT IT DOES
+  Creates the ARS release and its download item, pointing at the GitHub release
+  asset rather than uploading the file again. Verifies the local artifact and
+  the published asset are the same bytes before writing anything, so a release
+  cannot advertise a file that differs from the one that was tested.
+
+  Refuses when the category has no room below its lowest ordering: ARS reads
+  "latest" as the lowest value, and a tie there is what makes the Latest
+  Releases page stick on an old version. Run cwm-ars-reorder and try again.
+
+PREREQUISITES
+  - cwm-build.config.json with the `ars` block.
+  - A GitHub release carrying the artifact.
+  - An ARS API token, from 1Password or ARS_API_TOKEN.
+
+USAGE
+  composer ars-publish -- -v 1.2.3 -f build/dist/pkg_x-1.2.3.zip
+
+OPTIONS
+  -v <version>   Version being published.
+  -f <file>      The built artifact.
+  -h, --help     This text.
+
+RELATED
+  composer release         # the whole pipeline, which calls this
+  composer ars-reorder     # fix an ordering collision this refuses on
+CWM_HELP
+        exit 0
+        ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(pwd)"
 
