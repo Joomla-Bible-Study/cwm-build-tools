@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.27.1] - 2026-08-18
+
 ### Fixed
 
 - **`--help` now works outside a configured project, for the commands that had
