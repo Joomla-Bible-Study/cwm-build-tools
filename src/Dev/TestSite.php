@@ -326,6 +326,35 @@ final class TestSite
     }
 
     /**
+     * Whether an index exists on a table.
+     *
+     * The one introspection here that is **MySQL/MariaDB only**:
+     * `information_schema.STATISTICS` is not part of the SQL standard and
+     * PostgreSQL exposes indexes through `pg_indexes` instead, so this returns
+     * false on Postgres rather than answering. {@see hasTable()} and
+     * {@see hasColumn()} are portable; this one is not, which is why it says so.
+     * Per the MySQL/MariaDB-only decision that is a limitation, not a gap.
+     *
+     * A migration that adds an index is otherwise unverifiable — the table and
+     * every column exist either way, so a harness checking only those passes
+     * whether or not the index landed.
+     */
+    public function hasIndex(string $token, string $index): bool
+    {
+        if ($this->isPostgres()) {
+            return false;
+        }
+
+        $stmt = $this->db()->prepare(
+            'SELECT 1 FROM information_schema.statistics '
+            . 'WHERE table_schema = ? AND table_name = ? AND index_name = ?'
+        );
+        $stmt->execute([$this->schemaName(), $this->table($token), $index]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
      * Read the database settings out of `<path>/configuration.php`.
      *
      * Pure: it takes a path and returns values, so it is tested against fixture

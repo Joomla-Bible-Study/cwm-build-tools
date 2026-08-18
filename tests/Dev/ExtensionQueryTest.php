@@ -53,6 +53,14 @@ final class ExtensionQueryTest extends TestCase
             $stmt->execute($row);
         }
 
+        // #__schemas holds the highest schema file Joomla actually ran. Row 1 is
+        // deliberately behind its manifest_cache version (10.5.9 vs 10.5.7):
+        // files copied, SQL did not run. Row 2 has no schema row at all, which
+        // is normal for an extension shipping no SQL and must not read as
+        // failure.
+        $pdo->exec('CREATE TABLE jos_schemas (extension_id INTEGER, version_id TEXT)');
+        $pdo->exec("INSERT INTO jos_schemas VALUES (1, '10.5.7'), (3, '2.1.0')");
+
         $this->query = new ExtensionQuery(TestSite::fromPdo($pdo, 'jos_'));
     }
 
@@ -130,5 +138,44 @@ final class ExtensionQueryTest extends TestCase
 
         self::assertCount(2, $rows);
         self::assertSame(['system', 'task'], array_column($rows, 'folder'));
+    }
+
+    #[Test]
+    public function reads_the_schema_version_joomla_recorded(): void
+    {
+        self::assertSame('10.5.7', $this->query->schemaVersion('component', 'com_proclaim'));
+    }
+
+    #[Test]
+    public function schema_version_and_manifest_version_can_disagree(): void
+    {
+        // The whole reason this method exists. manifest_cache says the package
+        // is 10.5.9; #__schemas says the SQL only ever ran up to 10.5.7. A
+        // harness reading version() alone reports a clean upgrade here.
+        self::assertSame('10.5.9', $this->query->version('component', 'com_proclaim'));
+        self::assertSame('10.5.7', $this->query->schemaVersion('component', 'com_proclaim'));
+    }
+
+    #[Test]
+    public function an_extension_with_no_schema_row_reads_as_null(): void
+    {
+        // Registered, but ships no SQL — null is "nothing recorded", not "absent".
+        self::assertTrue($this->query->exists('library', 'cwmscripture'));
+        self::assertNull($this->query->schemaVersion('library', 'cwmscripture'));
+    }
+
+    #[Test]
+    public function an_absent_extension_has_no_schema_version(): void
+    {
+        self::assertNull($this->query->schemaVersion('component', 'com_nothing'));
+    }
+
+    #[Test]
+    public function schema_version_honours_the_folder_that_disambiguates(): void
+    {
+        // Both plugins share the element; only the system one ran schema SQL.
+        // Resolving through id() is what keeps these apart.
+        self::assertSame('2.1.0', $this->query->schemaVersion('plugin', 'cwmscripture', 'system'));
+        self::assertNull($this->query->schemaVersion('plugin', 'cwmscripture', 'task'));
     }
 }
