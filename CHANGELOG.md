@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   }
   ```
 
+  `devSuffix` takes `{date}` (the release date as `Ymd`, matching how the SQL
+  migration filenames are dated) and `{date:FORMAT}` for any other shape — a
+  literal date in config would freeze the day the config was written. Joomla
+  core keeps its date out of the version string entirely (`Version::RELDATE`
+  sits beside `EXTRA_VERSION = 'rc3-dev'`), which is worth weighing before
+  dating a field other things compare.
+
   `devSuffix` defaults to empty rather than `-dev`. Proclaim's cycles run as
   `10.5.11-dev`, but that is its convention, and `@since 10.5.11` during the
   10.5.11 cycle is already correct. Projects using the suffix set it and

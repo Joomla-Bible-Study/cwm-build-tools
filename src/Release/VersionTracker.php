@@ -325,7 +325,7 @@ final class VersionTracker
             }
         }
 
-        $opened = $this->advanceActiveDevelopment($data, $version, $nexts['patch']);
+        $opened = $this->advanceActiveDevelopment($data, $version, $nexts['patch'], $date);
 
         if ($opened !== null) {
             $needsWrite = true;
@@ -376,8 +376,11 @@ final class VersionTracker
      * The suffix follows the project. Proclaim runs cycles as `10.5.11-dev` and
      * that convention is worth keeping, but it is a convention rather than a
      * rule, so `devSuffix` defaults to empty and a project that wants one says
-     * so. Either way `cwm-bump` clears it: the bump writes the plain release
-     * version into the same field on the way out.
+     * so. `{date}` in it becomes the release date as `Ymd` — a suffix that
+     * carries a date has to be computed per cycle, and a literal one in config
+     * would freeze the day it was written. Either way `cwm-bump` clears the
+     * whole thing: the bump writes the plain release version into the same
+     * field on the way out.
      *
      * Never throws. Step 8 runs after the GitHub release and the ARS publish,
      * so a fatal here would fail the script with the release already out.
@@ -385,9 +388,10 @@ final class VersionTracker
      * @param  array<string, mixed> $data      versions.json contents, modified in place.
      * @param  string               $released  The version just released (stable).
      * @param  string               $nextPatch The recomputed `next.patch`.
+     * @param  string               $date      The release date, `Y-m-d`, for `{date}`.
      * @return string|null The value written, or null when nothing moved.
      */
-    private function advanceActiveDevelopment(array &$data, string $released, string $nextPatch): ?string
+    private function advanceActiveDevelopment(array &$data, string $released, string $nextPatch, string $date): ?string
     {
         $settings = $this->config['activeDevelopment'] ?? [];
         $settings = is_array($settings) ? $settings : [];
@@ -420,7 +424,7 @@ final class VersionTracker
             }
         }
 
-        $value = $nextPatch . (string) ($settings['devSuffix'] ?? '');
+        $value = $nextPatch . $this->expandDevSuffix((string) ($settings['devSuffix'] ?? ''), $date);
 
         $data['active_development'] ??= [];
         $data['active_development']['version'] = $value;
@@ -466,7 +470,9 @@ final class VersionTracker
      * dropped, or null when the string does not start with one.
      *
      * `10.5.11-dev` and `10.5.11` describe the same cycle, so comparisons that
-     * decide whether a cycle is already open have to see them as equal.
+     * decide whether a cycle is already open have to see them as equal. Same
+     * for a dated one — `10.5.11-dev20260819` is not a different cycle from
+     * `10.5.11-dev20260801`, it is the same cycle a fortnight later.
      */
     private function baseVersion(mixed $version): ?string
     {
@@ -475,6 +481,40 @@ final class VersionTracker
         }
 
         return $m[0];
+    }
+
+    /**
+     * Expand the `{date}` placeholders in a configured dev suffix.
+     *
+     * `{date}` is `Ymd`, matching how the SQL migration filenames are dated
+     * (`10.5.3-20260801.sql`). `{date:FORMAT}` takes any PHP date() format, so
+     * a project wanting Joomla's nightly shape writes `-{date:Y-m-d}-dev`.
+     *
+     * A literal date in config would be the day the config was written rather
+     * than the day the cycle opened, so it has to be computed per release.
+     *
+     * Note that Joomla core keeps its date out of the version entirely —
+     * `Version::RELDATE` sits beside `EXTRA_VERSION = 'rc3-dev'` rather than
+     * inside it — because anything comparing versions then has to parse past
+     * it. Worth weighing before dating this field.
+     *
+     * @param string $suffix The configured `devSuffix`.
+     * @param string $date   The release date, `Y-m-d`.
+     */
+    private function expandDevSuffix(string $suffix, string $date): string
+    {
+        if (!str_contains($suffix, '{date')) {
+            return $suffix;
+        }
+
+        $stamp = \DateTimeImmutable::createFromFormat('Y-m-d', $date)
+            ?: new \DateTimeImmutable($date);
+
+        return (string) preg_replace_callback(
+            '/\{date(?::([^}]+))?\}/',
+            static fn (array $m): string => $stamp->format($m[1] ?? 'Ymd'),
+            $suffix,
+        );
     }
 
     /**

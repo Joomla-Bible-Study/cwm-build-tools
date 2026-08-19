@@ -170,6 +170,69 @@ final class VersionTrackerTest extends TestCase
     }
 
     #[Test]
+    public function the_dev_suffix_can_carry_the_release_date(): void
+    {
+        // Cycles are sometimes dated the way the migration filenames are
+        // (10.5.3-20260801.sql). A literal date in config would freeze the day
+        // it was written, so {date} is substituted per release.
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => '10.3.2'],
+        ]);
+
+        $tracker = $this->tracker([
+            'versionsJson'      => 'build/versions.json',
+            'activeDevelopment' => ['devSuffix' => '-dev{date}'],
+        ]);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2', '2026-08-19'));
+
+        $v = $this->readJson('build/versions.json');
+
+        self::assertSame('10.3.3-dev20260819', $v['active_development']['version']);
+    }
+
+    #[Test]
+    public function the_dev_suffix_date_takes_a_format(): void
+    {
+        // Joomla's nightly shape dates with dashes and puts -dev last.
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => '10.3.2'],
+        ]);
+
+        $tracker = $this->tracker([
+            'versionsJson'      => 'build/versions.json',
+            'activeDevelopment' => ['devSuffix' => '-{date:Y-m-d}-dev'],
+        ]);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2', '2026-08-19'));
+
+        $v = $this->readJson('build/versions.json');
+
+        self::assertSame('10.3.3-2026-08-19-dev', $v['active_development']['version']);
+    }
+
+    #[Test]
+    public function a_dated_cycle_is_still_recognised_as_already_open(): void
+    {
+        // The guard compares the X.Y.Z head, so a dated suffix does not make
+        // the same cycle look like a different one and get rewritten.
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => '10.3.3-dev20260801'],
+        ]);
+
+        $tracker = $this->tracker([
+            'versionsJson'      => 'build/versions.json',
+            'activeDevelopment' => ['devSuffix' => '-dev{date}'],
+        ]);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2', '2026-08-19'));
+
+        $v = $this->readJson('build/versions.json');
+
+        self::assertSame('10.3.3-dev20260801', $v['active_development']['version']);
+    }
+
+    #[Test]
     public function update_for_release_leaves_active_development_alone_when_opted_out(): void
     {
         $this->seedVersionsJson([

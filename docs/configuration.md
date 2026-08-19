@@ -97,7 +97,7 @@ configure for the default:
 | Key | Default | Purpose |
 |---|---|---|
 | `advanceOnRelease` | `true` | Move `active_development` to `next.patch` after a stable release. |
-| `devSuffix` | `""` | Appended to that value — set `"-dev"` if your cycles run as `10.5.11-dev`. |
+| `devSuffix` | `""` | Appended to that value — set `"-dev"` if your cycles run as `10.5.11-dev`. `{date}` becomes the release date as `Ymd` and `{date:FORMAT}` takes any PHP `date()` format, so `"-dev{date}"` gives `10.5.11-dev20260819` and `"-{date:Y-m-d}-dev"` gives `10.5.11-2026-08-19-dev`. |
 
 ```json
 "versionTracking": {
@@ -107,7 +107,14 @@ configure for the default:
 
 `cwm-bump` clears the suffix on the way out, writing the plain release version
 into the same field, so the cycle runs `10.5.11-dev` → `10.5.11` → released →
-`10.5.12-dev` without a manual step.
+`10.5.12-dev` without a manual step. A `-dev` value never reaches a tag, a zip
+or an ARS entry — it only ever lives in this field, and PHP's `version_compare`
+ranks it below even a beta (`10.5.11-dev` < `10.5.11-beta1` < `10.5.11`), which
+is where an unshipped cycle belongs.
+
+Before dating it, note that Joomla core deliberately does not: `Version::RELDATE`
+sits *beside* `EXTRA_VERSION = 'rc3-dev'` rather than inside it, so anything
+comparing versions never has to parse past a date.
 
 Three things are left alone:
 
