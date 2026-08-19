@@ -83,6 +83,7 @@ final class VersionTrackerTest extends TestCase
         $this->seedVersionsJson([
             'current' => ['version' => '10.3.1'],
             'next'    => ['patch' => '10.3.2', 'minor' => '10.4.0', 'major' => '11.0.0'],
+            'active_development' => ['version' => '10.3.2'],
             '_updated' => '2026-05-01',
         ]);
 
@@ -101,6 +102,10 @@ final class VersionTrackerTest extends TestCase
         self::assertSame('10.3.2', $v['next']['patch']);
         self::assertSame('10.4.0', $v['next']['minor']);
         self::assertSame('11.0.0', $v['next']['major']);
+
+        // active_development follows: the cycle 10.3.2-beta1 is stabilising is
+        // still 10.3.2, and it does not reopen until that ships.
+        self::assertSame('10.3.2', $v['active_development']['version']);
 
         self::assertSame('2026-05-01', $v['_updated']);
         self::assertSame([], $touched, 'nothing was written, so nothing is reported as touched');
@@ -123,11 +128,14 @@ final class VersionTrackerTest extends TestCase
     }
 
     #[Test]
-    public function update_for_release_leaves_active_development_alone(): void
+    public function update_for_release_reopens_active_development_on_the_next_patch(): void
     {
+        // The stale shape: cwm-bump wrote the release version here on the way
+        // out, so once 10.3.2 ships the pointer names an already-released
+        // version and every @since taken from it is wrong (#153).
         $this->seedVersionsJson([
             'current'            => ['version' => '10.3.1'],
-            'active_development' => ['version' => '10.4.0'],
+            'active_development' => ['version' => '10.3.2'],
         ]);
 
         $tracker = $this->tracker(['versionsJson' => 'build/versions.json']);
@@ -135,9 +143,234 @@ final class VersionTrackerTest extends TestCase
 
         $v = $this->readJson('build/versions.json');
 
-        // Release-time updates current.* and next.*, but never active_development —
-        // that's the dev-side pointer set explicitly by cwm-bump.
-        self::assertSame('10.4.0', $v['active_development']['version']);
+        self::assertSame('10.3.3', $v['active_development']['version']);
+        self::assertSame('10.3.3', $v['next']['patch'], 'the reopened cycle is next.patch itself');
+    }
+
+    #[Test]
+    public function update_for_release_applies_the_projects_dev_suffix(): void
+    {
+        // Proclaim runs cycles as 10.3.3-dev and moves off the suffix at bump
+        // time. The suffix is the project's convention, so it is configured
+        // rather than assumed.
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => '10.3.2'],
+        ]);
+
+        $tracker = $this->tracker([
+            'versionsJson'      => 'build/versions.json',
+            'activeDevelopment' => ['devSuffix' => '-dev'],
+        ]);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2'));
+
+        $v = $this->readJson('build/versions.json');
+
+        self::assertSame('10.3.3-dev', $v['active_development']['version']);
+    }
+
+    #[Test]
+    public function the_dev_suffix_can_carry_the_release_date(): void
+    {
+        // Cycles are sometimes dated the way the migration filenames are
+        // (10.5.3-20260801.sql). A literal date in config would freeze the day
+        // it was written, so {date} is substituted per release.
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => '10.3.2'],
+        ]);
+
+        $tracker = $this->tracker([
+            'versionsJson'      => 'build/versions.json',
+            'activeDevelopment' => ['devSuffix' => '-dev{date}'],
+        ]);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2', '2026-08-19'));
+
+        $v = $this->readJson('build/versions.json');
+
+        self::assertSame('10.3.3-dev20260819', $v['active_development']['version']);
+    }
+
+    #[Test]
+    public function the_dev_suffix_date_takes_a_format(): void
+    {
+        // Joomla's nightly shape dates with dashes and puts -dev last.
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => '10.3.2'],
+        ]);
+
+        $tracker = $this->tracker([
+            'versionsJson'      => 'build/versions.json',
+            'activeDevelopment' => ['devSuffix' => '-{date:Y-m-d}-dev'],
+        ]);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2', '2026-08-19'));
+
+        $v = $this->readJson('build/versions.json');
+
+        self::assertSame('10.3.3-2026-08-19-dev', $v['active_development']['version']);
+    }
+
+    #[Test]
+    public function a_dated_cycle_is_still_recognised_as_already_open(): void
+    {
+        // The guard compares the X.Y.Z head, so a dated suffix does not make
+        // the same cycle look like a different one and get rewritten.
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => '10.3.3-dev20260801'],
+        ]);
+
+        $tracker = $this->tracker([
+            'versionsJson'      => 'build/versions.json',
+            'activeDevelopment' => ['devSuffix' => '-dev{date}'],
+        ]);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2', '2026-08-19'));
+
+        $v = $this->readJson('build/versions.json');
+
+        self::assertSame('10.3.3-dev20260801', $v['active_development']['version']);
+    }
+
+    #[Test]
+    public function update_for_release_leaves_active_development_alone_when_opted_out(): void
+    {
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => '10.3.2'],
+        ]);
+
+        $tracker = $this->tracker([
+            'versionsJson'      => 'build/versions.json',
+            'activeDevelopment' => ['advanceOnRelease' => false],
+        ]);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2'));
+
+        $v = $this->readJson('build/versions.json');
+
+        // Projects that open cycles by hand keep that workflow — but see
+        // opting_out_still_warns_when_the_pointer_is_stale.
+        self::assertSame('10.3.2', $v['active_development']['version']);
+    }
+
+    #[Test]
+    public function opting_out_still_warns_when_the_pointer_is_stale(): void
+    {
+        // The warning is the half of #153 that survives opting out: the manual
+        // step stays manual, but skipping it stops being silent. Asserted in a
+        // child process because the warning goes to STDERR, which output
+        // buffering does not reach.
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => '10.3.2'],
+        ]);
+
+        $stderr = $this->releaseInChild(
+            ['versionsJson' => 'build/versions.json', 'activeDevelopment' => ['advanceOnRelease' => false]],
+            '10.3.2',
+        );
+
+        self::assertStringContainsString('is not ahead of the released 10.3.2', $stderr);
+    }
+
+    #[Test]
+    public function opting_out_stays_quiet_when_a_cycle_is_already_open(): void
+    {
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => '10.4.0-dev'],
+        ]);
+
+        $stderr = $this->releaseInChild(
+            ['versionsJson' => 'build/versions.json', 'activeDevelopment' => ['advanceOnRelease' => false]],
+            '10.3.2',
+        );
+
+        self::assertSame('', $stderr, 'a pointer ahead of the release is the normal state, not a finding');
+    }
+
+    #[Test]
+    public function opting_out_stays_quiet_when_the_project_has_no_such_pointer(): void
+    {
+        // No active_development key at all: the project tracks current/next.*
+        // and never adopted the dev-side pointer, so there is nothing stale to
+        // report and the warning would fire on every release forever.
+        $this->seedVersionsJson(['current' => ['version' => '10.3.1']]);
+
+        $stderr = $this->releaseInChild(
+            ['versionsJson' => 'build/versions.json', 'activeDevelopment' => ['advanceOnRelease' => false]],
+            '10.3.2',
+        );
+
+        self::assertSame('', $stderr);
+    }
+
+    #[Test]
+    public function update_for_release_does_not_pull_active_development_back_to_the_patch_line(): void
+    {
+        // A minor cycle is open. Moving it back to 10.3.3 would be the same
+        // wrong @since as leaving it stale, pointing the other way.
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => '10.4.0-dev'],
+        ]);
+
+        $tracker = $this->tracker(['versionsJson' => 'build/versions.json']);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2'));
+
+        $v = $this->readJson('build/versions.json');
+
+        self::assertSame('10.4.0-dev', $v['active_development']['version']);
+    }
+
+    #[Test]
+    public function update_for_release_treats_a_dev_suffix_as_the_same_cycle(): void
+    {
+        // 10.3.3-dev and 10.3.3 are the same cycle, already open. Rewriting it
+        // to plain 10.3.3 would strip a suffix the project chose to carry.
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => '10.3.3-dev'],
+        ]);
+
+        $tracker = $this->tracker(['versionsJson' => 'build/versions.json']);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2'));
+
+        $v = $this->readJson('build/versions.json');
+
+        self::assertSame('10.3.3-dev', $v['active_development']['version']);
+    }
+
+    #[Test]
+    public function update_for_release_leaves_an_unparseable_active_development_alone(): void
+    {
+        $this->seedVersionsJson([
+            'current'            => ['version' => '10.3.1'],
+            'active_development' => ['version' => 'main'],
+        ]);
+
+        $tracker = $this->tracker(['versionsJson' => 'build/versions.json']);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2'));
+
+        $v = $this->readJson('build/versions.json');
+
+        // Step 8 runs after the release is published, so an unreadable value is
+        // reported and skipped rather than overwritten or thrown on.
+        self::assertSame('main', $v['active_development']['version']);
+    }
+
+    #[Test]
+    public function update_for_release_creates_active_development_when_absent(): void
+    {
+        $this->seedVersionsJson(['current' => ['version' => '10.3.1']]);
+
+        $tracker = $this->tracker(['versionsJson' => 'build/versions.json']);
+        $this->runQuiet(fn () => $tracker->updateForRelease('10.3.2'));
+
+        $v = $this->readJson('build/versions.json');
+
+        self::assertSame('10.3.3', $v['active_development']['version']);
+        self::assertSame('Use this for @since tags and migrations', $v['active_development']['description']);
     }
 
     #[Test]
@@ -405,6 +638,49 @@ final class VersionTrackerTest extends TestCase
     private function tracker(array $config): VersionTracker
     {
         return new VersionTracker($this->tmpDir, $config);
+    }
+
+    /**
+     * Run updateForRelease in a child process and return what it wrote to
+     * STDERR. VersionTracker warns through STDERR, which the in-process
+     * output buffering used elsewhere in this file cannot see.
+     *
+     * @param  array<string, mixed> $config The versionTracking block.
+     * @return string               The child's STDERR, verbatim.
+     */
+    private function releaseInChild(array $config, string $version): string
+    {
+        $cwm  = realpath(__DIR__ . '/../..');
+        $code = sprintf(
+            "<?php\nrequire '%s/src/Release/VersionTracker.php';\n"
+            . "\$t = new CWM\\BuildTools\\Release\\VersionTracker('%s', %s);\n"
+            . "\$t->updateForRelease('%s', '2026-05-15');\n",
+            $cwm,
+            $this->tmpDir,
+            var_export($config, true),
+            $version,
+        );
+
+        $script = $this->tmpDir . '/_release.php';
+        file_put_contents($script, $code);
+
+        $proc = proc_open(['php', $script], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+
+        if (!is_resource($proc)) {
+            $this->fail('Could not spawn child PHP for the STDERR assertion');
+        }
+
+        stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+
+        foreach ($pipes as $pipe) {
+            fclose($pipe);
+        }
+
+        proc_close($proc);
+        unlink($script);
+
+        return $stderr;
     }
 
     /**

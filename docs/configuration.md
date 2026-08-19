@@ -32,7 +32,7 @@ cwm-init` rather than authoring by hand. Minimal examples live in
 | `schemaReplay` | Optional. `{ prefix?, targets[] }` — what `cwm-schema-replay` executes. Each target is `{ name, manifest, root?, baseline, from }`, where `baseline` is a path or a list of paths applied in order and `from` is the version that baseline represents. `root` is the directory the manifest's relative paths resolve against (Joomla's `extension_root`), defaulting to the manifest's own directory — set it when a source tree keeps the manifest above the `sql/` it names. The baseline is a **site's** schema, not the extension's install SQL: migrations write to core tables no manifest creates. See [the schema replay baseline](commands.md#the-schema-replay-baseline). |
 | `baseline` | Optional. `{ minimum }` — the oldest release `cwm-baseline` may pick as an upgrade "before" state. For projects whose early packages do not install at all, so choosing one wastes a run on a failure that says nothing about the build. Omit for no floor. |
 | `announcement` | `{ command, bulletsDir }` for the release announcement article. |
-| `versionTracking` | Override layer, deep-merged on top of the profile. `versionsJson`, `packageJson`, `substituteTokens.paths[]`, `sourceFiles[]`. **Lists replace wholesale.** See [source-file version literals](#versiontrackingsourcefiles--version-literals-in-source) below. |
+| `versionTracking` | Override layer, deep-merged on top of the profile. `versionsJson`, `packageJson`, `substituteTokens.paths[]`, `sourceFiles[]`, `activeDevelopment`. **Lists replace wholesale.** See [source-file version literals](#versiontrackingsourcefiles--version-literals-in-source) and [reopening the cycle](#versiontrackingactivedevelopment--reopening-the-cycle-after-a-release) below. |
 
 ### `versionTracking.sourceFiles` — version literals in source
 
@@ -82,6 +82,62 @@ bump rather than let a stale literal ship.
 | `gitignore` | `{ outputPaths[], mediaPaths[] }` feeding the managed `.gitignore` block. |
 | `vendors` | Bundled npm libraries `vendor:check` reports on — `[{ npm, label?, notes? }]`. |
 | `security` | Optional `vendor:check` audit tuning. See [security block](#the-security-block). |
+
+### `versionTracking.activeDevelopment` — reopening the cycle after a release
+
+`active_development.version` is the pointer devs read when they write an
+`@since` tag by hand. `cwm-bump` writes the release version into it on the way
+out, so the moment a stable release ships it names a version that is already
+out — and every `@since` taken from it afterwards is wrong.
+
+`cwm-release` step 8 therefore reopens it on the new `next.patch`, alongside
+the `current` / `next.*` / `_updated` writes it already made. Nothing to
+configure for the default:
+
+| Key | Default | Purpose |
+|---|---|---|
+| `advanceOnRelease` | `true` | Move `active_development` to `next.patch` after a stable release. |
+| `devSuffix` | `""` | Appended to that value — set `"-dev"` if your cycles run as `10.5.11-dev`. `{date}` becomes the release date as `Ymd` and `{date:FORMAT}` takes any PHP `date()` format, so `"-dev{date}"` gives `10.5.11-dev20260819` and `"-{date:Y-m-d}-dev"` gives `10.5.11-2026-08-19-dev`. |
+
+```json
+"versionTracking": {
+    "activeDevelopment": { "devSuffix": "-dev" }
+}
+```
+
+`cwm-bump` clears the suffix on the way out, writing the plain release version
+into the same field, so the cycle runs `10.5.11-dev` → `10.5.11` → released →
+`10.5.12-dev` without a manual step. A `-dev` value never reaches a tag, a zip
+or an ARS entry — it only ever lives in this field, and PHP's `version_compare`
+ranks it below even a beta (`10.5.11-dev` < `10.5.11-beta1` < `10.5.11`), which
+is where an unshipped cycle belongs.
+
+Before dating it, note that Joomla core deliberately does not: `Version::RELDATE`
+sits *beside* `EXTRA_VERSION = 'rc3-dev'` rather than inside it, so anything
+comparing versions never has to parse past a date.
+
+Three things are left alone:
+
+- **A cycle already open ahead of the release** — `10.6.0-dev` while `10.5.10`
+  ships. Pulling it back to `10.5.11` is the same wrong `@since`, pointing the
+  other way. Silent: this is a project doing feature work, not a problem.
+- **A pre-release.** `current` and `next.*` already stand still for a beta, and
+  the cycle it is stabilising has not shipped yet.
+- **A value that is not a version.** Reported on stderr and skipped. Step 8 runs
+  after the GitHub release and the ARS publish, so nothing here throws.
+
+Set `advanceOnRelease: false` to keep opening cycles by hand. `cwm-release`
+then warns instead, when the pointer is left at or behind the released version:
+
+```
+Warning: active_development.version (10.5.10) is not ahead of the released 10.5.10.
+  Every @since written from it now names a version that is already out.
+```
+
+Why this is automated rather than a runbook line: the manual step was missed
+for four consecutive Proclaim releases, and nothing fails when it is. The build
+succeeds, the release publishes, and the tags are simply wrong in merged code
+until somebody reads them (#153).
 
 ### The `build` block
 

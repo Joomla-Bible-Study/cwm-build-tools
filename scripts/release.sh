@@ -538,7 +538,8 @@ elif [ "$DRY_RUN" = "1" ]; then
     if [ -n "$PRERELEASE_FLAG" ]; then
         echo "  Would leave ${VERSIONS_FILE} unchanged — current/next track stable releases."
     else
-        echo "  Would set current.version=${VERSION}, recompute next.{patch,minor,major}, refresh _updated."
+        echo "  Would set current.version=${VERSION}, recompute next.{patch,minor,major}, refresh _updated,"
+        echo "  and reopen active_development on the new next.patch."
     fi
 elif [ -n "$DEV_BRANCH" ]; then
     # Project uses separate dev branch (versions.json lives there, not on release branch)
