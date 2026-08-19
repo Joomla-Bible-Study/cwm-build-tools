@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A component manifest carrying only the parts MigrationSequence reads.
+
+  The schemapath is declared as type="mysqli" on purpose: Joomla's installer
+  maps mysqli and pdomysql onto "mysql" before matching, so a manifest written
+  that way is matched by a MySQL site. A fixture using the obvious type="mysql"
+  would pass whether or not that mapping exists.
+-->
+<extension type="component" method="upgrade">
+    <name>com_fixture</name>
+    <version>2.0.0</version>
+    <install>
+        <sql>
+            <file driver="pdomysql" charset="utf8">sql/install.mysql.utf8.sql</file>
+        </sql>
+    </install>
+    <update>
+        <schemas>
+            <schemapath type="pgsql">sql/updates/postgresql</schemapath>
+            <schemapath type="mysqli">sql/updates/mysql</schemapath>
+        </schemas>
+    </update>
+</extension>

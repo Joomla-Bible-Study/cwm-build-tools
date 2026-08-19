@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+#
+# cwm-schema-replay — execute every migration file against a scratch schema.
+#
+# A fresh install runs install.sql and Joomla stamps #__schemas at the newest
+# version without running a single update file. So every check that starts from
+# a fresh site proves the destination schema is right while the files that get a
+# real site there have never been executed by anything but a user's upgrade.
+#
+# Needs CWM_TEST_MYSQL_DSN. Tables are created under a prefix and dropped after;
+# no database is created or dropped.
+#
+# Usage from a consuming project:
+#   composer cwm-schema-replay
+#   composer cwm-schema-replay -- --target com_proclaim
+#   composer cwm-schema-replay -- --help
+#
+set -euo pipefail
+
+PROJECT_ROOT="$(pwd)"
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# --help must work outside a configured project: the whole point of asking a
+# command what it does is that you may not have set it up yet.
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h) exec php "${TOOLS_DIR}/scripts/schema-replay.php" "$@" ;;
+    esac
+done
+
+if [ ! -f "${PROJECT_ROOT}/cwm-build.config.json" ]; then
+    echo "Error: cwm-build.config.json not found in $PROJECT_ROOT"
+    exit 1
+fi
+
+exec php "${TOOLS_DIR}/scripts/schema-replay.php" "$@"

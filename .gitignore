@@ -24,3 +24,7 @@ Thumbs.db
 # Python bytecode from scripts/ and tests/python/
 __pycache__/
 *.pyc
+
+# MkDocs build output. `mkdocs build` writes here, so running the docs build
+# locally to check a link would otherwise leave the tree dirty.
+/site/
