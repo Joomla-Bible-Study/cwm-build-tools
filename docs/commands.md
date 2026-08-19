@@ -39,6 +39,24 @@ matching Composer script (`composer cwm-init` → `vendor/bin/cwm-init`).
 See [How to use → everyday commands](how-to-use.md#3-everyday-commands) for the
 typical day-to-day loop.
 
+### Running it in CI
+
+The reusable `joomla-package-ci.yml` workflow takes `run-schema-replay: true`:
+
+```yaml
+jobs:
+  ci:
+    uses: Joomla-Bible-Study/cwm-build-tools/.github/workflows/joomla-package-ci.yml@v1
+    with:
+      run-schema-replay: true
+```
+
+It runs as its own job with its own MySQL service, so a project that does not
+opt in starts no database. A project whose CI is hand-written adds the step
+itself and points `CWM_TEST_MYSQL_DSN` at whatever service that job already
+has — the replay uses its own table prefix, so it can share a database with the
+test suite without touching its tables.
+
 ### The schema replay extension root
 
 Joomla resolves `<schemapath>` and `<sql><file>` against `extension_root`, not

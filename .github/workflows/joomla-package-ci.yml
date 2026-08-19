@@ -68,6 +68,11 @@ on:
         required: false
         type: boolean
         default: false
+      run-schema-replay:
+        description: 'Whether to run composer schema-replay against a scratch MySQL. Off by default: it needs a schemaReplay block in cwm-build.config.json and a committed baseline, and a project without them would fail on it. Runs as its own job, so the MySQL service only starts for projects that opt in.'
+        required: false
+        type: boolean
+        default: false
       php-extensions:
         description: 'Extensions for setup-php'
         required: false
@@ -214,3 +219,62 @@ jobs:
           name: package
           path: ${{ inputs.package-glob }}
           retention-days: 7
+
+  # The only check that EXECUTES an extension's migration files.
+  #
+  # A fresh install applies install.sql and Joomla stamps #__schemas at the
+  # newest version without running a single update file -- so the tests in the
+  # job above prove the destination schema is right while the files that get a
+  # real site there have only ever run on a user's machine, mid-upgrade.
+  #
+  # Its own job rather than a step in `ci`, because a service container cannot
+  # be declared conditionally: putting MySQL on `ci` would start a database for
+  # every consumer, including the ones not replaying anything. A job that does
+  # not run starts no services.
+  schema-replay:
+    name: Schema replay
+    if: inputs.run-schema-replay
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: cwm_replay
+          MYSQL_DATABASE: cwm_replay
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pcwm_replay"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: ${{ inputs.submodules }}
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          # pdo_mysql on top of the project's own list: the replay connects
+          # over PDO, and a project that never talks to a database would not
+          # otherwise ask for it.
+          extensions: ${{ inputs.php-extensions }}, pdo_mysql
+          coverage: none
+          tools: composer:v2
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      # Replays under its own table prefix inside the database named here, and
+      # drops those tables afterwards. No database is created or dropped.
+      - name: Replay every migration against a scratch schema
+        run: composer schema-replay
+        env:
+          CWM_TEST_MYSQL_DSN: 'mysql:host=127.0.0.1;port=3306;dbname=cwm_replay'
+          CWM_TEST_MYSQL_USER: root
+          CWM_TEST_MYSQL_PASSWORD: cwm_replay

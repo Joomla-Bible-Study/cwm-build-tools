@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`run-schema-replay` input on the reusable `joomla-package-ci.yml`.** Off by
+  default. Turning it on runs `composer schema-replay` against a scratch MySQL,
+  so the migration files are executed on every pull request rather than only on
+  a user's site during an upgrade.
+
+  It is a **separate job**, not a step on `ci`. A service container cannot be
+  declared conditionally, so putting MySQL on `ci` would start a database for
+  every consumer including the ones not replaying anything; a job that does not
+  run starts no services.
+
+  Needs a `schemaReplay` block and a committed baseline in the project, which
+  is why it is opt-in rather than on by default.
+
 ## [1.29.1] - 2026-08-19
 
 ### Fixed
