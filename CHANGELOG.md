@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **`cwm-release` now reopens `active_development` after a stable release.**
+  Step 8 already wrote `current`, `next.*` and `_updated`; it now also moves
+  `active_development.version` to the new `next.patch`, which is the value it
+  has computed at that point anyway.
+
+  `active_development` is the pointer devs read when they hand-write an
+  `@since` tag. `cwm-bump` writes the release version into it on the way out,
+  so from the moment a release ships it names a version that is already
+  published — and `VersionTracker` was added to close exactly this gap for
+  `current`/`next.*` while leaving this field to a human. Proclaim v10.5.10
+  shipped on 2026-08-19 with the pointer still on `10.5.10`, the fourth
+  occurrence of the failure the class exists to prevent (#153).
+
+  Nothing fails when it is stale, which is what makes the manual step
+  unreliable: the build succeeds, the release publishes, and the tags are
+  simply wrong in merged code until somebody reads them.
+
+  A cycle already open ahead of the release — `10.6.0-dev` while `10.5.10`
+  ships — is left alone, silently; pulling it back to `10.5.11` is the same
+  wrong `@since` pointing the other way. A pre-release changes nothing, as
+  before. A value that is not a version is reported on stderr and skipped:
+  step 8 runs after the GitHub release and the ARS publish, so nothing added
+  here throws.
+
+  New `versionTracking.activeDevelopment` block, both keys optional:
+
+  ```json
+  "versionTracking": {
+      "activeDevelopment": { "advanceOnRelease": true, "devSuffix": "-dev" }
+  }
+  ```
+
+  `devSuffix` defaults to empty rather than `-dev`. Proclaim's cycles run as
+  `10.5.11-dev`, but that is its convention, and `@since 10.5.11` during the
+  10.5.11 cycle is already correct. Projects using the suffix set it and
+  `cwm-bump` clears it at release time, so the cycle runs `10.5.11-dev` →
+  `10.5.11` → released → `10.5.12-dev` unattended.
+
+  `advanceOnRelease: false` keeps the by-hand workflow. `cwm-release` then
+  warns when the pointer is left at or behind the released version instead —
+  which would have caught all four occurrences.
+
 ## [1.31.0] - 2026-08-19
 
 ### Added

@@ -269,10 +269,16 @@ When the block is present:
   `package.json:version = X.Y.Z`. Skipped when `--component` narrows the
   bump to a single extension type.
 - **`cwm-release X.Y.Z`** (step 8) writes `current.version = X.Y.Z`,
-  recomputes `next.{patch,minor,major}`, and refreshes `_updated`.
-  `active_development` is intentionally left alone — it stays pointing at
-  whatever the last `cwm-bump` set, so devs explicitly advance it when
-  they start minor or major work.
+  recomputes `next.{patch,minor,major}`, refreshes `_updated`, and reopens
+  `active_development` on the new `next.patch` — so the pointer devs read
+  for `@since` tags names an unreleased version again instead of the one
+  that just shipped. A cycle already open ahead of the release (a
+  `10.6.0-dev` while `10.5.10` ships) is left alone.
+
+  Opt out with `"activeDevelopment": {"advanceOnRelease": false}` to keep
+  opening cycles by hand; `cwm-release` then warns instead when the pointer
+  is left on the released version. Add `"devSuffix": "-dev"` if your cycles
+  run as `10.5.11-dev` — `cwm-bump` clears the suffix at release time.
 
 Either field is optional. Omit the whole block to keep the prior
 behaviour (only XML manifests get bumped).

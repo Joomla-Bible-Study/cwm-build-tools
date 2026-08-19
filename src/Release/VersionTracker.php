@@ -19,7 +19,8 @@ namespace CWM\BuildTools\Release;
  * The class is intentionally narrow:
  *   - updateForBump:    write the dev-side fields (active_development, package.json)
  *                       and any configured source-file version literals
- *   - updateForRelease: write the post-release fields (current, next.*, _updated)
+ *   - updateForRelease: write the post-release fields (current, next.*, _updated),
+ *                       and reopen active_development on the next patch
  *
  * Each method touches only files explicitly listed in the project's
  * `versionTracking` block. Absent block → no-op. Missing file on disk →
@@ -36,7 +37,7 @@ namespace CWM\BuildTools\Release;
 final class VersionTracker
 {
     /**
-     * @param  array{versionsJson?: string, packageJson?: string, sourceFiles?: list<array{path: string, pattern: string}>} $config
+     * @param  array{versionsJson?: string, packageJson?: string, sourceFiles?: list<array{path: string, pattern: string}>, activeDevelopment?: array{advanceOnRelease?: bool, devSuffix?: string}} $config
      *         The `versionTracking` block from cwm-build.config.json.
      */
     public function __construct(
@@ -84,12 +85,12 @@ final class VersionTracker
 
     /**
      * Write `current.version`, recompute `next.{patch,minor,major}`, refresh
-     * `_updated`. Leaves `active_development` alone — that's the dev-side
-     * field, updated by the next cwm-bump.
+     * `_updated`, and reopen `active_development` on the new `next.patch`.
      *
-     * A pre-release writes nothing. Both fields describe the stable line —
+     * A pre-release writes nothing. All three describe the stable line —
      * `current` is the last stable release, `next.*` the candidates that follow
-     * it — and a beta advances neither. See writeVersionsJsonRelease().
+     * it, `active_development` the cycle after this one — and a beta advances
+     * none of them. See writeVersionsJsonRelease().
      *
      * Called from cwm-release step 7.
      *
@@ -324,6 +325,12 @@ final class VersionTracker
             }
         }
 
+        $opened = $this->advanceActiveDevelopment($data, $version, $nexts['patch']);
+
+        if ($opened !== null) {
+            $needsWrite = true;
+        }
+
         if (($data['_updated'] ?? null) !== $date) {
             $data['_updated'] = $date;
             $needsWrite = true;
@@ -335,9 +342,139 @@ final class VersionTracker
         }
 
         $this->writeJson($path, $data);
-        echo "  $path → current=$version, next.patch={$nexts['patch']}\n";
+        echo "  $path → current=$version, next.patch={$nexts['patch']}"
+            . ($opened === null ? '' : ", active_development=$opened") . "\n";
 
         return true;
+    }
+
+    /**
+     * Reopen `active_development` on the next patch, so the pointer devs read
+     * for `@since` tags names an unreleased version again.
+     *
+     * Left to a human, this step is missed. `active_development` is the field
+     * this class was written to keep honest, and it still went stale for four
+     * Proclaim releases — most recently 10.5.10, which shipped with the pointer
+     * left on 10.5.10 — because release-time only moved `current`/`next.*` and
+     * the dev-side field waited on the next hand-run `cwm-bump`. Nothing fails
+     * when it is stale: the build succeeds, the release publishes, and every
+     * `@since` written afterwards silently names a version that is already out
+     * (#153).
+     *
+     * Three cases leave the field alone:
+     *
+     *   - **Opted out** via `versionTracking.activeDevelopment.advanceOnRelease:
+     *     false`, for projects that open cycles by hand. A warning still fires
+     *     when the pointer is stale, so opting out of the fix is not opting out
+     *     of knowing.
+     *   - **Already ahead** — a minor or major cycle is open (10.6.0-dev while
+     *     10.5.10 ships), and moving it back to 10.5.11 would be the same wrong
+     *     `@since`, pointing the other way. Silent: this is the normal state of
+     *     a project doing feature work, not a problem.
+     *   - **Unparseable** — warned about and skipped rather than overwritten.
+     *
+     * The suffix follows the project. Proclaim runs cycles as `10.5.11-dev` and
+     * that convention is worth keeping, but it is a convention rather than a
+     * rule, so `devSuffix` defaults to empty and a project that wants one says
+     * so. Either way `cwm-bump` clears it: the bump writes the plain release
+     * version into the same field on the way out.
+     *
+     * Never throws. Step 8 runs after the GitHub release and the ARS publish,
+     * so a fatal here would fail the script with the release already out.
+     *
+     * @param  array<string, mixed> $data      versions.json contents, modified in place.
+     * @param  string               $released  The version just released (stable).
+     * @param  string               $nextPatch The recomputed `next.patch`.
+     * @return string|null The value written, or null when nothing moved.
+     */
+    private function advanceActiveDevelopment(array &$data, string $released, string $nextPatch): ?string
+    {
+        $settings = $this->config['activeDevelopment'] ?? [];
+        $settings = is_array($settings) ? $settings : [];
+        $existing = $data['active_development']['version'] ?? null;
+
+        if (($settings['advanceOnRelease'] ?? true) !== true) {
+            $this->warnIfActiveDevelopmentStale($existing, $released);
+
+            return null;
+        }
+
+        if ($existing !== null) {
+            $base = $this->baseVersion($existing);
+
+            if ($base === null) {
+                fwrite(
+                    STDERR,
+                    "Warning: active_development.version is not a version ("
+                    . var_export($existing, true) . ") — left alone.\n"
+                    . "  Set it by hand, or run cwm-bump, so @since tags name the cycle in progress.\n"
+                );
+
+                return null;
+            }
+
+            // A cycle is already open ahead of this release. Nothing to do,
+            // and nothing to say — this is a project mid-feature-work.
+            if (version_compare($base, $nextPatch, '>=')) {
+                return null;
+            }
+        }
+
+        $value = $nextPatch . (string) ($settings['devSuffix'] ?? '');
+
+        $data['active_development'] ??= [];
+        $data['active_development']['version'] = $value;
+        $data['active_development']['description'] ??= 'Use this for @since tags and migrations';
+
+        return $value;
+    }
+
+    /**
+     * Warn when `active_development` is not ahead of the release just cut.
+     *
+     * The opt-out half of #153: a project that opens cycles by hand keeps that
+     * workflow, but a pointer left on the released version stops being silent.
+     * All four occurrences would have printed here.
+     */
+    private function warnIfActiveDevelopmentStale(mixed $existing, string $released): void
+    {
+        // No field, nothing to be stale: the project tracks current/next.* and
+        // never adopted the dev-side pointer.
+        if ($existing === null) {
+            return;
+        }
+
+        $base = $this->baseVersion($existing);
+
+        if ($base !== null && version_compare($base, $released, '>')) {
+            return;
+        }
+
+        $shown = is_string($existing) ? $existing : var_export($existing, true);
+
+        fwrite(
+            STDERR,
+            "Warning: active_development.version ($shown) is not ahead of the released $released.\n"
+            . "  Every @since written from it now names a version that is already out.\n"
+            . "  Open the next cycle (cwm-bump), or drop versionTracking.activeDevelopment"
+            . ".advanceOnRelease to let cwm-release do it.\n"
+        );
+    }
+
+    /**
+     * The `X.Y.Z` head of a version, with any pre-release or build suffix
+     * dropped, or null when the string does not start with one.
+     *
+     * `10.5.11-dev` and `10.5.11` describe the same cycle, so comparisons that
+     * decide whether a cycle is already open have to see them as equal.
+     */
+    private function baseVersion(mixed $version): ?string
+    {
+        if (!is_string($version) || preg_match('/^\d+\.\d+\.\d+/', $version, $m) !== 1) {
+            return null;
+        }
+
+        return $m[0];
     }
 
     /**
