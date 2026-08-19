@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-08-19
+
 ### Added
 
 - **`cwm-schema-replay`** — execute every migration file against a scratch
