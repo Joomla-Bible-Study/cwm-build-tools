@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`cwm-schema-replay`** — execute every migration file against a scratch
+  schema, in the installer's order, from a committed baseline.
+
+  Nothing else in the release gate ever *runs* these files. A fresh install
+  applies `install.sql` and Joomla then stamps `#__schemas` at the newest
+  version **without running a single update file** — so `test-install.sh`,
+  `verify-migrations.php` and every other check that starts from a fresh site
+  proves the destination schema is right while the files that get a real site
+  there have never been executed. `verify-schema-check.php` is closer but only
+  reads: Joomla's `ChangeSet` derives a check query per statement and compares
+  it against the current schema, which is a different question from "does this
+  statement apply".
+
+  So a migration can ship with a syntax error, or referencing a table a later
+  version dropped, and stay green until a user upgrades. Replaying Proclaim's
+  37 migrations from a real 10.0.0 baseline runs 286 statements, 4 of them
+  `/** CAN FAIL **/`; injecting either defect fails the command and names the
+  file and statement.
+
+  Statement splitting, the `CAN FAIL` marker and prefix substitution are
+  **ports** of Joomla's own implementations rather than approximations, checked
+  against the real classes over 397 statements and 347 prefix substitutions
+  with zero differences. Both obvious shortcuts are wrong in ways that matter:
+  `explode(';')` breaks on a semicolon inside a string literal, and
+  `str_replace('#__', …)` rewrites prefix placeholders **inside** string
+  literals, which Joomla never does.
+
+  ⚠️ The baseline is a **site's** schema, not the extension's install SQL.
+  Migrations write to core tables no extension manifest creates — Proclaim's
+  touch `#__assets`, `#__schemas`, `#__action_log_config` and
+  `#__action_logs_extensions`. `baseline` therefore takes a list, applied in
+  order. Commit them: a baseline pulled out of git history at run time is not
+  reviewable in a pull request, and it decides what "every migration passes"
+  means.
+
+  MySQL and MariaDB only, per the recorded decision not to support PostgreSQL.
+  Tables are created under a prefix inside the database `CWM_TEST_MYSQL_DSN`
+  names and dropped again — no database is created or dropped.
+
+  `cwm-init` wires `composer schema-replay` into a **new** consumer. Existing
+  consumers get no script alias from an upgrade, so run it as
+  `vendor/bin/cwm-schema-replay` or add an alias of your own — which is why the
+  command's own `--help` shows the `vendor/bin/` form.
+
+### Fixed
+
+- **`/site/` is gitignored.** Running `mkdocs build` locally to check a link
+  left the working tree dirty.
+
 ## [1.28.1] - 2026-08-19
 
 ### Fixed

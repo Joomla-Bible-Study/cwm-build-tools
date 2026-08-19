@@ -33,10 +33,55 @@ matching Composer script (`composer cwm-init` → `vendor/bin/cwm-init`).
 | `cwm-verify` | Confirm each install has every project sub-extension registered in `#__extensions`; detects `manifest_cache` drift. **Exit non-zero** on mismatch. |
 | `cwm-install-zip` | Install the built dist zip into every Joomla install. |
 | `cwm-reset-testsite` | Remove an extension family from every `role = test` install — extension rows, schema rows, its tables, assets/categories/menus, and installed directories — so the next install starts genuinely clean. Prints the family **and** the retained set every run. **Exit 2** when a retained extension did not survive. |
+| `cwm-schema-replay` | Execute every migration file against a scratch schema, from a committed baseline, in the installer's order. Nothing else in the gate *runs* these files: a fresh install applies `install.sql` and Joomla stamps `#__schemas` at the newest version without running a single update. **Exit 1** on a failing statement, or when nothing is configured to replay. See [the baseline](#the-schema-replay-baseline). |
 | `cwm-baseline` | Download the released package an upgrade test should upgrade *from* — the newest release older than the version under test, preferring stable. **Exit 3** when no usable baseline exists (a first release), which is a status, not a failure. See [the release gate](releasing.md#the-release-gate). |
 
 See [How to use → everyday commands](how-to-use.md#3-everyday-commands) for the
 typical day-to-day loop.
+
+### The schema replay baseline
+
+`cwm-schema-replay` needs a starting schema, and it is not the extension's own
+install SQL. Migrations write to core tables no extension manifest creates —
+Proclaim's touch `#__assets`, `#__schemas`, `#__action_log_config` and
+`#__action_logs_extensions`. Replaying onto the extension's tables alone fails
+on the first of those, for a reason that says nothing about the migration.
+
+So `baseline` takes a list, applied in order: the core schema, then the
+extension's install SQL as it stood at the oldest release you still support
+upgrades from.
+
+```json
+"schemaReplay": {
+    "targets": [
+        {
+            "name": "com_proclaim",
+            "manifest": "admin/proclaim.xml",
+            "baseline": [
+                "build/sql-baselines/joomla-core.sql",
+                "build/sql-baselines/com_proclaim-10.0.0.sql"
+            ],
+            "from": "10.0.0"
+        }
+    ]
+}
+```
+
+Produce the core half once, from a site at that version, and commit both files:
+
+```bash
+mysqldump --no-data --skip-add-drop-table <db> > core.sql
+# then rewrite the site's prefix (jos_, etc.) back to #__
+```
+
+Committing them is the point. A baseline pulled out of git history at run time
+is not reviewable in a pull request, and this file decides what "every migration
+passes" means.
+
+Connection comes from `CWM_TEST_MYSQL_DSN` — the same variable the test suite
+uses, and the same server `docker-compose.databases.yml` starts. Tables are
+created under a prefix inside the database the DSN names and dropped again; no
+database is created or dropped.
 
 ## Build & release
 

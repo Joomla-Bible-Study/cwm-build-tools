@@ -58,6 +58,7 @@ const CWM_COMPOSER_SCRIPTS = [
     'ars-publish'    => 'vendor/bin/cwm-ars-publish',
     'ars-list'       => 'vendor/bin/cwm-ars-list',
     'ars-reorder'    => 'vendor/bin/cwm-ars-reorder',
+    'schema-replay'  => 'vendor/bin/cwm-schema-replay',
     'sync-configs'   => 'vendor/bin/cwm-sync-configs',
     'sync-languages' => 'vendor/bin/cwm-sync-languages',
 ];

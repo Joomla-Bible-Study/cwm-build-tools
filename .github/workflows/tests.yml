@@ -105,12 +105,12 @@ jobs:
           CWM_TEST_MYSQL_PASSWORD: root
 
   mariadb:
-    # The same introspection tests against the other engine our users actually
-    # run. One PHP version is enough: what is being checked is the server's
-    # information_schema, not the language binding. Kept as its own job rather
-    # than a matrix dimension because a service container cannot be selected
-    # per-entry, and crossing three PHP versions with two engines would triple
-    # the suite to cover a difference that lives entirely in the server.
+    # The same introspection and replay tests against the other engine our users
+    # actually run. One PHP version is enough: what is being checked is the
+    # server, not the language binding. Kept as its own job rather than a matrix
+    # dimension because a service container cannot be selected per-entry, and
+    # crossing three PHP versions with two engines would triple the suite to
+    # cover a difference that lives entirely in the server.
     name: MariaDB introspection
     runs-on: ubuntu-latest
 
@@ -149,8 +149,16 @@ jobs:
       - name: Install dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
 
-      - name: Run introspection tests
-        run: vendor/bin/phpunit tests/Dev/TestSiteIntrospectionTest.php --testdox
+      - name: Run introspection and replay tests
+        # SchemaReplayTest belongs here more than most: it executes real DDL,
+        # and MySQL and MariaDB do not accept exactly the same DDL. A migration
+        # that applies on one and not the other is precisely what a consumer
+        # would ship without noticing.
+        run: |
+          vendor/bin/phpunit \
+            tests/Dev/TestSiteIntrospectionTest.php \
+            tests/Dev/SchemaReplayTest.php \
+            --testdox
         env:
           CWM_TEST_MYSQL_DSN: 'mysql:host=127.0.0.1;port=3307;dbname=cwm_build_tools_test'
           CWM_TEST_MYSQL_USER: root
