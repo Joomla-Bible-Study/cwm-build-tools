@@ -26,21 +26,9 @@
 # not something to resolve with a heuristic — a release publishes to the world
 # and reports success either way.
 #
-# A third argument short-circuits all of that: the exact basename the build
-# was configured to produce, which release.sh expands from build.outputName.
-# When it is present among the glob's matches it is the answer, because the
-# project said so — no inference from the filename at all.
-#
-# That is what makes a Joomla-shaped name work. `Proclaim_10.5.11-Stable-
-# Full_Package.zip` does not end in `-10.5.11.zip`, and the suffix match below
-# deliberately cannot be loosened to find it: `*-10.3.6-*` would also match
-# `pkg_proclaim-10.3.6-beta1.zip` while releasing 10.3.6, which is the case
-# tests/shell/artifacts.test.sh pins in the other direction.
-#
 # Arguments:
 #   $1  version being released, e.g. 10.3.6
 #   $2  glob for candidate artifacts, relative or absolute
-#   $3  optional exact basename expected for this version
 #
 # Outputs:
 #   The selected path on stdout; diagnostics on stderr.
@@ -51,7 +39,6 @@
 cwm_select_artifact_for_version() {
     local version="$1"
     local output_glob="$2"
-    local expected="${3:-}"
     local all=() selected=() artifact
 
     shopt -s nullglob
@@ -65,18 +52,6 @@ cwm_select_artifact_for_version() {
         return 1
     fi
 
-    # The configured name, when it is on disk. Falls through when it is not,
-    # so a project whose builder names things its own way is unaffected.
-    if [ -n "$expected" ]; then
-        for artifact in "${all[@]}"; do
-            if [ "$(basename "$artifact")" = "$expected" ]; then
-                printf '%s\n' "$artifact"
-
-                return 0
-            fi
-        done
-    fi
-
     for artifact in "${all[@]}"; do
         case "$(basename "$artifact")" in
             *"-${version}".zip) selected+=( "$artifact" ) ;;
@@ -88,11 +63,7 @@ cwm_select_artifact_for_version() {
             echo "Error: No build artifact for version ${version} matched ${output_glob}"
             echo "       Found instead:"
             printf '         %s\n' "${all[@]}"
-            if [ -n "$expected" ]; then
-                echo "       The build step should have produced ${expected}."
-            else
-                echo "       The build step should have produced a file named *-${version}.zip."
-            fi
+            echo "       The build step should have produced a file named *-${version}.zip."
         } >&2
 
         return 2

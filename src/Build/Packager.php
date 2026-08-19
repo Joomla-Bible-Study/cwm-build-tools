@@ -48,10 +48,9 @@ final class Packager
      * Run the full assembly flow.
      *
      * @param  string|null $versionOverride  When non-null, used in place of the manifest's <version>.
-     * @param  string|null $fromVersion      The release this package upgrades from, for a `{fromVersion}` in `outputName`.
      * @return string                        Absolute path to the assembled outer zip.
      */
-    public function package(?string $versionOverride = null, ?string $fromVersion = null): string
+    public function package(?string $versionOverride = null): string
     {
         $manifestPath = $this->resolve($this->config->manifest);
 
@@ -68,7 +67,7 @@ final class Packager
             throw new \RuntimeException("Could not create output directory: $outputDir");
         }
 
-        $outputName = PackageBuilder::expandOutputName($this->config->outputName, $version, $fromVersion);
+        $outputName = str_replace('{version}', $version, $this->config->outputName);
         $outputPath = $outputDir . '/' . $outputName;
 
         if (file_exists($outputPath)) {

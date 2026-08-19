@@ -316,29 +316,6 @@ if [ -z "$OUTPUT_GLOB" ]; then
     exit 1
 fi
 
-# The exact filename the project's config says this build produces, with
-# {version} and {stability} expanded by the same code the builder uses. Passing
-# it to the selector means a Joomla-shaped name — where the version sits in the
-# middle rather than at the end — is found by agreement rather than by pattern.
-#
-# Expansion happens in PHP rather than being reimplemented in bash so the
-# stability word cannot drift between the file that writes the name and the
-# step that looks for it. A pattern using {fromVersion} cannot be expanded here
-# (nothing in the pipeline knows the from-version), so it yields nothing and
-# the version-suffix match below is used, unchanged.
-OUTPUT_NAME=$(read_config "package.outputName")
-if [ -z "$OUTPUT_NAME" ]; then
-    OUTPUT_NAME=$(read_config "build.outputName")
-fi
-
-EXPECTED_ARTIFACT=""
-if [ -n "$OUTPUT_NAME" ]; then
-    EXPECTED_ARTIFACT="$(php -r '
-        require $argv[1] . "/src/Build/PackageBuilder.php";
-        echo CWM\BuildTools\Build\PackageBuilder::expandOutputName($argv[2], $argv[3]);
-    ' "$TOOLS_DIR" "$OUTPUT_NAME" "$VERSION" 2>/dev/null || true)"
-fi
-
 # Resolve the artifact for *this* version.
 #
 # The selection lives in lib/artifacts.sh so it can be tested — see #52. It was
@@ -351,14 +328,14 @@ if [ "$DRY_RUN" = "1" ]; then
     # the wrong zip once, and running it against whatever is already on disk
     # shows which file a real run would pick up — including a stale one left
     # over from a previous release, which is the failure mode #51 describes.
-    if ARTIFACT="$(cwm_select_artifact_for_version "$VERSION" "$OUTPUT_GLOB" "$EXPECTED_ARTIFACT" 2>/dev/null)"; then
+    if ARTIFACT="$(cwm_select_artifact_for_version "$VERSION" "$OUTPUT_GLOB" 2>/dev/null)"; then
         echo "  Would publish (already on disk): ${ARTIFACT}"
     else
         echo "  Would publish: the ${OUTPUT_GLOB} entry matching *-${VERSION}.zip (not built yet)."
     fi
     ARTIFACTS=( "${ARTIFACT:-<unbuilt>}" )
 else
-    ARTIFACT="$(cwm_select_artifact_for_version "$VERSION" "$OUTPUT_GLOB" "$EXPECTED_ARTIFACT")" || exit 1
+    ARTIFACT="$(cwm_select_artifact_for_version "$VERSION" "$OUTPUT_GLOB")" || exit 1
     ARTIFACTS=( "$ARTIFACT" )
     echo "  Built: ${ARTIFACTS[*]}"
 fi

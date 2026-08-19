@@ -7,42 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
-
-- **Joomla-style artifact naming.** `build.outputName` (and `package.outputName`)
-  now take `{stability}` and `{fromVersion}` alongside the existing `{version}`,
-  so a project can name its zips the way Joomla names its own —
-  `Joomla_<version>-<Stability>-Full_Package.zip`, per joomla-cms
-  `build/build.php`:
-
-  ```json
-  "outputName": "Proclaim_{version}-{stability}-Full_Package.zip"
-  ```
-
-  `{stability}` is derived from the version, because nothing outside Joomla core
-  has its hand-set `Version::DEV_STATUS`: `Stable`, `Development`, `Alpha`,
-  `Beta`, `Release_Candidate`. `-dev` outranks the stage, matching Joomla, which
-  ships `6.1.3-rc3-dev` as `Development` — an unreleased build of a release
-  candidate is still unreleased. An unrecognised suffix is `Development`, the
-  only reading with no cost.
-
-  ⚠️ **`outputName` and `outputGlob` change together.** `cwm-release` now
-  expands `outputName` and looks for that exact file among the glob's matches,
-  which is what lets it find a name with the version in the middle. The old
-  fallback matches `*-<version>.zip` and is deliberately *not* loosened: a
-  looser `*-10.3.6-*` would also match `pkg_proclaim-10.3.6-beta1.zip` while
-  releasing 10.3.6, which is the case `tests/shell/artifacts.test.sh` already
-  pins in the other direction. A glob left describing the old shape matches
-  nothing and stops the release at the selection step.
-
-  `Full_Package` is the only one of Joomla's three package words that describes
-  what this builder makes. `Patch_Package` and `Update_Package` are core-only —
-  they exist because Joomla's updater can apply a partial archive over a CMS
-  install, while an extension update stream serves one
-  `<downloadurl type="full">` per version and the installer always installs a
-  complete zip. The tokens will write those names; the artifact would be the
-  same complete zip regardless.
-
 ### Changed
 
 - **`cwm-release` now reopens `active_development` after a stable release.**

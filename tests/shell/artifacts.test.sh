@@ -58,27 +58,6 @@ got="$(cwm_select_artifact_for_version 10.3.6 "$GLOB" 2>/dev/null)"
 assert_equals "$WORK/dist/pkg_proclaim-10.3.6.zip" "$got" \
     "10.3.6 does not match 10.3.6-beta1"
 
-# --- Joomla-shaped names ----------------------------------------------------
-# Joomla names artifacts <Product>_<version>-<Stability>-Full_Package.zip, so
-# the version is in the middle and the *-<version>.zip match cannot see it.
-# The expected-name argument is how release.sh resolves those: the config says
-# what the build produces, so nothing has to be inferred from the filename.
-JGLOB="$WORK/dist/Proclaim_*.zip"
-fixture Proclaim_10.5.10-Stable-Full_Package.zip Proclaim_10.5.11-Stable-Full_Package.zip
-got="$(cwm_select_artifact_for_version 10.5.11 "$JGLOB" "Proclaim_10.5.11-Stable-Full_Package.zip" 2>/dev/null)"
-assert_equals "$WORK/dist/Proclaim_10.5.11-Stable-Full_Package.zip" "$got" \
-    "selects a Joomla-shaped name past a stale earlier one"
-
-cwm_select_artifact_for_version 10.5.11 "$JGLOB" >/dev/null 2>&1
-assert_equals "2" "$?" "without the expected name, a mid-string version is not matched"
-
-# An expected name that is not on disk must not be trusted over the version:
-# the builder may have been configured one way and run another.
-fixture pkg_proclaim-10.3.6.zip
-got="$(cwm_select_artifact_for_version 10.3.6 "$GLOB" "Proclaim_10.3.6-Stable-Full_Package.zip" 2>/dev/null)"
-assert_equals "$WORK/dist/pkg_proclaim-10.3.6.zip" "$got" \
-    "falls back to the version match when the expected name is absent"
-
 # --- Failure modes ----------------------------------------------------------
 # Each must be an error, not a guess: a release publishes to the world and
 # reports success either way.

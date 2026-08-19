@@ -24,107 +24,11 @@ use ZipArchive;
  *   - `BuildConfig::sources[i].from` is project-relative; every file under
  *     it gets prefixed with `sources[i].to` inside the zip.
  *   - `BuildConfig::outputDir` is project-relative.
- *   - `outputName` accepts `{version}`, `{stability}` and `{fromVersion}`
- *     tokens. See {@see expandOutputName()}.
+ *   - `outputName` accepts a literal `{version}` token — substituted with
+ *     the value read from the manifest (or `versionOverride` argument).
  */
 final class PackageBuilder
 {
-    /**
-     * Expand the tokens in an `outputName` pattern.
-     *
-     * | Token | Becomes |
-     * |---|---|
-     * | `{version}` | the manifest version, or the `--version` override |
-     * | `{stability}` | Joomla's stability word for that version — see {@see stabilityFor()} |
-     * | `{fromVersion}` | the release being upgraded from, for a `_to_` name |
-     *
-     * Together these express Joomla's own artifact naming, which is
-     * `Joomla_<version>-<Stability>-Full_Package.zip` and, for the core patch
-     * archives, `Joomla_<from>_to_<version>-<Stability>-Patch_Package.zip`
-     * (joomla-cms `build/build.php`). A project adopting it writes:
-     *
-     *     "outputName": "Proclaim_{version}-{stability}-Full_Package.zip"
-     *
-     * ⚠️ The tokens name the file; they do not change what is in it.
-     * `cwm-build` produces one complete extension zip, and a Joomla extension
-     * update stream serves exactly one `<downloadurl type="full">` per
-     * version, so `Full_Package` is the only one of Joomla's three package
-     * words that describes an artifact this builder makes. `Patch_Package` and
-     * `Update_Package` are core-only: they exist because Joomla's own updater
-     * can apply a partial archive over a CMS install, and nothing applies one
-     * over an extension.
-     *
-     * Shared as a static with {@see Packager}, which names the outer package
-     * zip the same way. It lives here rather than in a class of its own
-     * because the entry-point scripts have no autoloader — every class they
-     * reach has to be `require`d by name, and both already require this one.
-     *
-     * @param  string      $pattern     The configured `outputName`.
-     * @param  string      $version     The version being built.
-     * @param  string|null $fromVersion Required only when the pattern uses `{fromVersion}`.
-     * @throws \RuntimeException When `{fromVersion}` is used and no value was supplied.
-     */
-    public static function expandOutputName(string $pattern, string $version, ?string $fromVersion = null): string
-    {
-        $name = str_replace(
-            ['{version}', '{stability}'],
-            [$version, self::stabilityFor($version)],
-            $pattern,
-        );
-
-        if (!str_contains($name, '{fromVersion}')) {
-            return $name;
-        }
-
-        if ($fromVersion === null || $fromVersion === '') {
-            throw new \RuntimeException(
-                "build.outputName uses {fromVersion}, but no from-version was given.\n"
-                . "  Pass --from <version>. `cwm-baseline --print` names the release a site\n"
-                . '  would be upgrading from, if you want the same answer the gate uses.'
-            );
-        }
-
-        return str_replace('{fromVersion}', $fromVersion, $name);
-    }
-
-    /**
-     * Joomla's stability word for a version string.
-     *
-     * Mirrors `Version::DEV_STATUS`, whose values Joomla's packager slugs with
-     * underscores (`build/build.php`: `str_replace(' ', '_', DEV_STATUS)`), so
-     * `Release Candidate` becomes `Release_Candidate`.
-     *
-     * | Version | Word |
-     * |---|---|
-     * | `10.5.11` | `Stable` |
-     * | `10.5.11-dev`, `6.1.3-rc3-dev` | `Development` |
-     * | `10.5.11-rc1` | `Release_Candidate` |
-     * | `10.5.11-beta2` | `Beta` |
-     * | `10.5.11-alpha1` | `Alpha` |
-     *
-     * `dev` is tested first because it outranks the stage: Joomla ships
-     * `6.1.3-rc3-dev` as `Development`, an unreleased build of a release
-     * candidate, not as a release candidate.
-     *
-     * Joomla sets `DEV_STATUS` by hand, so this derives what it can from the
-     * version and defaults an unrecognised suffix to `Development` — a
-     * pre-release marker nobody here knows how to read is many things, but it
-     * is not `Stable`, and that is the only answer with a cost.
-     */
-    public static function stabilityFor(string $version): string
-    {
-        $suffix = strtolower((string) preg_replace('/^\d+(\.\d+)*/', '', $version));
-
-        return match (true) {
-            $suffix === ''                 => 'Stable',
-            str_contains($suffix, 'dev')   => 'Development',
-            str_contains($suffix, 'rc')    => 'Release_Candidate',
-            str_contains($suffix, 'beta')  => 'Beta',
-            str_contains($suffix, 'alpha') => 'Alpha',
-            default                        => 'Development',
-        };
-    }
-
     /** Files dropped from any `vendor/` subtree when vendorPrune is on. */
     private const VENDOR_PRUNE_DOC_NAMES = [
         'README', 'CHANGELOG', 'BACKERS', 'AUTHORS', 'CONTRIBUTING', 'UPGRADE', 'SECURITY', 'LICENSE', 'COPYING',
@@ -144,10 +48,9 @@ final class PackageBuilder
      * Run the full build flow.
      *
      * @param  string|null $versionOverride  When non-null, used in place of the manifest's <version>. Useful for ad-hoc rebuilds.
-     * @param  string|null $fromVersion      The release this artifact upgrades from, for a `{fromVersion}` in `outputName`.
      * @return string                        Absolute path to the resulting zip.
      */
-    public function build(?string $versionOverride = null, ?string $fromVersion = null): string
+    public function build(?string $versionOverride = null): string
     {
         $manifestPath = $this->resolve($this->config->manifest);
 
@@ -188,7 +91,7 @@ final class PackageBuilder
             throw new \RuntimeException("Could not create output directory: $outputDir");
         }
 
-        $outputName = self::expandOutputName($this->config->outputName, $version, $fromVersion);
+        $outputName = str_replace('{version}', $version, $this->config->outputName);
         $outputPath = $outputDir . '/' . $outputName;
 
         // Replace any prior build artifact at this exact path. Unlike the
