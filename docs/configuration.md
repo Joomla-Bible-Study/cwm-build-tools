@@ -147,7 +147,7 @@ Consumed by `cwm-build` / `cwm-package`.
 |---|---|
 | `command` | `cwm-build` (generic builder) or a project script. |
 | `outputGlob` | Glob `cwm-release` matches to find the produced zip. |
-| `outputDir`, `outputName` | Where the zip lands; `{version}` is substituted. |
+| `outputDir`, `outputName` | Where the zip lands. `outputName` takes `{version}`, `{stability}` and `{fromVersion}` — see [Joomla-style artifact naming](#joomla-style-artifact-naming). |
 | `manifest` | The extension manifest to read the version from + ship. |
 | `sources[]` | `{ from, to }` copy pairs (working-tree → zip path). |
 | `excludes[]`, `excludeExtensions[]`, `excludePaths[]` | What to drop; `excludeMatchMode` is `contains` or `strict`. |
@@ -157,6 +157,63 @@ Consumed by `cwm-build` / `cwm-package`.
 | `verifyAssets` | `true` to fail the build if a `joomla.asset.json`-referenced file is missing. See the [JS guide](javascript-and-joomladialog.md#72-buildverifyassets-fail-loudly-if-an-asset-didnt-build). |
 | `verifyMediaSources[]` | `{ source, output }` directory pairs. Fails the build when a file in `output` has no matching source in `source` — i.e. build output that outlived its source. See below. |
 | `versionPrompt` | `{ enabled, timeout }` for the interactive 3-way version prompt. |
+
+#### Joomla-style artifact naming
+
+Joomla names its own packages `Joomla_<version>-<Stability>-Full_Package.zip`
+(joomla-cms `build/build.php`), where the stability word is `Version::DEV_STATUS`
+with spaces slugged to underscores. `outputName` can express the same shape:
+
+```json
+"build": {
+    "outputName": "Proclaim_{version}-{stability}-Full_Package.zip",
+    "outputGlob": "build/dist/Proclaim_*-Full_Package.zip"
+}
+```
+
+| Token | Becomes |
+|---|---|
+| `{version}` | the manifest version, or `--version` |
+| `{stability}` | `Stable`, `Development`, `Alpha`, `Beta` or `Release_Candidate` |
+| `{fromVersion}` | the release being upgraded from — supply it with `--from`; a pattern using it and no value fails the build |
+
+`{stability}` is derived from the version, since nothing here has Joomla's
+hand-set `DEV_STATUS`:
+
+| Version | Word |
+|---|---|
+| `10.5.11` | `Stable` |
+| `10.5.11-dev` | `Development` |
+| `10.5.11-alpha1` | `Alpha` |
+| `10.5.11-beta2` | `Beta` |
+| `10.5.11-rc1` | `Release_Candidate` |
+| `6.1.3-rc3-dev` | `Development` |
+
+`-dev` outranks the stage, matching Joomla: `6.1.3-rc3-dev` is an unreleased
+build of a release candidate, and Joomla ships it as `Development`. An
+unrecognised suffix is treated as `Development` — the only answer with a cost
+is the one that claims a build is shippable.
+
+!!! warning "Change `outputName` and `outputGlob` together"
+    `cwm-release` locates what it just built by expanding `outputName` and
+    looking for that exact file among the `outputGlob` matches. If the glob
+    still describes the old shape it matches nothing, and the release stops at
+    the selection step. Renaming is two keys, not one.
+
+    The expansion is why the mid-string version works at all: the old fallback
+    matches `*-<version>.zip`, which a Joomla-shaped name does not satisfy.
+    That fallback is deliberately not loosened — `*-10.3.6-*` would also match
+    `pkg_proclaim-10.3.6-beta1.zip` while releasing 10.3.6.
+
+**`Full_Package` is the only one of Joomla's three package words that describes
+an artifact this builder makes.** `Patch_Package` and `Update_Package` are core
+concepts: they exist because Joomla's updater can apply a partial archive over
+a CMS install. An extension update stream serves exactly one
+`<downloadurl type="full">` per version and the extension installer always
+installs a complete zip, so a differential extension package has nothing to
+apply it. The tokens will write those names — nothing stops you — but
+`cwm-build` still produces one complete zip, and the name would be the only
+part that changed.
 
 #### `verifyMediaSources` — catch build output that outlived its source
 

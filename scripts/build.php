@@ -46,11 +46,14 @@ USAGE
   cwm-build                       # full build using config defaults
   cwm-build -v                    # verbose: print every file added
   cwm-build --version 1.2.3       # override version (skip manifest read)
+  cwm-build --from 10.5.9         # value for a {fromVersion} in outputName
   cwm-build --help
 
 OPTIONS
   -v, --verbose          Print every file as it's added to the zip.
       --version <ver>    Use this version instead of the manifest's <version>.
+      --from <ver>       The release this artifact upgrades from. Only needed
+                         when build.outputName uses {fromVersion}.
   -h, --help             Show this help.
 
 EXIT CODE
@@ -69,10 +72,16 @@ HELP;
 
 $verbose         = in_array('-v', $args, true) || in_array('--verbose', $args, true);
 $versionOverride = null;
+$fromVersion     = null;
 
 for ($i = 0, $n = count($args); $i < $n; $i++) {
     if ($args[$i] === '--version' && isset($args[$i + 1])) {
         $versionOverride = $args[++$i];
+        continue;
+    }
+
+    if ($args[$i] === '--from' && isset($args[$i + 1])) {
+        $fromVersion = $args[++$i];
         continue;
     }
 
@@ -115,7 +124,7 @@ try {
 $builder = new PackageBuilder($config, $projectRoot, $verbose);
 
 try {
-    $builder->build($versionOverride);
+    $builder->build($versionOverride, $fromVersion);
 } catch (\Throwable $e) {
     fwrite(STDERR, "Error: build failed — " . $e->getMessage() . "\n");
     exit(1);

@@ -109,6 +109,28 @@ final class PackageBuilderTest extends TestCase
     }
 
     #[Test]
+    public function buildsToTheJoomlaShapedFilename(): void
+    {
+        $this->writeManifest('cwmscripture.xml', '1.2.5');
+        $this->writeFile('src/Foo.php', '<?php');
+
+        $config = BuildConfig::fromArray(array_merge($this->libConfigArray(), [
+            'outputName' => 'CWMScripture_{version}-{stability}-Full_Package.zip',
+            'preBuild'   => null,
+        ]));
+
+        $this->expectOutputRegex('/CWMScripture_1\.2\.5-Stable-Full_Package\.zip/');
+
+        $zipPath = (new PackageBuilder($config, $this->tmpDir))->build();
+
+        $this->assertSame(
+            $this->tmpDir . '/build/dist/CWMScripture_1.2.5-Stable-Full_Package.zip',
+            $zipPath,
+        );
+        $this->assertFileExists($zipPath);
+    }
+
+    #[Test]
     public function ensureMinifiedGateFailsWhenSiblingMissing(): void
     {
         $this->writeManifest('cwmscripture.xml', '1.0.0');

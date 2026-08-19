@@ -60,11 +60,14 @@ USAGE
   cwm-package                       # assemble using config defaults
   cwm-package -v                    # verbose: print every entry added to the outer zip
   cwm-package --version 1.2.3       # override version (skip manifest read)
+  cwm-package --from 10.5.9         # value for a {fromVersion} in outputName
   cwm-package --help
 
 OPTIONS
   -v, --verbose          Print every file as it's added to the outer zip.
       --version <ver>    Use this version instead of the package manifest's <version>.
+      --from <ver>       The release this package upgrades from. Only needed
+                         when package.outputName uses {fromVersion}.
   -h, --help             Show this help.
 
 EXIT CODE
@@ -92,10 +95,16 @@ HELP;
 
 $verbose         = in_array('-v', $args, true) || in_array('--verbose', $args, true);
 $versionOverride = null;
+$fromVersion     = null;
 
 for ($i = 0, $n = count($args); $i < $n; $i++) {
     if ($args[$i] === '--version' && isset($args[$i + 1])) {
         $versionOverride = $args[++$i];
+        continue;
+    }
+
+    if ($args[$i] === '--from' && isset($args[$i + 1])) {
+        $fromVersion = $args[++$i];
         continue;
     }
 
@@ -151,7 +160,7 @@ if (isset($rawConfig['build']) && is_array($rawConfig['build'])) {
 $packager = new Packager($packageConfig, $parentBuild, $projectRoot, $verbose);
 
 try {
-    $packager->package($versionOverride);
+    $packager->package($versionOverride, $fromVersion);
 } catch (\Throwable $e) {
     fwrite(STDERR, "Error: package failed — " . $e->getMessage() . "\n");
     exit(1);

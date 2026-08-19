@@ -24,7 +24,7 @@ final class BuildConfig
 
     /**
      * @param string                                $outputDir              Absolute or project-relative directory for the built zip.
-     * @param string                                $outputName             Output filename pattern; supports `{version}` substitution.
+     * @param string                                $outputName             Output filename pattern; supports `{version}`, `{stability}` and `{fromVersion}` substitution (see {@see PackageBuilder::expandOutputName()}).
      * @param string                                $manifest               Project-relative path to the manifest XML; version is read from its <version> element.
      * @param string|null                           $scriptFile             Optional install scriptfile, added at zip root if present.
      * @param list<array{from: string, to: string}> $sources                Source directories with their zip-path prefix.
