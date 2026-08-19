@@ -31,6 +31,21 @@ use SimpleXMLElement;
  * The installer maps driver names before matching: `mysqli` and `pdomysql` both
  * mean `mysql`, and `pgsql` means `postgresql`. A manifest declaring
  * `type="mysqli"` is matched by a MySQL site, so it is matched here too.
+ *
+ * ## The extension root is not always the manifest's directory
+ *
+ * Joomla resolves `<schemapath>` and `<sql><file>` against
+ * `$installer->getPath('extension_root')`, not against wherever the manifest
+ * file happens to sit. In an *installed* extension the two are the same, which
+ * is why treating them as one works until it doesn't.
+ *
+ * In a source tree they routinely differ. Proclaim keeps `proclaim.xml` at the
+ * repository root while its `sql/updates/mysql` lives under `admin/`, so the
+ * manifest's own directory resolves every relative path one level too high.
+ *
+ * Hence the optional `$extensionRoot`. It defaults to the manifest's directory,
+ * which stays correct for the installed layout, and a project whose source is
+ * arranged differently says so once.
  */
 final class MigrationSequence
 {
@@ -49,12 +64,19 @@ final class MigrationSequence
     /**
      * Build the sequence a manifest declares.
      *
-     * @param  string $manifestPath Absolute path to the extension manifest XML.
-     * @param  string $driver       Server type as Joomla reports it — `mysql`.
-     * @throws RuntimeException     When the manifest is unreadable or declares no schemapath.
+     * @param  string      $manifestPath  Absolute path to the extension manifest XML.
+     * @param  string      $driver        Server type as Joomla reports it — `mysql`.
+     * @param  string|null $extensionRoot Directory the manifest's relative paths resolve
+     *                                    against, as Joomla's `extension_root` does.
+     *                                    Defaults to the manifest's own directory, which is
+     *                                    correct for an installed extension.
+     * @throws RuntimeException           When the manifest is unreadable or declares no schemapath.
      */
-    public static function fromManifest(string $manifestPath, string $driver = 'mysql'): self
-    {
+    public static function fromManifest(
+        string $manifestPath,
+        string $driver = 'mysql',
+        ?string $extensionRoot = null,
+    ): self {
         if (!is_file($manifestPath)) {
             throw new RuntimeException(sprintf('Manifest not found: %s', $manifestPath));
         }
@@ -67,7 +89,7 @@ final class MigrationSequence
             throw new RuntimeException(sprintf('Manifest is not valid XML: %s', $manifestPath));
         }
 
-        $base       = \dirname($manifestPath);
+        $base       = $extensionRoot ?? \dirname($manifestPath);
         $schemaPath = self::schemaPath($xml, $driver);
 
         if ($schemaPath === null) {

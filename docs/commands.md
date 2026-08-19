@@ -39,6 +39,24 @@ matching Composer script (`composer cwm-init` → `vendor/bin/cwm-init`).
 See [How to use → everyday commands](how-to-use.md#3-everyday-commands) for the
 typical day-to-day loop.
 
+### The schema replay extension root
+
+Joomla resolves `<schemapath>` and `<sql><file>` against `extension_root`, not
+against wherever the manifest file sits. Those are the same directory in an
+*installed* extension, and often different in a source tree — Proclaim keeps
+`proclaim.xml` at the repository root while its `sql/updates/mysql` lives under
+`admin/`.
+
+Set `root` when they differ:
+
+```json
+"manifest": "proclaim.xml",
+"root": "admin"
+```
+
+It defaults to the manifest's own directory, which stays correct for the
+installed layout.
+
 ### The schema replay baseline
 
 `cwm-schema-replay` needs a starting schema, and it is not the extension's own

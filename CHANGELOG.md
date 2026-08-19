@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`cwm-schema-replay` resolves manifest paths against the extension root, not
+  the manifest's directory.** Joomla resolves `<schemapath>` and `<sql><file>`
+  against `extension_root`; those are the same directory in an *installed*
+  extension and often differ in a source tree, which is what let the
+  conflation ship.
+
+  Proclaim keeps `proclaim.xml` at the repository root while its
+  `sql/updates/mysql` lives under `admin/`, so every relative path resolved one
+  level too high and no configuration could express the layout.
+
+  New optional `root` per target, defaulting to the manifest's own directory so
+  the installed layout is unchanged:
+
+  ```json
+  "manifest": "proclaim.xml",
+  "root": "admin"
+  ```
+
+  ⚠️ Found by CI, not locally — the local run passed because an untracked
+  `admin/proclaim.xml` dev symlink happened to exist on the machine that wrote
+  it. A pristine `git archive` export reproduces the failure, and is what the
+  fix was verified against.
+
 ## [1.29.0] - 2026-08-19
 
 ### Added
