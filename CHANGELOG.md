@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`run-schema-replay` on the reusable `joomla-library-ci.yml` too.** 1.30.0
+  added it only to `joomla-package-ci.yml`, which left the one project on the
+  library variant — lib_cwmscripture — unable to turn it on.
+
+  The job is a copy rather than a nested reusable workflow: a local `uses:`
+  path inside a workflow that is itself being called resolves in a way that
+  cannot be verified without a consumer round-trip, and only one project uses
+  the library variant.
+
+  ⚠️ What copying costs is drift, so `tests/shell/reusable-replay-parity.test.sh`
+  asserts the job and the input are byte-identical in both files and that both
+  keep `default: false`. A fix applied to one and not the other fails there
+  rather than in the project still carrying the bug.
+
 ## [1.30.0] - 2026-08-19
 
 ### Added
