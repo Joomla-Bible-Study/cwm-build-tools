@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.32.0] - 2026-08-19
+
 ### Changed
 
 - **`cwm-release` now reopens `active_development` after a stable release.**
