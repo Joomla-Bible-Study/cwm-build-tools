@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`vendor:check` no longer fails on updates the repository cannot make.**
+  A nested Composer project that is a **git submodule** belongs to another
+  repository: its `composer.json` is committed there, and its dependencies move
+  when that project updates and releases.
+
+  Proclaim's weekly report failed on six such rows — `lib_cwmscripture` and
+  `scripturelinks` dev dependencies — none of which could be actioned from that
+  checkout. A report full of un-actionable rows is one people stop reading.
+
+  Those rows are still shown, as `ℹ submodule`, with a line saying why they do
+  not count. Nested projects that are plain subdirectories are unaffected and
+  still fail the check, because they *are* this repository's to update.
+
+  ⚠️ **Security advisories are deliberately not scoped this way** and still fail
+  for every scope. A vulnerable bundled package ships to end users whoever owns
+  the manifest.
+
 ## [1.28.0] - 2026-08-18
 
 ### Added

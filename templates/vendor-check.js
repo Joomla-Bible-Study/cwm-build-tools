@@ -25,6 +25,13 @@
  *
  * If vendors[] is empty or missing, only sections 2-4 are reported.
  *
+ * ⚠️ Nested projects that are git submodules are reported but do not affect the
+ * exit code for *updates*: their composer.json lives in another repository and
+ * moves when that project releases, so failing here asks for work this checkout
+ * cannot do. Security advisories are different and still fail for every scope --
+ * a vulnerable bundled package ships to end users no matter which repository
+ * owns the manifest.
+ *
  * Why nested projects matter: an extension may bundle its own Composer project
  * (its vendor/ tree committed and shipped to end users). Those dependencies are
  * invisible to a root-level `composer outdated`, so a vulnerable bundled package
@@ -116,6 +123,43 @@ function renderTable(headers, rows) {
     console.log(sep);
     rows.forEach(r => console.log(fmt(r)));
     console.log(sep);
+}
+
+/**
+ * Paths listed as git submodules, relative to ROOT.
+ *
+ * ⚠️ Used to decide what this repository can act on. A nested Composer project
+ * that is a submodule belongs to another repository: its composer.json is
+ * committed there, and its dependencies move when *that* project updates and
+ * releases. Reporting those as "updates available" here asks for work that
+ * cannot be done from this checkout, and a report full of un-actionable rows is
+ * one people stop reading.
+ *
+ * Read from .gitmodules rather than by shelling out, so this works in a plain
+ * export with no git available. A missing or unreadable file simply means no
+ * submodules.
+ */
+function submodulePaths() {
+    const file = path.join(ROOT, '.gitmodules');
+
+    if (!fs.existsSync(file)) {
+        return [];
+    }
+
+    let text;
+
+    try {
+        text = fs.readFileSync(file, 'utf8');
+    } catch {
+        return [];
+    }
+
+    return text
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.startsWith('path'))
+        .map(line => line.slice(line.indexOf('=') + 1).trim())
+        .filter(Boolean);
 }
 
 /**
@@ -231,17 +275,36 @@ function composerOutdated(cwd) {
 function checkPhpDependencies(nestedProjects) {
     console.log('\nPHP Dependencies (composer)');
 
-    const scopes = [{ label: '(root)', cwd: ROOT }].concat(
-        nestedProjects.map(p => ({ label: p, cwd: path.join(ROOT, p) }))
+    const submodules = submodulePaths();
+    const scopes     = [{ label: '(root)', cwd: ROOT, owned: true }].concat(
+        nestedProjects.map(p => ({
+            label: p,
+            cwd:   path.join(ROOT, p),
+            owned: !submodules.includes(p),
+        }))
     );
 
-    let hasUpdates = false;
-    const rows = [];
+    let hasUpdates   = false;
+    let hasSubmodule = false;
+    const rows       = [];
 
     for (const scope of scopes) {
         for (const p of composerOutdated(scope.cwd)) {
-            hasUpdates = true;
-            rows.push([scope.label, p.name, p.version || '?', p.latest || '?', '✗ Update']);
+            // Only an update this repository can actually make sets the exit
+            // code. A submodule's dependencies update when that project does.
+            if (scope.owned) {
+                hasUpdates = true;
+            } else {
+                hasSubmodule = true;
+            }
+
+            rows.push([
+                scope.label,
+                p.name,
+                p.version || '?',
+                p.latest || '?',
+                scope.owned ? '✗ Update' : 'ℹ submodule',
+            ]);
         }
     }
 
@@ -250,6 +313,12 @@ function checkPhpDependencies(nestedProjects) {
     }
 
     renderTable(['Scope', 'Package', 'Current', 'Latest', 'Status'], rows);
+
+    if (hasSubmodule) {
+        console.log('  ℹ submodule rows belong to another repository. They move when that');
+        console.log('    project updates and releases, and do not affect this exit code.');
+    }
+
     return hasUpdates;
 }
 
