@@ -21,6 +21,8 @@ final class MigrationSequenceTest extends TestCase
 {
     private const FIXTURE = __DIR__ . '/../fixtures/schema-replay/migrations';
 
+    private const SPLIT_ROOT = __DIR__ . '/../fixtures/schema-replay/split-root';
+
     #[Test]
     public function it_orders_by_version_not_alphabetically(): void
     {
@@ -151,6 +153,39 @@ final class MigrationSequenceTest extends TestCase
         $sequence = MigrationSequence::fromManifest(self::FIXTURE . '/manifest.xml');
 
         self::assertFileExists($sequence->fileFor('1.9.0'));
+    }
+
+    #[Test]
+    public function it_resolves_relative_paths_against_the_extension_root_when_given_one(): void
+    {
+        // The split-root fixture puts the manifest one level above the sql/ it
+        // names -- Proclaim's actual layout, and the reason this parameter
+        // exists. Joomla resolves against extension_root, not against the
+        // manifest's directory; the two coincide only in an INSTALLED
+        // extension, which is what makes the conflation survive so long.
+        $sequence = MigrationSequence::fromManifest(
+            self::SPLIT_ROOT . '/manifest.xml',
+            'mysql',
+            self::SPLIT_ROOT . '/extension',
+        );
+
+        self::assertSame(
+            ['1.2.0', '1.2.0-20251231', '1.2.0-20260101', '1.9.0', '1.10.0', '2.0.0'],
+            $sequence->versions(),
+        );
+    }
+
+    #[Test]
+    public function without_an_extension_root_the_split_layout_is_not_found(): void
+    {
+        // The other half of the assertion above: the default really is the
+        // manifest's directory, so this fixture fails without the override.
+        // Without this, the test above would pass even if the parameter were
+        // ignored and something else made it work.
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Schema path does not exist');
+
+        MigrationSequence::fromManifest(self::SPLIT_ROOT . '/manifest.xml');
     }
 
     #[Test]

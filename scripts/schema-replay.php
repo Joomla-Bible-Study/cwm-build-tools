@@ -65,12 +65,26 @@ CONFIGURATION  (schemaReplay)
   targets[]    One entry per extension that ships a <schemapath>:
                  name      Label for output.
                  manifest  Path to the manifest XML, relative to the project.
+                 root      Optional. Directory the manifest's relative paths
+                           resolve against. Defaults to the manifest's own
+                           directory.
                  baseline  Path, or list of paths, to the starting schema.
                  from      Version the baseline represents, e.g. "10.0.0".
 
   `from` must match what the baseline actually contains. Set it too low and
   files that are already applied get replayed, failing with "duplicate column"
   against a migration when the fault is this setting.
+
+THE EXTENSION ROOT
+  Joomla resolves <schemapath> and <sql><file> against extension_root, not
+  against wherever the manifest file sits. In an installed extension those are
+  the same directory, which is why assuming it works until it doesn't.
+
+  In a source tree they often differ -- a manifest at the repository root whose
+  sql/ lives under admin/, say. Set `root` when they do:
+
+      "manifest": "proclaim.xml",
+      "root": "admin"
 
 THE BASELINE
   The schema of a real site running the oldest release you still support
@@ -202,6 +216,14 @@ foreach ($targets as $target) {
     $manifest = cwmResolvePath($projectRoot, (string) ($target['manifest'] ?? ''));
     $from     = (string) ($target['from'] ?? '');
 
+    // Joomla resolves the manifest's relative paths against extension_root, not
+    // against wherever the manifest sits. Those coincide in an installed
+    // extension and often do not in a source tree. Optional; defaults to the
+    // manifest's own directory.
+    $root = isset($target['root']) && $target['root'] !== ''
+        ? cwmResolvePath($projectRoot, (string) $target['root'])
+        : null;
+
     // A single path is the common case; a list is what a real site needs, since
     // migrations touch core tables no extension manifest creates. See --help.
     $declared  = $target['baseline'] ?? [];
@@ -240,7 +262,7 @@ foreach ($targets as $target) {
     }
 
     try {
-        $sequence = MigrationSequence::fromManifest($manifest);
+        $sequence = MigrationSequence::fromManifest($manifest, 'mysql', $root);
         $replay   = new SchemaReplay($pdo, $prefix);
     } catch (RuntimeException $e) {
         fwrite(STDERR, "  ✗ {$e->getMessage()}\n");
