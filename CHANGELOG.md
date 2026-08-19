@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.31.0] - 2026-08-19
+
 ### Added
 
 - **`run-schema-replay` on the reusable `joomla-library-ci.yml` too.** 1.30.0
