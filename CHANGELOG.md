@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.29.1] - 2026-08-19
+
 ### Fixed
 
 - **`cwm-schema-replay` resolves manifest paths against the extension root, not
