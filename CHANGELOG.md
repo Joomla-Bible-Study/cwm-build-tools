@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.28.1] - 2026-08-19
+
 ### Fixed
 
 - **`vendor:check` no longer fails on updates the repository cannot make.**
