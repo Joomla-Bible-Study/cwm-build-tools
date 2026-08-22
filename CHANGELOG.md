@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **An unrecognised pre-release suffix no longer publishes to ARS as stable.**
+  `cwm_maturity_for_version()` matched `-alpha`, `-beta` and `-rc` and fell
+  through to `stable` for everything else, so `10.5.11-dev` was marked
+  pre-release on GitHub and handed to ARS as a normal update.
+
+  Maturity is not a label, it is the distribution gate: Joomla hides anything
+  below stable from sites that have not opted into pre-release updates. An edge
+  build cut to keep it out of public hands was therefore offered to every site
+  that checked for an update, and the publish succeeded and looked correct
+  (#155).
+
+  Any hyphenated suffix now reads as `alpha`. Guessing too low costs a build
+  fewer people see; guessing too high ships an edge build to everyone.
+
+  Three components read the same version string and one disagreed:
+  `cwm_is_prerelease()` tests `*-*`, `VersionTracker` tests
+  `/^\d+\.\d+\.\d+-/`, and both called `-dev` a pre-release while this
+  called it stable. `tests/shell/version.test.sh` now pins the invariant across
+  a table of suffixes rather than the three named cases — whatever
+  `cwm_is_prerelease()` calls a pre-release, this must not call stable.
+
+  Two paths reached it. `cwm-release` refuses a `-dev` version outright via
+  `cwm_validate_release_version`, so that path was already closed for `-dev` in
+  particular — but not for `-edge`, `-nightly` or anything else unrecognised;
+  and `ars-publish.sh` sources `lib/version.sh` without ever calling the
+  validator, so a direct `cwm-ars-publish` of a `-dev` version reached ARS as
+  stable.
+
 ## [1.32.0] - 2026-08-19
 
 ### Changed

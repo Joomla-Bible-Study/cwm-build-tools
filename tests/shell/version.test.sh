@@ -50,6 +50,33 @@ assert_equals "beta" "$(cwm_maturity_for_version 10.4.0-beta1)" "beta maturity"
 assert_equals "rc" "$(cwm_maturity_for_version 10.4.0-rc1)" "rc maturity"
 assert_equals "stable" "$(cwm_maturity_for_version 10.3.6)" "no suffix is stable"
 
+# Maturity is the distribution gate, not a label: Joomla hides anything below
+# stable from sites that have not opted into pre-release updates. A suffix
+# nobody recognises used to fall through to stable, so a -dev build was marked
+# pre-release on GitHub and published to ARS as a normal update, offered to
+# every site that checked (#155).
+assert_equals "alpha" "$(cwm_maturity_for_version 10.5.11-dev)" "-dev is not stable"
+assert_equals "alpha" "$(cwm_maturity_for_version 10.5.11-dev20260819)" "a dated -dev is not stable"
+assert_equals "alpha" "$(cwm_maturity_for_version 10.5.11-edge)" "an unrecognised suffix is not stable"
+assert_equals "alpha" "$(cwm_maturity_for_version 10.5.11-nightly)" "-nightly is not stable"
+
+# The invariant the three components disagreed on. cwm_is_prerelease,
+# VersionTracker and this function all read the same string; whenever the first
+# says pre-release, this one must not say stable, or a build hidden on GitHub
+# is offered to everyone by ARS. Asserted over a table rather than the three
+# named suffixes, so a fourth cannot reintroduce the disagreement.
+for _v in 10.3.6 10.5.11-dev 10.5.11-dev20260819 10.5.11-alpha1 10.5.11-beta1 \
+          10.5.11-rc1 10.5.11-edge 10.5.11-nightly 10.5.11-preview 1.0.0-x.7.z.92; do
+    if cwm_is_prerelease "$_v"; then
+        _m="$(cwm_maturity_for_version "$_v")"
+        assert_equals "not-stable" "$([ "$_m" = stable ] && echo stable || echo not-stable)" \
+            "pre-release ${_v} is not published as stable"
+    else
+        assert_equals "stable" "$(cwm_maturity_for_version "$_v")" \
+            "stable ${_v} is published as stable"
+    fi
+done
+
 # --- Version from a manifest -------------------------------------------------
 # A package manifest lists member extensions after its own header; only
 # the first <version> is the package's.
