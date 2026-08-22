@@ -119,6 +119,21 @@ cwm_prerelease_flag() {
 # ARS classifies each release as alpha / beta / rc / stable, and the
 # version's own suffix already says which it is.
 #
+# Maturity is not a label — it is the distribution gate. Joomla hides anything
+# below stable from sites that have not opted into pre-release updates, so
+# "stable" is the answer that offers a build to every site that checks for an
+# update.
+#
+# So a suffix nobody here recognises reads as `alpha`, not `stable`. This used
+# to fall through to stable, which meant `10.5.11-dev` was marked pre-release on
+# GitHub and published to ARS as a normal update — the reverse of what the
+# suffix is for, with nothing in the run reporting a problem (#155). Guessing
+# too low costs a build fewer people see; guessing too high ships an edge build
+# to everyone.
+#
+# The invariant, pinned in tests/shell/version.test.sh: anything
+# cwm_is_prerelease() calls a pre-release, this must not call stable.
+#
 # Arguments:
 #   $1  version
 #
@@ -131,6 +146,7 @@ cwm_maturity_for_version() {
         *-alpha*) echo "alpha" ;;
         *-beta*)  echo "beta" ;;
         *-rc*)    echo "rc" ;;
+        *-*)      echo "alpha" ;;
         *)        echo "stable" ;;
     esac
 }
