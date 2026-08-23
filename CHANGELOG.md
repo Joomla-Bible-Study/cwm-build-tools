@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Documentation
+
+- **The version-suffix policy is written down** (`docs/releasing.md`), rather
+  than being inferable only from `cwm_validate_release_version`'s error
+  message. `-alpha` / `-beta` / `-rc` are the publishable pre-release channels;
+  `-dev` is not a channel at all, because it already means "the cycle in
+  flight" in `versions.json` and a publishable `v10.5.11-dev` tag would make
+  one string mean both that and "shipped edge build". An edge build held back
+  from the public is `-alpha` (#155).
+
 ### Fixed
 
 - **An unrecognised pre-release suffix no longer publishes to ARS as stable.**
