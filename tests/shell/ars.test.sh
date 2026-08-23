@@ -83,4 +83,27 @@ assert_equals "2" "$?" "gh's literal null is treated as no digest"
 cwm_ars_local_matches_asset 100 "aaa" 200 ""
 assert_equals "1" "$?" "a size difference decides even without a digest"
 
+# --- The entry point refuses what the pipeline refuses ------------------------
+# ars-publish.sh sourced lib/version.sh for the tag and maturity helpers but
+# never asked whether the version was releasable, so `cwm-ars-publish -v
+# 10.5.11-dev` reached the update server while `cwm-release 10.5.11-dev` was
+# rejected at its first step (#155). The gate runs before the artifact check,
+# the config reads and every network round-trip, so this exercises it without
+# any of them.
+ARS_WORK="$(mktemp -d)"
+trap 'rm -rf "$ARS_WORK"' EXIT
+echo '{}' > "${ARS_WORK}/cwm-build.config.json"
+
+run_publish() {
+    (cd "$ARS_WORK" && bash "${SCRIPT_DIR}/../../scripts/ars-publish.sh" -v "$1" -f absent.zip 2>&1)
+}
+
+assert_contains "$(run_publish 10.5.11-dev)" "Development versions cannot be released" \
+    "a -dev version is refused before anything is published"
+
+# The gate is the version, not the arguments: a releasable pre-release gets
+# past it and stops at the missing artifact instead.
+assert_contains "$(run_publish 10.5.11-alpha1)" "artifact not found" \
+    "an -alpha version passes the gate"
+
 finish

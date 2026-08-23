@@ -33,9 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Two paths reached it. `cwm-release` refuses a `-dev` version outright via
   `cwm_validate_release_version`, so that path was already closed for `-dev` in
   particular — but not for `-edge`, `-nightly` or anything else unrecognised;
-  and `ars-publish.sh` sources `lib/version.sh` without ever calling the
+  and `ars-publish.sh` sourced `lib/version.sh` without ever calling the
   validator, so a direct `cwm-ars-publish` of a `-dev` version reached ARS as
   stable.
+
+- **`cwm-ars-publish` now applies the same version gate `cwm-release` does.**
+  It sourced `lib/version.sh` for the tag and maturity helpers but never asked
+  whether the version was releasable at all, so publishing straight to ARS did
+  what the pipeline refuses. The rule stays in `cwm_validate_release_version`
+  rather than being repeated, so the two paths cannot drift and what counts as
+  releasable remains one decision in one place. The gate runs before the
+  artifact check, the config reads and every network round-trip.
 
 ## [1.32.0] - 2026-08-19
 
