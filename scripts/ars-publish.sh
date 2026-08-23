@@ -134,6 +134,17 @@ if [ -z "$VERSION" ] || [ -z "$ZIP_PATH" ]; then
     exit 1
 fi
 
+# The same gate cwm-release applies at its step 1, so publishing straight to ARS
+# cannot do what the pipeline refuses to. This script sourced lib/version.sh for
+# the tag and maturity helpers but never asked it whether the version was
+# releasable at all, so `cwm-ars-publish -v 10.5.11-dev` went to the update
+# server while `cwm-release 10.5.11-dev` was rejected (#155).
+#
+# Keeping the rule in cwm_validate_release_version rather than repeating it here
+# means the two paths cannot drift, and what counts as releasable stays one
+# decision in one place.
+cwm_validate_release_version "$VERSION" || exit 1
+
 if [ -n "$NOTES_FILE" ] && [ ! -f "$NOTES_FILE" ]; then
     echo "Error: notes file not found: $NOTES_FILE"
     exit 1
