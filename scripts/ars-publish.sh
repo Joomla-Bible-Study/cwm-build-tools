@@ -290,7 +290,9 @@ if [ "$MATCH_STATUS" -ne 0 ]; then
 
     ASSET_DIR=$(mktemp -d)
 
-    if gh release download "$TAG" --repo "${GH_OWNER}/${GH_REPO}" \
+    # NO_COLOR: see the note in release.sh — gh queries the terminal when
+    # its output is a TTY and leaves the reply behind.
+    if env NO_COLOR=1 gh release download "$TAG" --repo "${GH_OWNER}/${GH_REPO}" \
             --pattern "$ZIP_NAME" --dir "$ASSET_DIR" >/dev/null 2>&1 \
         && [ -f "${ASSET_DIR}/${ZIP_NAME}" ]; then
         HASH_SOURCE="${ASSET_DIR}/${ZIP_NAME}"

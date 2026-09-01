@@ -458,7 +458,22 @@ if [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
 fi
 
 # shellcheck disable=SC2086
-cwm_mutate gh release create "$TAG" "${ARTIFACTS[@]}" \
+# ⚠️ NO_COLOR, because gh probes the terminal when its output is a TTY.
+# Its markdown renderer asks for the background colour (OSC 11) and the
+# cursor position (CPR) to pick a light or dark theme, then exits without
+# consuming the replies -- so the terminal's answers land in the input
+# buffer and are echoed at the next prompt, as
+#
+#     11;rgb:1919/1a1a/1c1c;1R
+#
+# after a release that otherwise finished cleanly. Cosmetic, but it looks
+# like a fault and it is the last thing a release prints.
+#
+# Only the calls whose output reaches a terminal need this; the ones whose
+# output is captured into a variable are not a TTY and never query. Setting
+# it per-call rather than exporting it keeps our own coloured PASS/FAIL
+# output intact.
+cwm_mutate env NO_COLOR=1 gh release create "$TAG" "${ARTIFACTS[@]}" \
     $GH_REPO_ARG \
     --target "$RELEASE_BRANCH" \
     --title "${TAG}" \
