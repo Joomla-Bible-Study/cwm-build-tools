@@ -234,7 +234,9 @@ fi
 
 echo "Downloading ${ASSET} from release ${TAG}..."
 
-if ! gh release download "$TAG" --repo "$REPO" --pattern "$ASSET" --dir "$DIST" --clobber; then
+# NO_COLOR: see the note in release.sh — gh queries the terminal when its
+# output is a TTY and leaves the reply behind.
+if ! env NO_COLOR=1 gh release download "$TAG" --repo "$REPO" --pattern "$ASSET" --dir "$DIST" --clobber; then
     echo "Error: could not download ${ASSET} from ${TAG}." >&2
     echo "       Check the release's assets: gh release view ${TAG} --repo ${REPO}" >&2
     exit 1
