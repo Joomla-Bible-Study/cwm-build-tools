@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.32.1] - 2026-09-01
+
 ### Fixed
+
+- **`gh` no longer leaks its terminal query into the user's prompt.** A release
+  that finished cleanly ended with `11;rgb:1919/1a1a/1c1c;1R` sitting at the
+  shell prompt. Not an error and not release output: it is the terminal's
+  *answer* to two questions `gh` asked and never listened for. With its output
+  on a TTY, gh's markdown renderer probes the background colour (OSC 11) and
+  cursor position (CPR) to pick a theme, then exits — so the replies land in
+  the input buffer and the shell echoes them.
+
+  Harmless, but it is the last thing a release prints, it reads as a fault, and
+  every project using this toolset saw it. `NO_COLOR` is now set per-call on
+  the three `gh` invocations whose output reaches a terminal — `gh release
+  create` in `release.sh`, and `gh release download` in `ars-publish.sh` and
+  `baseline.sh`. The rest capture gh's output into a variable, so they are not
+  a TTY and never query. Per-call rather than exported, so our own coloured
+  PASS/FAIL output is unaffected (#162).
 
 - **An unrecognised pre-release suffix no longer publishes to ARS as stable.**
   `cwm_maturity_for_version()` matched `-alpha`, `-beta` and `-rc` and fell
