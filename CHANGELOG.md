@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.33.0] - 2026-09-02
+
+### Changed
+
+- **A step-7 (ARS) failure no longer kills the pipeline.** Twice — Proclaim
+  10.5.9 and 10.6.0 — `cwm-release` died at the ARS publish with steps 1–6
+  already public, and step 8 never ran, so `versions.json` kept pointing at
+  the previous release while the tag, the GitHub release and the bump commits
+  all said the new one. `verify-update-stream.php` reads `current` to decide
+  what to inspect, so the natural next move after the failure reported a false
+  FAIL against a release that was actually correct.
+
+  Step 7's failure is now captured. Step 8 runs regardless — it records what
+  has already happened, and the repository must not lie about that. Step 9
+  (the announcement) is deferred, since the download it would announce does
+  not exist yet, and the post-flight stream check is skipped for the same
+  reason. The run still exits non-zero, and ends by stating exactly what is
+  done, what is owed, and the two `composer exec` commands that finish it —
+  re-running the publish is safe, since `ars-publish` refuses version
+  collisions (#161).
+
+### Fixed
+
+- **The artifact check can be diagnosed, and survives a transient.** The
+  10.6.0 death was `Error: artifact not found` for a file that was present —
+  byte-identical to the asset step 6 had just uploaded, publishable by hand
+  with the same relative path moments later — and the bare `[ -f ]` said
+  nothing that could distinguish the possibilities. It is now
+  `cwm_require_artifact` in `lib/artifacts.sh`: one retry after a short pause,
+  loud when the file appears on the second look (that message is the evidence
+  the next investigation needs), and on real failure it prints the path as
+  given, the directory it resolved against, and a listing of what that
+  directory actually held. Root cause remains unproven; the next occurrence is
+  survivable and diagnosable in the moment (#160).
+
 ## [1.32.1] - 2026-09-01
 
 ### Fixed
