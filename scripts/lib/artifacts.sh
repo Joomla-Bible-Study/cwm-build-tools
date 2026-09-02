@@ -84,3 +84,63 @@ cwm_select_artifact_for_version() {
 
     printf '%s\n' "${selected[0]}"
 }
+
+# Require that a selected artifact actually exists before publishing it.
+#
+# Written for cwm-build-tools#160: Proclaim 10.6.0 died at the ARS step with
+# "artifact not found" for a file that was demonstrably present — byte-identical
+# to the asset uploaded moments earlier, and publishable by hand with the same
+# relative path immediately after. The bare `[ -f ]` it replaces could only say
+# "not found", with no pwd and no directory listing, which is why that incident
+# ended as a report instead of a diagnosis.
+#
+# Two behaviours follow from that incident:
+#
+#   - One retry, after a short pause. If a stat can fail transiently (an
+#     external volume stalling, an automount hiccup), a second look answers it;
+#     and a success on retry is LOUD, because that message is the evidence the
+#     next investigation needs.
+#   - On real failure, print everything that would have distinguished the
+#     possibilities: the path as given, the directory it resolves against
+#     (pwd), and what is actually in that directory.
+#
+# Arguments:
+#   $1  path to the artifact, as it will be used (relative or absolute)
+#
+# Environment:
+#   CWM_ARTIFACT_RETRY_DELAY  seconds before the second look (default 2)
+#
+# Returns:
+#   0 the file exists (possibly only on the second look), 1 it does not.
+cwm_require_artifact() {
+    local path="$1"
+    local delay="${CWM_ARTIFACT_RETRY_DELAY:-2}"
+
+    if [ -f "$path" ]; then
+        return 0
+    fi
+
+    sleep "$delay"
+
+    if [ -f "$path" ]; then
+        {
+            echo "⚠ Artifact check: ${path} was NOT visible on first stat but appeared"
+            echo "  on retry after ${delay}s. The publish continues, but this is the"
+            echo "  transient-stat failure suspected in cwm-build-tools#160 — note the"
+            echo "  volume this ran from when reporting it."
+        } >&2
+
+        return 0
+    fi
+
+    {
+        echo "Error: artifact not found: ${path}"
+        echo "       looked from:  $(pwd)"
+        echo "       resolves to:  $(cd "$(dirname "$path")" 2>/dev/null && pwd || echo '(directory itself does not resolve)')/$(basename "$path")"
+        echo "       directory contents:"
+        ls -la "$(dirname "$path")" 2>/dev/null | sed 's/^/         /' >&2 \
+            || echo "         (cannot list $(dirname "$path"))"
+    } >&2
+
+    return 1
+}

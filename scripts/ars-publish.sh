@@ -93,6 +93,8 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(pwd)"
 
+# shellcheck source=lib/artifacts.sh
+source "${SCRIPT_DIR}/lib/artifacts.sh"
 # shellcheck source=lib/version.sh
 source "${SCRIPT_DIR}/lib/version.sh"
 # shellcheck source=lib/ars.sh
@@ -150,10 +152,10 @@ if [ -n "$NOTES_FILE" ] && [ ! -f "$NOTES_FILE" ]; then
     exit 1
 fi
 
-if [ ! -f "$ZIP_PATH" ]; then
-    echo "Error: artifact not found: $ZIP_PATH"
-    exit 1
-fi
+# One retry plus full diagnostics on failure — see cwm-build-tools#160, where
+# this refusal fired for a file that was present and killed a release at the
+# one step past the point of no return.
+cwm_require_artifact "$ZIP_PATH" || exit 1
 
 # --- Read config ---
 SITE_URL=$(read_config "ars.endpoint")
