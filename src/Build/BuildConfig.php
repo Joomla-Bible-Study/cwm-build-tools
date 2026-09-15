@@ -38,6 +38,7 @@ final class BuildConfig
      * @param array{mode: string, dirs?: list<string>, command?: string}|null $preBuild Optional pre-build hook.
      * @param array{enabled: bool, timeout: int}|null $versionPrompt Optional 3-way version prompt (manifest / date-stamped / custom). Only fires when interactive AND no `--version` override is given.
      * @param list<array{source: string, output: string}> $verifyMediaSources Source/output directory pairs; every built file in `output` must trace back to a source in `source`.
+     * @param bool                                  $verifyMediaFreshness   When true, also require every built file in `output` to be newer than the source it came from. Reuses the `verifyMediaSources` pairs.
      */
     public function __construct(
         public readonly string $outputDir,
@@ -56,6 +57,7 @@ final class BuildConfig
         public readonly ?array $versionPrompt = null,
         public readonly bool $verifyAssets = false,
         public readonly array $verifyMediaSources = [],
+        public readonly bool $verifyMediaFreshness = false,
     ) {
     }
 
@@ -175,6 +177,7 @@ final class BuildConfig
             versionPrompt:         $versionPrompt,
             verifyAssets:          isset($cfg['verifyAssets']) ? (bool) $cfg['verifyAssets'] : false,
             verifyMediaSources:    self::mediaSourcePairs($cfg),
+            verifyMediaFreshness:  isset($cfg['verifyMediaFreshness']) ? (bool) $cfg['verifyMediaFreshness'] : false,
         );
     }
 

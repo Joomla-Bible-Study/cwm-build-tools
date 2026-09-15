@@ -156,6 +156,7 @@ Consumed by `cwm-build` / `cwm-package`.
 | `preBuild` | `{ mode: "ensure-minified", dirs[] }` or `{ mode: "run", command }` (e.g. `npm run build`). Runs before zipping. |
 | `verifyAssets` | `true` to fail the build if a `joomla.asset.json`-referenced file is missing. See the [JS guide](javascript-and-joomladialog.md#72-buildverifyassets-fail-loudly-if-an-asset-didnt-build). |
 | `verifyMediaSources[]` | `{ source, output }` directory pairs. Fails the build when a file in `output` has no matching source in `source` — i.e. build output that outlived its source. See below. |
+| `verifyMediaFreshness` | `true` to additionally fail the build when a file in `output` is *older* than the source it was built from. Reuses the `verifyMediaSources` pairs. See below. |
 | `versionPrompt` | `{ enabled, timeout }` for the interactive 3-way version prompt. |
 
 #### `verifyMediaSources` — catch build output that outlived its source
@@ -200,6 +201,47 @@ Matching rules:
 Opt-in per project: a tree that keeps hand-maintained files in the same directory
 as build output would fail, so point the pairs at the directories your build
 actually owns.
+
+#### `verifyMediaFreshness` — catch build output the source has moved on from
+
+`verifyMediaSources` catches output whose source is *gone*. This catches output
+whose source *moved on*: `foo.es6.js` is edited, `foo.min.js` is never rebuilt,
+and the zip ships the previous build's behaviour under a new version number.
+
+```json
+"verifyMediaSources": [
+    { "source": "build/media_source/js",  "output": "media/lib_cwmscripture/js" }
+],
+"verifyMediaFreshness": true
+```
+
+It reuses the `verifyMediaSources` pairs — there is no second list to keep in
+step — and it is **off by default**, so turning it on is a deliberate act per
+project rather than a new way for an existing config's next release to fail.
+
+Why it exists: `pkg_cwmscripture` 1.2.13 shipped a child extension whose assets
+were never recompiled, because `subBuild` packages a child without running the
+`build.command` that child declares ([#159](https://github.com/Joomla-Bible-Study/cwm-build-tools/issues/159)).
+Nothing 404s and nothing references the wrong file, so there is no symptom at
+all — until someone reports a bug the source tree says was fixed.
+
+Why timestamps, and why *here*: zip entry mtimes are normalised when the archive
+is written ([#134](https://github.com/Joomla-Bible-Study/cwm-build-tools/issues/134)),
+so a check over the built artifact has no evidence left to work with. This runs
+against the working tree, before the zip exists.
+
+⚠️ It assumes build output is **generated, not committed**. A checkout writes
+every tracked file at roughly the same moment, so in a project that commits its
+minified output, source and output are separated by the order git happened to
+write them rather than by staleness. Where the output is gitignored — every CWM
+project — a fresh clone has nothing to compare until a build has produced it.
+
+The tolerance is 2 seconds, and deliberately small: the gap being caught is a
+forgotten build, which is minutes at the very least. A wider window would start
+excusing the exact case the check exists for.
+
+This is a backstop, not the fix. The defect in #159 is that `subBuild` skips a
+declared `build.command`; this catches the consequence on the way out the door.
 
 ### The `security` block
 

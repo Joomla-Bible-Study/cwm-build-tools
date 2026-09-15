@@ -814,6 +814,265 @@ final class PackageBuilderTest extends TestCase
         ]));
     }
 
+    // ---------------------------------------------------------------------
+    // verifyMediaFreshness — build output the source has moved on from
+    // ---------------------------------------------------------------------
+
+    /**
+     * The pkg_cwmscripture case behind cwm-build-tools#159: the source was
+     * edited, `subBuild` packaged the child without running its `build.command`,
+     * and the zip shipped the previous build's minified output under a new
+     * version number. Nothing 404s, so nothing surfaces until a user reports a
+     * bug the source tree says is fixed.
+     */
+    #[Test]
+    public function failsWhenBuiltMediaIsOlderThanItsSource(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->ageMedia('media/lib_cwmscripture/js/foo.min.js', 3 * 86400);
+
+        $builder = new PackageBuilder($this->mediaFreshnessConfig(), $this->tmpDir);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/foo\.min\.js — 3 days older than/');
+
+        $builder->build();
+    }
+
+    /**
+     * Off unless asked for. The five other CWM projects already declare
+     * `verifyMediaSources` pairs; turning a new failure mode on underneath them
+     * would fail their next release for something they never opted into.
+     */
+    #[Test]
+    public function ignoresStaleOutputWhenTheFreshnessCheckIsOff(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->ageMedia('media/lib_cwmscripture/js/foo.min.js', 3 * 86400);
+
+        $builder = new PackageBuilder($this->mediaParityConfig(), $this->tmpDir);
+
+        $this->expectOutputRegex('/Building lib_cwmscripture-1\.2\.0\.zip/');
+
+        $this->assertFileExists($builder->build());
+    }
+
+    #[Test]
+    public function acceptsOutputBuiltAfterItsSource(): void
+    {
+        $this->seedMediaParityFixture();
+
+        // Explicit rather than relying on write order: the fixture writes every
+        // file inside one second, which the tolerance would pass either way.
+        $this->ageMedia('build/media_source/js/foo.es6.js', 600);
+        $this->ageMedia('build/media_source/css/foo.css', 600);
+
+        $builder = new PackageBuilder($this->mediaFreshnessConfig(), $this->tmpDir);
+
+        $this->expectOutputRegex('/Building lib_cwmscripture-1\.2\.0\.zip/');
+
+        $this->assertFileExists($builder->build());
+    }
+
+    /**
+     * A source edited seconds ago still fails. The gap being caught is a
+     * forgotten build, so the tolerance only absorbs timestamp granularity —
+     * widening it would excuse the exact case this exists for.
+     */
+    #[Test]
+    public function failsOnASourceEditedMinutesAfterTheBuild(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->ageMedia('media/lib_cwmscripture/js/foo.min.js', 300);
+
+        $builder = new PackageBuilder($this->mediaFreshnessConfig(), $this->tmpDir);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/foo\.min\.js — 5 minutes older than/');
+
+        $builder->build();
+    }
+
+    /**
+     * Derived files are build products too: a fresh `.min.js` next to a `.map`
+     * from the previous build still means the artifact disagrees with itself.
+     */
+    #[Test]
+    public function checksEveryDerivedFormNotJustTheMinifiedFile(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->writeFile('media/lib_cwmscripture/js/foo.min.js.map', '{}');
+        $this->ageMedia('media/lib_cwmscripture/js/foo.min.js.map', 86400);
+
+        $builder = new PackageBuilder($this->mediaFreshnessConfig(), $this->tmpDir);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/foo\.min\.js\.map/');
+
+        $builder->build();
+    }
+
+    #[Test]
+    public function reportsEveryStaleFileNotJustTheFirst(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->ageMedia('media/lib_cwmscripture/js/foo.min.js', 86400);
+        $this->ageMedia('media/lib_cwmscripture/css/foo.min.css', 86400);
+
+        $builder = new PackageBuilder($this->mediaFreshnessConfig(), $this->tmpDir);
+
+        try {
+            $builder->build();
+            $this->fail('Expected the freshness check to fail the build.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('js/foo.min.js', $e->getMessage());
+            $this->assertStringContainsString('css/foo.min.css', $e->getMessage());
+        }
+    }
+
+    /**
+     * An output with no source at all is the parity check's finding. Reporting
+     * it here as well would give two errors for one cause.
+     */
+    #[Test]
+    public function leavesOrphanedOutputToTheParityCheck(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->writeFile('media/lib_cwmscripture/js/gone.min.js', 'stale');
+        $this->ageMedia('media/lib_cwmscripture/js/gone.min.js', 86400);
+
+        $builder = new PackageBuilder($this->mediaFreshnessConfig(), $this->tmpDir);
+
+        try {
+            $builder->build();
+            $this->fail('Expected the build to fail.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('no corresponding source', $e->getMessage());
+            $this->assertStringNotContainsString('older than', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function freshnessCheckDefaultsToOff(): void
+    {
+        $config = BuildConfig::fromArray($this->libConfigArray());
+
+        $this->assertFalse($config->verifyMediaFreshness);
+    }
+
+    /**
+     * Pin the tolerance at its own edge. Without this, the one constant whose
+     * value is a judgement call has no test describing what it buys, and the
+     * next person to widen it gets no signal about what that costs.
+     *
+     * A lag of exactly MTIME_TOLERANCE is the last one that passes.
+     */
+    #[Test]
+    public function acceptsOutputLaggingItsSourceByExactlyTheTolerance(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->stampMediaPair(2);
+
+        $builder = new PackageBuilder($this->mediaFreshnessConfig(), $this->tmpDir);
+
+        $this->expectOutputRegex('/Building lib_cwmscripture-1\.2\.0\.zip/');
+
+        $this->assertFileExists($builder->build());
+    }
+
+    #[Test]
+    public function failsOneSecondPastTheTolerance(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->stampMediaPair(3);
+
+        $builder = new PackageBuilder($this->mediaFreshnessConfig(), $this->tmpDir);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/foo\.min\.js — 3 seconds older than/');
+
+        $builder->build();
+    }
+
+    /**
+     * A directory in the *source* dir must not register as a source. If it did,
+     * its name would occupy a base and could vouch for an output file that has
+     * no real source behind it.
+     */
+    #[Test]
+    public function ignoresDirectoriesInsideTheSourceDirectory(): void
+    {
+        $this->seedMediaParityFixture();
+
+        // A subdirectory named so that `sourceBaseName` would yield `bar`.
+        $this->writeFile('build/media_source/js/bar.es6/partial.js', 'export default 2;');
+        $this->writeFile('media/lib_cwmscripture/js/bar.min.js', 'stale');
+
+        $builder = new PackageBuilder($this->mediaFreshnessConfig(), $this->tmpDir);
+
+        // bar.min.js has no source file, so the parity check owns it — it must
+        // not be quietly excused by the directory sharing its base name.
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/no corresponding source/');
+
+        $builder->build();
+    }
+
+    /**
+     * Anchor every source at one instant and every built file $lagSeconds
+     * behind it, so a tolerance test states the exact gap under test rather
+     * than inheriting however long the fixture took to write.
+     */
+    private function stampMediaPair(int $lagSeconds): void
+    {
+        $now = time();
+
+        foreach (['build/media_source/js/foo.es6.js', 'build/media_source/css/foo.css'] as $rel) {
+            touch($this->tmpDir . '/' . $rel, $now);
+        }
+
+        $outputs = [
+            'media/lib_cwmscripture/js/foo.js',
+            'media/lib_cwmscripture/js/foo.min.js',
+            'media/lib_cwmscripture/css/foo.css',
+            'media/lib_cwmscripture/css/foo.min.css',
+        ];
+
+        foreach ($outputs as $rel) {
+            touch($this->tmpDir . '/' . $rel, $now - $lagSeconds);
+        }
+
+        clearstatcache();
+    }
+
+    /**
+     * The parity pairs with the freshness check turned on.
+     */
+    private function mediaFreshnessConfig(): BuildConfig
+    {
+        return BuildConfig::fromArray(array_merge($this->libConfigArray(), [
+            'preBuild'             => null,
+            'verifyMediaSources'   => [
+                ['source' => 'build/media_source/js',  'output' => 'media/lib_cwmscripture/js'],
+                ['source' => 'build/media_source/css', 'output' => 'media/lib_cwmscripture/css'],
+            ],
+            'verifyMediaFreshness' => true,
+        ]));
+    }
+
+    /**
+     * Backdate a fixture file by $seconds, so a test states the age gap it means
+     * rather than depending on how long the fixture took to write.
+     */
+    private function ageMedia(string $relPath, int $seconds): void
+    {
+        $path = $this->tmpDir . '/' . $relPath;
+
+        $this->assertFileExists($path);
+        touch($path, time() - $seconds);
+        clearstatcache(true, $path);
+    }
+
     /**
      * A minimal project with one live JS source and one live CSS source, plus the
      * manifest and the outputs a real build would leave behind.
