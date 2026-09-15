@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`build.verifyMediaFreshness`** — fails the build when a file in a
+  `verifyMediaSources` `output` directory is *older* than the source it was
+  built from. `verifyMediaSources` already catches output whose source is gone;
+  this catches output whose source moved on: a source is edited, the minified
+  sibling is never rebuilt, and the zip ships the previous build's behaviour
+  under a new version number. Nothing 404s and nothing references the wrong
+  file, so there is no symptom until someone reports a bug the source tree says
+  was fixed — which is what `pkg_cwmscripture` 1.2.13 did (#159).
+
+  Reuses the existing `verifyMediaSources` pairs, and is **off by default**, so
+  no existing config gains a new way to fail its next release.
+
+  ⚠️ The check is timestamps against the **working tree**, on purpose: zip entry
+  mtimes are normalised when the archive is written (#134), so a check over the
+  built artifact has no evidence left. It assumes build output is generated
+  rather than committed — see `docs/configuration.md`.
+
+  This is a backstop, not the fix for #159, which is that `subBuild` skips a
+  child's declared `build.command`.
+
 ## [1.33.0] - 2026-09-02
 
 ### Changed

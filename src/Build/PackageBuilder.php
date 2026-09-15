@@ -29,6 +29,16 @@ use ZipArchive;
  */
 final class PackageBuilder
 {
+    /**
+     * Seconds a built file may lag its source before it counts as stale.
+     *
+     * Small on purpose. The gap this catches is a forgotten build, which is
+     * minutes at the very least; a larger window would start excusing exactly
+     * the case of editing a source and packaging without rebuilding. This only
+     * absorbs filesystem timestamp granularity and same-moment writes.
+     */
+    private const MTIME_TOLERANCE = 2;
+
     /** Files dropped from any `vendor/` subtree when vendorPrune is on. */
     private const VENDOR_PRUNE_DOC_NAMES = [
         'README', 'CHANGELOG', 'BACKERS', 'AUTHORS', 'CONTRIBUTING', 'UPGRADE', 'SECURITY', 'LICENSE', 'COPYING',
@@ -83,6 +93,10 @@ final class PackageBuilder
 
         if ($this->config->verifyMediaSources !== []) {
             $this->verifyMediaSourceParity();
+
+            if ($this->config->verifyMediaFreshness) {
+                $this->verifyMediaFreshness();
+            }
         }
 
         $outputDir = $this->resolve($this->config->outputDir);
@@ -429,6 +443,131 @@ final class PackageBuilder
 
         // Strip the ES-module marker so foo.es6.js and foo.js agree on `foo`.
         return preg_replace('/\.(es6|esm)$/i', '', $base) ?? $base;
+    }
+
+    /**
+     * Refuse to package a built file older than the source it was built from.
+     *
+     * {@see verifyMediaSourceParity()} catches output whose source is *gone*.
+     * This catches output whose source *moved on*: `foo.es6.js` is edited,
+     * `foo.min.js` is never rebuilt, and the zip ships last week's behaviour
+     * under this week's version number. Nothing 404s and nothing references the
+     * wrong file, so there is no symptom until someone reports a bug the source
+     * tree says was fixed.
+     *
+     * ⚠️ Timestamps are the check *here* because they cannot be the check
+     * later. Zip entry mtimes are normalised when the archive is written, so by
+     * the time an artifact exists the evidence is already gone. That is why
+     * this runs against the working tree rather than over the built zip.
+     *
+     * ⚠️ Assumes build output is generated, not committed. A checkout writes
+     * every tracked file at roughly the same moment, so in a project that
+     * commits its minified output, source and output are separated by the order
+     * git happened to write them and not by staleness. Where the output is
+     * gitignored — every CWM project — a fresh clone has nothing here to
+     * compare until a build has produced it, and the check is meaningful.
+     *
+     * Only the top level of each output directory is walked, matching the
+     * parity check: subdirectories are third-party payloads with no
+     * `media_source` counterpart.
+     *
+     * @throws \RuntimeException When a built file is older than its source.
+     */
+    private function verifyMediaFreshness(): void
+    {
+        $stale = [];
+
+        foreach ($this->config->verifyMediaSources as $pair) {
+            $outputDir = $this->resolve($pair['output']);
+            $sourceDir = $this->resolve($pair['source']);
+
+            // A missing source dir is verifyMediaSourceParity()'s error to
+            // raise, and it has already run by the time we get here.
+            if (!is_dir($outputDir) || !is_dir($sourceDir)) {
+                continue;
+            }
+
+            // Newest source per base name. `foo.es6.js` and `foo.scss` both
+            // feed `foo`, and a rebuild is owed if either of them has moved.
+            $sourceTimes = [];
+
+            foreach ((array) scandir($sourceDir) as $entry) {
+                $path = $sourceDir . '/' . $entry;
+
+                if (!is_file($path)) {
+                    continue;
+                }
+
+                $base = self::sourceBaseName($entry);
+                $time = (int) filemtime($path);
+
+                if (!isset($sourceTimes[$base]) || $time > $sourceTimes[$base]['time']) {
+                    $sourceTimes[$base] = ['time' => $time, 'file' => $entry];
+                }
+            }
+
+            foreach ((array) scandir($outputDir) as $entry) {
+                $path = $outputDir . '/' . $entry;
+
+                if (!is_file($path)) {
+                    continue;
+                }
+
+                $base = self::outputBaseName($entry);
+
+                // null = not a build product. An unmatched base = an orphan,
+                // which the parity check reports; do not report it twice.
+                if ($base === null || !isset($sourceTimes[$base])) {
+                    continue;
+                }
+
+                $sourceTime = $sourceTimes[$base]['time'];
+                $outputTime = (int) filemtime($path);
+
+                if ($outputTime + self::MTIME_TOLERANCE >= $sourceTime) {
+                    continue;
+                }
+
+                $stale[] = sprintf(
+                    '%s/%s — %s older than %s/%s',
+                    $pair['output'],
+                    $entry,
+                    self::describeGap($sourceTime - $outputTime),
+                    $pair['source'],
+                    $sourceTimes[$base]['file']
+                );
+            }
+        }
+
+        if ($stale === []) {
+            return;
+        }
+
+        throw new \RuntimeException(
+            "Media freshness check failed — built files older than their source:\n  - "
+            . implode("\n  - ", $stale)
+            . "\n\nThe source was edited and the build never re-ran, so packaging now ships the\n"
+            . "previous build's behaviour under this version number. Run the project's asset\n"
+            . "build and package again.\n\n"
+            . "If a build genuinely did run, check that it writes the files listed above —\n"
+            . "a build step that silently skips a target leaves exactly this trace."
+        );
+    }
+
+    /**
+     * Describe an age gap in the largest unit that still reads honestly.
+     */
+    private static function describeGap(int $seconds): string
+    {
+        foreach ([86400 => 'day', 3600 => 'hour', 60 => 'minute'] as $unit => $label) {
+            if ($seconds >= $unit) {
+                $count = intdiv($seconds, $unit);
+
+                return $count . ' ' . $label . ($count === 1 ? '' : 's');
+            }
+        }
+
+        return $seconds . ' second' . ($seconds === 1 ? '' : 's');
     }
 
     /**
