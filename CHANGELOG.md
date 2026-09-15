@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.34.0] - 2026-09-15
+
 ### Added
 
 - **`build.verifyMediaFreshness`** — fails the build when a file in a
