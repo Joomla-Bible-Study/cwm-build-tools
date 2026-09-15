@@ -961,6 +961,91 @@ final class PackageBuilderTest extends TestCase
     }
 
     /**
+     * Pin the tolerance at its own edge. Without this, the one constant whose
+     * value is a judgement call has no test describing what it buys, and the
+     * next person to widen it gets no signal about what that costs.
+     *
+     * A lag of exactly MTIME_TOLERANCE is the last one that passes.
+     */
+    #[Test]
+    public function acceptsOutputLaggingItsSourceByExactlyTheTolerance(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->stampMediaPair(2);
+
+        $builder = new PackageBuilder($this->mediaFreshnessConfig(), $this->tmpDir);
+
+        $this->expectOutputRegex('/Building lib_cwmscripture-1\.2\.0\.zip/');
+
+        $this->assertFileExists($builder->build());
+    }
+
+    #[Test]
+    public function failsOneSecondPastTheTolerance(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->stampMediaPair(3);
+
+        $builder = new PackageBuilder($this->mediaFreshnessConfig(), $this->tmpDir);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/foo\.min\.js — 3 seconds older than/');
+
+        $builder->build();
+    }
+
+    /**
+     * A directory in the *source* dir must not register as a source. If it did,
+     * its name would occupy a base and could vouch for an output file that has
+     * no real source behind it.
+     */
+    #[Test]
+    public function ignoresDirectoriesInsideTheSourceDirectory(): void
+    {
+        $this->seedMediaParityFixture();
+
+        // A subdirectory named so that `sourceBaseName` would yield `bar`.
+        $this->writeFile('build/media_source/js/bar.es6/partial.js', 'export default 2;');
+        $this->writeFile('media/lib_cwmscripture/js/bar.min.js', 'stale');
+
+        $builder = new PackageBuilder($this->mediaFreshnessConfig(), $this->tmpDir);
+
+        // bar.min.js has no source file, so the parity check owns it — it must
+        // not be quietly excused by the directory sharing its base name.
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/no corresponding source/');
+
+        $builder->build();
+    }
+
+    /**
+     * Anchor every source at one instant and every built file $lagSeconds
+     * behind it, so a tolerance test states the exact gap under test rather
+     * than inheriting however long the fixture took to write.
+     */
+    private function stampMediaPair(int $lagSeconds): void
+    {
+        $now = time();
+
+        foreach (['build/media_source/js/foo.es6.js', 'build/media_source/css/foo.css'] as $rel) {
+            touch($this->tmpDir . '/' . $rel, $now);
+        }
+
+        $outputs = [
+            'media/lib_cwmscripture/js/foo.js',
+            'media/lib_cwmscripture/js/foo.min.js',
+            'media/lib_cwmscripture/css/foo.css',
+            'media/lib_cwmscripture/css/foo.min.css',
+        ];
+
+        foreach ($outputs as $rel) {
+            touch($this->tmpDir . '/' . $rel, $now - $lagSeconds);
+        }
+
+        clearstatcache();
+    }
+
+    /**
      * The parity pairs with the freshness check turned on.
      */
     private function mediaFreshnessConfig(): BuildConfig
