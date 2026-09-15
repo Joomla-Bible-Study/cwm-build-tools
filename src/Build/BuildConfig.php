@@ -37,7 +37,7 @@ final class BuildConfig
      * @param list<string>                          $includeRootExtensions  When set with `includeRoots`, allows root-level files with these extensions through the include filter.
      * @param array{mode: string, dirs?: list<string>, command?: string}|null $preBuild Optional pre-build hook.
      * @param array{enabled: bool, timeout: int}|null $versionPrompt Optional 3-way version prompt (manifest / date-stamped / custom). Only fires when interactive AND no `--version` override is given.
-     * @param list<array{source: string, output: string}> $verifyMediaSources Source/output directory pairs; every built file in `output` must trace back to a source in `source`.
+     * @param list<array{source: string, output: string, ignore: list<string>}> $verifyMediaSources Source/output directory pairs; every built file in `output` must trace back to a source in `source`. `ignore` names files in `output` that are hand-maintained or vendored and so have no source.
      * @param bool                                  $verifyMediaFreshness   When true, also require every built file in `output` to be newer than the source it came from. Reuses the `verifyMediaSources` pairs.
      */
     public function __construct(
@@ -185,7 +185,7 @@ final class BuildConfig
      * Validate `verifyMediaSources`: a list of {source, output} directory pairs.
      *
      * @param  array<string, mixed> $cfg
-     * @return list<array{source: string, output: string}>
+     * @return list<array{source: string, output: string, ignore: list<string>}>
      */
     private static function mediaSourcePairs(array $cfg): array
     {
@@ -215,7 +215,31 @@ final class BuildConfig
                 );
             }
 
-            $pairs[] = ['source' => $source, 'output' => $output];
+            // Files in `output` that are hand-maintained or vendored: they have no
+            // source and never will, so neither check has anything to say about
+            // them. Without this the only options for such a directory are to
+            // fail every build or to declare no pair at all.
+            $ignore = [];
+
+            if (isset($pair['ignore'])) {
+                if (!is_array($pair['ignore'])) {
+                    throw new \InvalidArgumentException(
+                        "build.verifyMediaSources[$i] `ignore` must be an array of file names"
+                    );
+                }
+
+                foreach ($pair['ignore'] as $name) {
+                    if (!is_string($name) || trim($name) === '') {
+                        throw new \InvalidArgumentException(
+                            "build.verifyMediaSources[$i] `ignore` entries must be non-empty strings"
+                        );
+                    }
+
+                    $ignore[] = $name;
+                }
+            }
+
+            $pairs[] = ['source' => $source, 'output' => $output, 'ignore' => $ignore];
         }
 
         return $pairs;

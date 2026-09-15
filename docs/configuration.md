@@ -198,9 +198,36 @@ Matching rules:
 - A pair whose `output` dir does not exist is skipped; a missing `source` dir is
   an error, since that is a config typo.
 
-Opt-in per project: a tree that keeps hand-maintained files in the same directory
-as build output would fail, so point the pairs at the directories your build
-actually owns.
+Opt-in per project. A tree that keeps hand-maintained files in the same directory
+as build output would fail, so either point the pairs at the directories your
+build actually owns, or name those files in `ignore` (below).
+
+##### `ignore` — hand-maintained or vendored files in an output directory
+
+Some output directories are genuinely mixed. `cwmconnect`'s
+`media/com_cwmconnect/js` holds a vendored `jscolor.min.js` and two hand-written
+scripts — one referenced from ten PHP files — next to its rollup output. All
+three are live code that no `media_source` file will ever reproduce, so parity
+called them orphans, and the only choices were to fail every build or to declare
+no pair at all and check nothing.
+
+```json
+"verifyMediaSources": [
+    {
+        "source": "build/media_source/com_cwmconnect/js",
+        "output": "media/com_cwmconnect/js",
+        "ignore": ["jscolor.min.js", "churchdirectory.js", "geoupdate.js"]
+    }
+]
+```
+
+Entries are exact file names in the `output` directory, and they are skipped by
+**both** checks — a hand-maintained file has no source, so neither "where did
+this come from" nor "is this older than its source" has anything to say about it.
+
+⚠️ `ignore` exempts the files it names and nothing else; every other file in the
+directory is still checked. Keep the list short and specific. A list that grows
+until the check is silent is worse than no check, because it still looks like one.
 
 #### `verifyMediaFreshness` — catch build output the source has moved on from
 

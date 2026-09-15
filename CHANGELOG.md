@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`build.verifyMediaSources[].ignore`** — names files in an `output` directory
+  that are hand-maintained or vendored, and so have no source by design. Skipped
+  by both the parity and freshness checks.
+
+  Some output directories are genuinely mixed, and until now that left no good
+  option. `cwmconnect`'s `media/com_cwmconnect/js` holds a vendored
+  `jscolor.min.js` and two hand-written scripts — one referenced from ten PHP
+  files — beside its rollup output. Parity called all three orphans, so the
+  choice was to fail every build or to declare no pair at all and check nothing.
+
+  ⚠️ It exempts the files it names and nothing else; everything else in the
+  directory is still checked. A list that grows until the check is silent is
+  worse than no check, because it still looks like one.
+
 ## [1.34.0] - 2026-09-15
 
 ### Added

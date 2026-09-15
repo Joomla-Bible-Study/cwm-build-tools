@@ -416,6 +416,11 @@ final class PackageBuilder
                     continue;
                 }
 
+                // Declared hand-maintained or vendored: no source by design.
+                if (\in_array($entry, $pair['ignore'], true)) {
+                    continue;
+                }
+
                 $orphans[] = $pair['output'] . '/' . $entry;
             }
         }
@@ -518,6 +523,12 @@ final class PackageBuilder
                 // null = not a build product. An unmatched base = an orphan,
                 // which the parity check reports; do not report it twice.
                 if ($base === null || !isset($sourceTimes[$base])) {
+                    continue;
+                }
+
+                // Declared hand-maintained: a source sharing its base name is a
+                // coincidence, not the thing it was built from.
+                if (\in_array($entry, $pair['ignore'], true)) {
                     continue;
                 }
 
