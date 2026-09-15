@@ -1073,6 +1073,120 @@ final class PackageBuilderTest extends TestCase
         clearstatcache(true, $path);
     }
 
+    // ---------------------------------------------------------------------
+    // verifyMediaSources[].ignore — hand-maintained files in an output dir
+    // ---------------------------------------------------------------------
+
+    /**
+     * The cwmconnect case: media/com_cwmconnect/js holds three committed files
+     * (a vendored jscolor.min.js and two hand-written scripts referenced from
+     * ten PHP files) alongside the rollup output. All three are live code with
+     * no media_source counterpart, so parity called them orphans and the only
+     * choices were to fail every build or declare no pair at all.
+     */
+    #[Test]
+    public function ignoredOutputIsNotAnOrphan(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->writeFile('media/lib_cwmscripture/js/jscolor.min.js', 'vendored');
+        $this->writeFile('media/lib_cwmscripture/js/hand-written.js', 'by hand');
+
+        $config = BuildConfig::fromArray(array_merge($this->libConfigArray(), [
+            'preBuild'           => null,
+            'verifyMediaSources' => [[
+                'source' => 'build/media_source/js',
+                'output' => 'media/lib_cwmscripture/js',
+                'ignore' => ['jscolor.min.js', 'hand-written.js'],
+            ]],
+        ]));
+
+        $builder = new PackageBuilder($config, $this->tmpDir);
+
+        $this->expectOutputRegex('/Building lib_cwmscripture-1\.2\.0\.zip/');
+
+        $this->assertFileExists($builder->build());
+    }
+
+    /**
+     * ⚠️ ignore exempts the files it names and nothing else. A list that grows
+     * until the check is silent would be worse than no check.
+     */
+    #[Test]
+    public function ignoreDoesNotExemptEverythingElse(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->writeFile('media/lib_cwmscripture/js/jscolor.min.js', 'vendored');
+        $this->writeFile('media/lib_cwmscripture/js/genuinely-orphaned.min.js', 'stale');
+
+        $config = BuildConfig::fromArray(array_merge($this->libConfigArray(), [
+            'preBuild'           => null,
+            'verifyMediaSources' => [[
+                'source' => 'build/media_source/js',
+                'output' => 'media/lib_cwmscripture/js',
+                'ignore' => ['jscolor.min.js'],
+            ]],
+        ]));
+
+        $builder = new PackageBuilder($config, $this->tmpDir);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/genuinely-orphaned\.min\.js/');
+
+        $builder->build();
+    }
+
+    /**
+     * A hand-maintained file whose name happens to match a source must not be
+     * measured against it — the resemblance is a coincidence, not a build step.
+     */
+    #[Test]
+    public function ignoredOutputIsNotCheckedForFreshness(): void
+    {
+        $this->seedMediaParityFixture();
+        $this->ageMedia('media/lib_cwmscripture/js/foo.min.js', 30 * 86400);
+
+        $config = BuildConfig::fromArray(array_merge($this->libConfigArray(), [
+            'preBuild'             => null,
+            'verifyMediaSources'   => [[
+                'source' => 'build/media_source/js',
+                'output' => 'media/lib_cwmscripture/js',
+                'ignore' => ['foo.min.js'],
+            ]],
+            'verifyMediaFreshness' => true,
+        ]));
+
+        $builder = new PackageBuilder($config, $this->tmpDir);
+
+        $this->expectOutputRegex('/Building lib_cwmscripture-1\.2\.0\.zip/');
+
+        $this->assertFileExists($builder->build());
+    }
+
+    #[Test]
+    public function ignoreDefaultsToEmpty(): void
+    {
+        $config = BuildConfig::fromArray(array_merge($this->libConfigArray(), [
+            'verifyMediaSources' => [['source' => 'build/media_source/js', 'output' => 'media/js']],
+        ]));
+
+        $this->assertSame([], $config->verifyMediaSources[0]['ignore']);
+    }
+
+    #[Test]
+    public function rejectsMalformedIgnoreList(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/`ignore` must be an array/');
+
+        BuildConfig::fromArray(array_merge($this->libConfigArray(), [
+            'verifyMediaSources' => [[
+                'source' => 'build/media_source/js',
+                'output' => 'media/js',
+                'ignore' => 'jscolor.min.js',
+            ]],
+        ]));
+    }
+
     /**
      * A minimal project with one live JS source and one live CSS source, plus the
      * manifest and the outputs a real build would leave behind.
