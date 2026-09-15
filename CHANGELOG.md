@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.35.0] - 2026-09-15
+
 ### Added
 
 - **`build.verifyMediaSources[].ignore`** — names files in an `output` directory
