@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`templates/build-scss.js`** — compiles Sass entry points to compressed
+  CSS via the `sass` npm package (Dart Sass). Unlike `build-css.js`, there is
+  no separate unminified copy: `style: 'compressed'` is the whole build,
+  since an `.scss` source is never valid CSS on its own. Skips partials
+  (`_`-prefixed filenames, the Sass convention for @use/@forward-only files)
+  and supports `SOURCE_DIR == OUTPUT_DIR` for a project that keeps `.scss`
+  and compiled `.css` side by side rather than split across
+  `build/media_source/` and `media/`.
+
+- **`templates/minify-js.js`** — per-file, in-place Terser minification with
+  no bundling and no scope change, for extensions whose JS is not written as
+  rollup-bundleable `*.es6.js`/`*.es6.mjs` modules. `rollup.config.js` wraps
+  each file in its own IIFE, which silently breaks a legacy pattern several
+  CWM extensions still use — a top-level `var ns = {}` (or an unguarded
+  assignment) that relies on becoming `window.ns` in a plain `<script>` tag
+  becomes an IIFE-local variable instead, so a sibling script reading
+  `window.ns` sees nothing. Also supports `SOURCE_DIR == OUTPUT_DIR`. Direct
+  replacement for `akeeba/buildfiles-public`'s `build-js.mjs`.
+
+  Both came out of restoring a working CSS/JS build for `akeeba/release-system`
+  after its `buildfiles`/Phing pipeline was dropped (see the `1.36.0` entry
+  below for the packaging half of that migration) — `cwm-package` zips
+  whatever is committed, it never recompiled SCSS or minified JS, and nothing
+  else in this repo did either; every existing consumer (`lib_cwmscripture`,
+  `Proclaim`, `CWMLivingWord`) ships plain CSS and rollup-friendly JS, so
+  neither gap had come up before.
+
 ## [1.36.0] - 2026-09-25
 
 ### Added
