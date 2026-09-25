@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.37.0] - 2026-09-25
+
 ### Added
 
 - **`templates/build-scss.js`** — compiles Sass entry points to compressed
