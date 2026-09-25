@@ -27,8 +27,10 @@ require_once __DIR__ . '/../src/Build/Prompt.php';
 require_once __DIR__ . '/../src/Build/PackageBuilder.php';
 require_once __DIR__ . '/../src/Build/PackageConfig.php';
 require_once __DIR__ . '/../src/Config/ProfileResolver.php';
+require_once __DIR__ . '/../src/Release/DateTokenExpander.php';
 require_once __DIR__ . '/../src/Release/TokenSubstituter.php';
 require_once __DIR__ . '/../src/Build/ChildTokenSubstitution.php';
+require_once __DIR__ . '/../src/Build/PackageManifestSubstitution.php';
 require_once __DIR__ . '/../src/Build/Packager.php';
 
 use CWM\BuildTools\Build\BuildConfig;

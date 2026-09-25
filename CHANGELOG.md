@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.36.0] - 2026-09-25
+
+### Added
+
+- **`package.manifestTokens`** — resolves placeholder tokens (e.g. Akeeba's
+  own `##VERSION##`/`##DATE##` convention) in a package manifest before it's
+  written into the assembled zip, via the new `PackageManifestSubstitution`
+  (apply → build → restore, mirroring `ChildTokenSubstitution`). The
+  committed manifest template keeps its tokens forever; only the built zip
+  ever sees the resolved value. `Packager` now errors clearly if a build
+  runs without `--version` while the manifest's own `<version>` is still a
+  literal, unresolved token, instead of silently shipping it.
+
+  Came out of getting `akeeba/release-system`'s `pkg_ars` building through
+  `cwm-package` instead of `akeeba/buildfiles-public`'s Phing pipeline
+  (which is missing classes its own `LinkTask.php` requires, with no
+  replacement shipped). `build/templates/pkg_ars.xml` uses Akeeba's
+  `##TOKEN##` convention, not `__DEPLOY_VERSION__`, so it needed a second
+  substitution surface rather than reuse of the existing one as-is.
+
+- **`TokenSubstituter` `tokens` map** — generalizes the single hardcoded
+  `token` config field into an optional `tokens: {placeholder: template}`
+  map, where a template is a literal, `{version}`, or `{date}`/`{date:FORMAT}`.
+  Existing `token` config is unchanged and unaffected — normalized
+  internally to a one-entry map, so `__DEPLOY_VERSION__` consumers see no
+  behavior change. `{date}`/`{date:FORMAT}` expansion is now shared via the
+  new `DateTokenExpander`, extracted from `VersionTracker::expandDevSuffix()`
+  rather than duplicated.
+
+- **`package.extraFiles`** — a `list<{from, to}>` of top-level files added to
+  the assembled zip verbatim, for files that don't fit `installer` (single
+  scriptfile) or `languageFiles` (INI-specific). `pkg_ars` ships
+  `component/LICENSE.txt` at its package root this way.
+
 ## [1.35.0] - 2026-09-15
 
 ### Added

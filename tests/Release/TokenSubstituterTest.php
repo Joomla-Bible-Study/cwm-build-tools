@@ -245,10 +245,116 @@ final class TokenSubstituterTest extends TestCase
         self::assertStringContainsString('1.2.3', $this->read('build/script.php'));
     }
 
+    // -----------------------------------------------------------------
+    // generalized `tokens` map — superset of the legacy singular `token`
+    // -----------------------------------------------------------------
+
+    #[Test]
+    public function tokens_map_replaces_each_placeholder_with_its_own_resolved_value(): void
+    {
+        $this->seedFile('build/templates/pkg.xml', "<version>##VERSION##</version>\n<creationDate>##DATE##</creationDate>\n");
+
+        $this->runQuiet(fn () => $this->substituter([
+            'paths'      => ['build/templates/'],
+            'extensions' => ['xml'],
+            'tokens'     => ['##VERSION##' => '{version}', '##DATE##' => '{date:Y-m-d}'],
+        ])->substitute('7.5.2'));
+
+        $contents = $this->read('build/templates/pkg.xml');
+        self::assertStringContainsString('<version>7.5.2</version>', $contents);
+        self::assertStringContainsString('<creationDate>' . date('Y-m-d') . '</creationDate>', $contents);
+    }
+
+    #[Test]
+    public function tokens_map_supports_a_literal_replacement_value(): void
+    {
+        $this->seedFile('build/templates/pkg.xml', "<packager>##VENDOR##</packager>\n");
+
+        $this->runQuiet(fn () => $this->substituter([
+            'paths'      => ['build/templates/'],
+            'extensions' => ['xml'],
+            'tokens'     => ['##VENDOR##' => 'Akeeba Ltd'],
+        ])->substitute('7.5.2'));
+
+        self::assertStringContainsString('<packager>Akeeba Ltd</packager>', $this->read('build/templates/pkg.xml'));
+    }
+
+    #[Test]
+    public function tokens_map_takes_precedence_over_legacy_token_when_both_are_configured(): void
+    {
+        $this->seedFile('build/templates/pkg.xml', "##VERSION## __DEPLOY_VERSION__\n");
+
+        $this->runQuiet(fn () => $this->substituter([
+            'paths'      => ['build/templates/'],
+            'extensions' => ['xml'],
+            'token'      => '__DEPLOY_VERSION__',
+            'tokens'     => ['##VERSION##' => '{version}'],
+        ])->substitute('7.5.2'));
+
+        $contents = $this->read('build/templates/pkg.xml');
+        self::assertStringContainsString('7.5.2 __DEPLOY_VERSION__', $contents, 'tokens wins; legacy token is not also applied');
+    }
+
+    #[Test]
+    public function empty_tokens_map_falls_back_to_legacy_token(): void
+    {
+        $this->seedFile('src/Model.php', "<?php\n// __DEPLOY_VERSION__\n");
+
+        $touched = $this->runQuiet(fn () => $this->substituter([
+            'paths'  => ['src/'],
+            'tokens' => [],
+        ])->substitute('1.2.3'));
+
+        self::assertCount(1, $touched);
+        self::assertStringContainsString('1.2.3', $this->read('src/Model.php'));
+    }
+
+    #[Test]
+    public function files_containing_token_reports_files_matching_any_configured_placeholder(): void
+    {
+        $this->seedFile('build/templates/a.xml', '##VERSION##');
+        $this->seedFile('build/templates/b.xml', '##DATE##');
+        $this->seedFile('build/templates/c.xml', 'nothing here');
+
+        $found = $this->substituter([
+            'paths'      => ['build/templates/'],
+            'extensions' => ['xml'],
+            'tokens'     => ['##VERSION##' => '{version}', '##DATE##' => '{date}'],
+        ])->filesContainingToken();
+
+        self::assertCount(2, $found);
+    }
+
+    // --- resolveValue() (shared by TokenSubstituter and PackageManifestSubstitution) ---
+
+    #[Test]
+    public function resolve_value_returns_the_version_for_the_version_placeholder(): void
+    {
+        self::assertSame('7.5.2', TokenSubstituter::resolveValue('{version}', '7.5.2'));
+    }
+
+    #[Test]
+    public function resolve_value_expands_a_bare_date_placeholder_to_ymd(): void
+    {
+        self::assertSame(date('Ymd'), TokenSubstituter::resolveValue('{date}', '7.5.2'));
+    }
+
+    #[Test]
+    public function resolve_value_expands_a_formatted_date_placeholder(): void
+    {
+        self::assertSame(date('Y-m-d'), TokenSubstituter::resolveValue('{date:Y-m-d}', '7.5.2'));
+    }
+
+    #[Test]
+    public function resolve_value_returns_anything_else_literally(): void
+    {
+        self::assertSame('Akeeba Ltd', TokenSubstituter::resolveValue('Akeeba Ltd', '7.5.2'));
+    }
+
     // --- helpers ----------------------------------------------------------
 
     /**
-     * @param array{token?: string, paths?: list<string>, extensions?: list<string>} $config
+     * @param array{token?: string, tokens?: array<string, string>, paths?: list<string>, extensions?: list<string>} $config
      */
     private function substituter(array $config): TokenSubstituter
     {

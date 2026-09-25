@@ -503,18 +503,10 @@ final class VersionTracker
      */
     private function expandDevSuffix(string $suffix, string $date): string
     {
-        if (!str_contains($suffix, '{date')) {
-            return $suffix;
-        }
-
         $stamp = \DateTimeImmutable::createFromFormat('Y-m-d', $date)
             ?: new \DateTimeImmutable($date);
 
-        return (string) preg_replace_callback(
-            '/\{date(?::([^}]+))?\}/',
-            static fn (array $m): string => $stamp->format($m[1] ?? 'Ymd'),
-            $suffix,
-        );
+        return DateTokenExpander::expand($suffix, $stamp);
     }
 
     /**
