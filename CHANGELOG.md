@@ -17,7 +17,167 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   one string mean both that and "shipped edge build". An edge build held back
   from the public is `-alpha` (#155).
 
+## [1.37.0] - 2026-09-25
+
+### Added
+
+- **`templates/build-scss.js`** — compiles Sass entry points to compressed
+  CSS via the `sass` npm package (Dart Sass). Unlike `build-css.js`, there is
+  no separate unminified copy: `style: 'compressed'` is the whole build,
+  since an `.scss` source is never valid CSS on its own. Skips partials
+  (`_`-prefixed filenames, the Sass convention for @use/@forward-only files)
+  and supports `SOURCE_DIR == OUTPUT_DIR` for a project that keeps `.scss`
+  and compiled `.css` side by side rather than split across
+  `build/media_source/` and `media/`.
+
+- **`templates/minify-js.js`** — per-file, in-place Terser minification with
+  no bundling and no scope change, for extensions whose JS is not written as
+  rollup-bundleable `*.es6.js`/`*.es6.mjs` modules. `rollup.config.js` wraps
+  each file in its own IIFE, which silently breaks a legacy pattern several
+  CWM extensions still use — a top-level `var ns = {}` (or an unguarded
+  assignment) that relies on becoming `window.ns` in a plain `<script>` tag
+  becomes an IIFE-local variable instead, so a sibling script reading
+  `window.ns` sees nothing. Also supports `SOURCE_DIR == OUTPUT_DIR`. Direct
+  replacement for `akeeba/buildfiles-public`'s `build-js.mjs`.
+
+  Both came out of restoring a working CSS/JS build for `akeeba/release-system`
+  after its `buildfiles`/Phing pipeline was dropped (see the `1.36.0` entry
+  below for the packaging half of that migration) — `cwm-package` zips
+  whatever is committed, it never recompiled SCSS or minified JS, and nothing
+  else in this repo did either; every existing consumer (`lib_cwmscripture`,
+  `Proclaim`, `CWMLivingWord`) ships plain CSS and rollup-friendly JS, so
+  neither gap had come up before.
+
+## [1.36.0] - 2026-09-25
+
+### Added
+
+- **`package.manifestTokens`** — resolves placeholder tokens (e.g. Akeeba's
+  own `##VERSION##`/`##DATE##` convention) in a package manifest before it's
+  written into the assembled zip, via the new `PackageManifestSubstitution`
+  (apply → build → restore, mirroring `ChildTokenSubstitution`). The
+  committed manifest template keeps its tokens forever; only the built zip
+  ever sees the resolved value. `Packager` now errors clearly if a build
+  runs without `--version` while the manifest's own `<version>` is still a
+  literal, unresolved token, instead of silently shipping it.
+
+  Came out of getting `akeeba/release-system`'s `pkg_ars` building through
+  `cwm-package` instead of `akeeba/buildfiles-public`'s Phing pipeline
+  (which is missing classes its own `LinkTask.php` requires, with no
+  replacement shipped). `build/templates/pkg_ars.xml` uses Akeeba's
+  `##TOKEN##` convention, not `__DEPLOY_VERSION__`, so it needed a second
+  substitution surface rather than reuse of the existing one as-is.
+
+- **`TokenSubstituter` `tokens` map** — generalizes the single hardcoded
+  `token` config field into an optional `tokens: {placeholder: template}`
+  map, where a template is a literal, `{version}`, or `{date}`/`{date:FORMAT}`.
+  Existing `token` config is unchanged and unaffected — normalized
+  internally to a one-entry map, so `__DEPLOY_VERSION__` consumers see no
+  behavior change. `{date}`/`{date:FORMAT}` expansion is now shared via the
+  new `DateTokenExpander`, extracted from `VersionTracker::expandDevSuffix()`
+  rather than duplicated.
+
+- **`package.extraFiles`** — a `list<{from, to}>` of top-level files added to
+  the assembled zip verbatim, for files that don't fit `installer` (single
+  scriptfile) or `languageFiles` (INI-specific). `pkg_ars` ships
+  `component/LICENSE.txt` at its package root this way.
+
+## [1.35.0] - 2026-09-15
+
+### Added
+
+- **`build.verifyMediaSources[].ignore`** — names files in an `output` directory
+  that are hand-maintained or vendored, and so have no source by design. Skipped
+  by both the parity and freshness checks.
+
+  Some output directories are genuinely mixed, and until now that left no good
+  option. `cwmconnect`'s `media/com_cwmconnect/js` holds a vendored
+  `jscolor.min.js` and two hand-written scripts — one referenced from ten PHP
+  files — beside its rollup output. Parity called all three orphans, so the
+  choice was to fail every build or to declare no pair at all and check nothing.
+
+  ⚠️ It exempts the files it names and nothing else; everything else in the
+  directory is still checked. A list that grows until the check is silent is
+  worse than no check, because it still looks like one.
+
+## [1.34.0] - 2026-09-15
+
+### Added
+
+- **`build.verifyMediaFreshness`** — fails the build when a file in a
+  `verifyMediaSources` `output` directory is *older* than the source it was
+  built from. `verifyMediaSources` already catches output whose source is gone;
+  this catches output whose source moved on: a source is edited, the minified
+  sibling is never rebuilt, and the zip ships the previous build's behaviour
+  under a new version number. Nothing 404s and nothing references the wrong
+  file, so there is no symptom until someone reports a bug the source tree says
+  was fixed — which is what `pkg_cwmscripture` 1.2.13 did (#159).
+
+  Reuses the existing `verifyMediaSources` pairs, and is **off by default**, so
+  no existing config gains a new way to fail its next release.
+
+  ⚠️ The check is timestamps against the **working tree**, on purpose: zip entry
+  mtimes are normalised when the archive is written (#134), so a check over the
+  built artifact has no evidence left. It assumes build output is generated
+  rather than committed — see `docs/configuration.md`.
+
+  This is a backstop, not the fix for #159, which is that `subBuild` skips a
+  child's declared `build.command`.
+
+## [1.33.0] - 2026-09-02
+
+### Changed
+
+- **A step-7 (ARS) failure no longer kills the pipeline.** Twice — Proclaim
+  10.5.9 and 10.6.0 — `cwm-release` died at the ARS publish with steps 1–6
+  already public, and step 8 never ran, so `versions.json` kept pointing at
+  the previous release while the tag, the GitHub release and the bump commits
+  all said the new one. `verify-update-stream.php` reads `current` to decide
+  what to inspect, so the natural next move after the failure reported a false
+  FAIL against a release that was actually correct.
+
+  Step 7's failure is now captured. Step 8 runs regardless — it records what
+  has already happened, and the repository must not lie about that. Step 9
+  (the announcement) is deferred, since the download it would announce does
+  not exist yet, and the post-flight stream check is skipped for the same
+  reason. The run still exits non-zero, and ends by stating exactly what is
+  done, what is owed, and the two `composer exec` commands that finish it —
+  re-running the publish is safe, since `ars-publish` refuses version
+  collisions (#161).
+
 ### Fixed
+
+- **The artifact check can be diagnosed, and survives a transient.** The
+  10.6.0 death was `Error: artifact not found` for a file that was present —
+  byte-identical to the asset step 6 had just uploaded, publishable by hand
+  with the same relative path moments later — and the bare `[ -f ]` said
+  nothing that could distinguish the possibilities. It is now
+  `cwm_require_artifact` in `lib/artifacts.sh`: one retry after a short pause,
+  loud when the file appears on the second look (that message is the evidence
+  the next investigation needs), and on real failure it prints the path as
+  given, the directory it resolved against, and a listing of what that
+  directory actually held. Root cause remains unproven; the next occurrence is
+  survivable and diagnosable in the moment (#160).
+
+## [1.32.1] - 2026-09-01
+
+### Fixed
+
+- **`gh` no longer leaks its terminal query into the user's prompt.** A release
+  that finished cleanly ended with `11;rgb:1919/1a1a/1c1c;1R` sitting at the
+  shell prompt. Not an error and not release output: it is the terminal's
+  *answer* to two questions `gh` asked and never listened for. With its output
+  on a TTY, gh's markdown renderer probes the background colour (OSC 11) and
+  cursor position (CPR) to pick a theme, then exits — so the replies land in
+  the input buffer and the shell echoes them.
+
+  Harmless, but it is the last thing a release prints, it reads as a fault, and
+  every project using this toolset saw it. `NO_COLOR` is now set per-call on
+  the three `gh` invocations whose output reaches a terminal — `gh release
+  create` in `release.sh`, and `gh release download` in `ars-publish.sh` and
+  `baseline.sh`. The rest capture gh's output into a variable, so they are not
+  a TTY and never query. Per-call rather than exported, so our own coloured
+  PASS/FAIL output is unaffected (#162).
 
 - **An unrecognised pre-release suffix no longer publishes to ARS as stable.**
   `cwm_maturity_for_version()` matched `-alpha`, `-beta` and `-rc` and fell

@@ -13,9 +13,11 @@ use ZipArchive;
  * (by running an inline build, shelling out to a sub-script, globbing for a
  * pre-built artifact, or building the project's own `build:` block) and
  * stages it under a unique scratch dir. Then assembles the outer zip with
- * the package manifest, optional installer scriptfile, optional language
- * files, and the staged child zips at either outer-zip root or under
- * `packages/` (per `innerLayout`).
+ * the package manifest (optionally token-substituted — see
+ * {@see PackageManifestSubstitution}), optional installer scriptfile,
+ * optional extra top-level files, optional language files, and the staged
+ * child zips at either outer-zip root or under `packages/` (per
+ * `innerLayout`).
  *
  * Differences from the legacy proclaim_build.php / CWMScriptureLinks
  * build-package.php scripts:
@@ -61,6 +63,21 @@ final class Packager
         $reader  = new ManifestReader($manifestPath);
         $version = $versionOverride ?? $reader->version();
 
+        $manifestSubstitution = new PackageManifestSubstitution($manifestPath, $this->config->manifestTokens ?? []);
+
+        if ($versionOverride === null) {
+            foreach ($manifestSubstitution->versionPlaceholders() as $placeholder) {
+                if ($version === $placeholder) {
+                    throw new \RuntimeException(
+                        "package.manifest's <version> is still the literal token '$placeholder'. " .
+                        'package.manifestTokens resolves it from the build version, but none was given ' .
+                        '(and the manifest cannot supply its own — that IS the token). ' .
+                        'Pass --version explicitly, e.g.: cwm-package -- --version 1.2.3'
+                    );
+                }
+            }
+        }
+
         $outputDir = $this->resolve($this->config->outputDir);
 
         if (!is_dir($outputDir) && !mkdir($outputDir, 0o777, true) && !is_dir($outputDir)) {
@@ -80,7 +97,17 @@ final class Packager
 
         try {
             $stagedChildren = $this->resolveIncludes($stagingDir, $version);
-            $this->writeOuterZip($outputPath, $manifestPath, $stagedChildren);
+
+            // Substituted on disk only for the writeOuterZip() call below —
+            // restored in the finally no matter how that call exits, so the
+            // tracked manifest template is never left rewritten.
+            $manifestSubstitution->apply($version);
+
+            try {
+                $this->writeOuterZip($outputPath, $manifestPath, $stagedChildren);
+            } finally {
+                $manifestSubstitution->restore();
+            }
 
             if ($this->config->verify !== null) {
                 $this->verifyOutputZip($outputPath, $this->config->verify);
@@ -326,8 +353,10 @@ final class Packager
     }
 
     /**
-     * Write the outer zip — manifest, optional installer, language files,
-     * and the staged child zips at the configured layout.
+     * Write the outer zip — manifest (already substituted on disk by the
+     * caller if `manifestTokens` is configured), optional installer, extra
+     * files, language files, and the staged child zips at the configured
+     * layout.
      *
      * @param list<array{outputName: string, path: string}> $stagedChildren
      */
@@ -351,6 +380,17 @@ final class Packager
                 ZipEntry::add($zip, $installerAbs, $entry);
                 $this->log("  + $entry");
             }
+        }
+
+        foreach ($this->config->extraFiles as $extra) {
+            $fromAbs = $this->resolve($extra['from']);
+
+            if (!is_file($fromAbs)) {
+                throw new \RuntimeException("package.extraFiles: source not found: {$extra['from']}");
+            }
+
+            ZipEntry::add($zip, $fromAbs, $extra['to']);
+            $this->log("  + {$extra['to']}");
         }
 
         foreach ($this->config->languageFiles as $lang) {

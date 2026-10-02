@@ -19,7 +19,7 @@ Across `Proclaim`, `lib_cwmscripture`, `CWMScriptureLinks`, and `plg_task_cwmscr
 | **Scripts** | Generic 9-step release pipeline, multi-manifest version bumper, config syncer | `scripts/` |
 | **PHP library** | `ProjectConfig`, `ManifestReader`, `PackageBuilder`, `Packager`, `ArsPublisher`, `VersionTracker`, `TokenSubstituter`, `LinkResolver`, `Linker`, `PropertiesReader`, `ExtensionVerifier` | `src/` (PSR-4 `CWM\BuildTools\`) |
 | **Reusable GH Actions** | `joomla-package-ci.yml`, `joomla-library-ci.yml` (called via `workflow_call`) | `.github/workflows/` |
-| **Synced config templates** | `.gitignore` block, `.editorconfig`, `.php-cs-fixer.base.php`, `phpunit.xml.tmpl`, `build.properties.tmpl`, `cwm-build.config.json.tmpl`, `eslint.config.base.mjs`, `rollup.config.js`, `build-css.js`, `build-assets.js`, `vendor-check.js`, `vendor-update.js`, `versions.json.tmpl`, per-extension-type `profiles/` | `templates/` |
+| **Synced config templates** | `.gitignore` block, `.editorconfig`, `.php-cs-fixer.base.php`, `phpunit.xml.tmpl`, `build.properties.tmpl`, `cwm-build.config.json.tmpl`, `eslint.config.base.mjs`, `rollup.config.js`, `build-css.js`, `build-scss.js`, `minify-js.js`, `build-assets.js`, `vendor-check.js`, `vendor-update.js`, `versions.json.tmpl`, per-extension-type `profiles/` | `templates/` |
 
 ## Distribution
 

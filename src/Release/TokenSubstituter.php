@@ -5,19 +5,17 @@ declare(strict_types=1);
 namespace CWM\BuildTools\Release;
 
 /**
- * Replaces a placeholder token (default `__DEPLOY_VERSION__`) with the actual
- * release version in configured source paths at release time.
+ * Replaces placeholder tokens with resolved values in configured source
+ * paths at release (or package) time.
  *
  * Joomla core uses `__DEPLOY_VERSION__` in `@since` PHPDoc tags throughout
  * its source tree. The release pipeline substitutes the token with the
  * version being cut so devs never have to predict the future at PR-write
- * time. This class brings the same convention to cwm-built extensions.
- *
- * Substitution runs ONLY during `cwm-release` (between bump and build) —
- * not during `cwm-bump` standalone. The placeholder is meant to stay in
- * source between releases, so dev branches keep accumulating
- * `@since __DEPLOY_VERSION__` until the next release locks in a real
- * version.
+ * time. This class brings the same convention to cwm-built extensions —
+ * and generalizes it to an arbitrary named token map, so a project whose
+ * manifest template uses its own convention (Akeeba's Ant/Phing-style
+ * `##VERSION##`/`##DATE##`, say) resolves through the same engine instead
+ * of a second, parallel one.
  *
  * Config shape (under cwm-build.config.json `versionTracking`):
  *
@@ -26,6 +24,30 @@ namespace CWM\BuildTools\Release;
  *     "paths":      ["admin/", "site/", "libraries/", "modules/", "plugins/"],
  *     "extensions": ["php"]
  *   }
+ *
+ * `token` is the legacy single-placeholder shape and keeps working exactly
+ * as before — every existing `__DEPLOY_VERSION__` consumer is unaffected.
+ * The general shape is `tokens`, a map of literal placeholder text to a
+ * value template, evaluated by {@see resolveValue()}:
+ *
+ *   "substituteTokens": {
+ *     "tokens": {
+ *       "##VERSION##": "{version}",
+ *       "##DATE##":    "{date:Y-m-d}",
+ *       "##VENDOR##":  "Akeeba Ltd"
+ *     },
+ *     "paths":      ["build/templates/"],
+ *     "extensions": ["xml"]
+ *   }
+ *
+ * A value template is `"{version}"` (the version being substituted),
+ * `"{date}"` / `"{date:FORMAT}"` (resolved at substitution time via
+ * {@see DateTokenExpander}, same convention as `VersionTracker`'s
+ * `devSuffix`), or any other string, used literally. `token` and `tokens`
+ * are mutually exclusive in practice — when `tokens` is non-empty it wins;
+ * `token` (or its `__DEPLOY_VERSION__` default) is only consulted when
+ * `tokens` is absent or empty, and is normalized into the same one-entry
+ * map internally, so there is exactly one substitution code path.
  *
  * Absent `substituteTokens` block → no-op.
  */
@@ -41,12 +63,63 @@ final class TokenSubstituter
     private const ALWAYS_SKIP = ['vendor', 'node_modules', '.git'];
 
     /**
-     * @param array{token?: string, paths?: list<string>, extensions?: list<string>} $config
+     * @param array{token?: string, tokens?: array<string, string>, paths?: list<string>, extensions?: list<string>} $config
      */
     public function __construct(
         private readonly string $projectRoot,
         private readonly array  $config,
     ) {
+    }
+
+    /**
+     * Resolve a template value against the version being substituted.
+     *
+     * Shared by the tree-walking substitution below and by any caller that
+     * needs to resolve one token value on its own — e.g. a single in-place
+     * file substitution that does not go through `paths`/`extensions` at
+     * all (see `Build\PackageManifestSubstitution`, which resolves package
+     * manifest tokens like `##VERSION##`/`##DATE##` through this same
+     * method so there is one place that understands `{version}`/`{date}`).
+     *
+     * `{version}` resolves to $version. `{date}` / `{date:FORMAT}` resolves
+     * via {@see DateTokenExpander} at call time. Anything else is returned
+     * as-is — a literal replacement value.
+     */
+    public static function resolveValue(string $template, string $version): string
+    {
+        if ($template === '{version}') {
+            return $version;
+        }
+
+        if (str_contains($template, '{date')) {
+            return DateTokenExpander::expand($template, new \DateTimeImmutable());
+        }
+
+        return $template;
+    }
+
+    /**
+     * The configured token map, literal placeholder text => value template.
+     *
+     * `tokens` (new, general shape) wins when non-empty. Otherwise falls
+     * back to the legacy single `token` field (default
+     * `__DEPLOY_VERSION__`), normalized into a one-entry map whose value is
+     * `"{version}"` — i.e. exactly the old "replace token with version"
+     * behavior, expressed as the smallest case of the general one.
+     *
+     * @return array<string, string>
+     */
+    private function resolveTokenMap(): array
+    {
+        $tokens = $this->config['tokens'] ?? null;
+
+        if (is_array($tokens) && $tokens !== []) {
+            return array_map('strval', $tokens);
+        }
+
+        $legacyToken = (string) ($this->config['token'] ?? self::DEFAULT_TOKEN);
+
+        return [$legacyToken => '{version}'];
     }
 
     /**
@@ -97,11 +170,11 @@ final class TokenSubstituter
      */
     public function substitute(string $version): array
     {
-        $token      = $this->config['token']      ?? self::DEFAULT_TOKEN;
+        $tokens     = $this->resolveTokenMap();
         $paths      = $this->config['paths']      ?? [];
         $extensions = $this->config['extensions'] ?? self::DEFAULT_EXTENSIONS;
 
-        if ($paths === []) {
+        if ($paths === [] || $tokens === []) {
             return [];
         }
 
@@ -121,7 +194,7 @@ final class TokenSubstituter
             }
 
             foreach ($this->walkFiles($absolute, $extensions) as $file) {
-                if ($this->replaceInFile($file, $token, $version)) {
+                if ($this->replaceInFile($file, $tokens, $version)) {
                     $touched[] = $file;
                 }
             }
@@ -147,7 +220,7 @@ final class TokenSubstituter
      */
     public function filesContainingToken(): array
     {
-        $token      = $this->config['token']      ?? self::DEFAULT_TOKEN;
+        $tokens     = $this->resolveTokenMap();
         $paths      = $this->config['paths']      ?? [];
         $extensions = $this->config['extensions'] ?? self::DEFAULT_EXTENSIONS;
 
@@ -163,8 +236,15 @@ final class TokenSubstituter
             foreach ($this->walkFiles($absolute, $extensions) as $file) {
                 $contents = file_get_contents($file);
 
-                if ($contents !== false && str_contains($contents, $token)) {
-                    $found[] = $file;
+                if ($contents === false) {
+                    continue;
+                }
+
+                foreach (array_keys($tokens) as $placeholder) {
+                    if (str_contains($contents, $placeholder)) {
+                        $found[] = $file;
+                        break;
+                    }
                 }
             }
         }
@@ -257,10 +337,13 @@ final class TokenSubstituter
     }
 
     /**
-     * Read file, replace token if present, write back only when content
-     * actually changed. Returns true when the file was rewritten.
+     * Read file, replace every configured token present, write back only
+     * when content actually changed. Returns true when the file was
+     * rewritten.
+     *
+     * @param array<string, string> $tokens Literal placeholder text => value template.
      */
-    private function replaceInFile(string $path, string $token, string $version): bool
+    private function replaceInFile(string $path, array $tokens, string $version): bool
     {
         $contents = file_get_contents($path);
 
@@ -269,22 +352,27 @@ final class TokenSubstituter
             return false;
         }
 
-        if (!str_contains($contents, $token)) {
+        $original     = $contents;
+        $replacements = 0;
+
+        foreach ($tokens as $placeholder => $template) {
+            if (!str_contains($contents, $placeholder)) {
+                continue;
+            }
+
+            $replacements += substr_count($contents, $placeholder);
+            $contents      = str_replace($placeholder, self::resolveValue($template, $version), $contents);
+        }
+
+        if ($contents === $original) {
             return false;
         }
 
-        $replaced = str_replace($token, $version, $contents);
-
-        if ($replaced === $contents) {
-            return false;
-        }
-
-        if (file_put_contents($path, $replaced) === false) {
+        if (file_put_contents($path, $contents) === false) {
             throw new \RuntimeException("Could not write $path");
         }
 
-        $count = substr_count($contents, $token);
-        echo "  $path → $count replacement(s)\n";
+        echo "  $path → $replacements replacement(s)\n";
 
         return true;
     }

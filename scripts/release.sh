@@ -458,7 +458,22 @@ if [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
 fi
 
 # shellcheck disable=SC2086
-cwm_mutate gh release create "$TAG" "${ARTIFACTS[@]}" \
+# ⚠️ NO_COLOR, because gh probes the terminal when its output is a TTY.
+# Its markdown renderer asks for the background colour (OSC 11) and the
+# cursor position (CPR) to pick a light or dark theme, then exits without
+# consuming the replies -- so the terminal's answers land in the input
+# buffer and are echoed at the next prompt, as
+#
+#     11;rgb:1919/1a1a/1c1c;1R
+#
+# after a release that otherwise finished cleanly. Cosmetic, but it looks
+# like a fault and it is the last thing a release prints.
+#
+# Only the calls whose output reaches a terminal need this; the ones whose
+# output is captured into a variable are not a TTY and never query. Setting
+# it per-call rather than exporting it keeps our own coloured PASS/FAIL
+# output intact.
+cwm_mutate env NO_COLOR=1 gh release create "$TAG" "${ARTIFACTS[@]}" \
     $GH_REPO_ARG \
     --target "$RELEASE_BRANCH" \
     --title "${TAG}" \
@@ -505,12 +520,30 @@ fi
 echo ""
 
 # --- Step 7: ARS publish ---
+#
+# ⚠️ A failure here no longer stops the pipeline. By this point the release is
+# public — tag pushed, GitHub release out, bump commits on the branch — and the
+# two remaining steps serve different masters: step 8 records what has already
+# happened, step 9 announces it. Killing both over a failed ARS publish is what
+# left versions.json pointing at the previous release twice (10.5.9 and
+# 10.6.0, cwm-build-tools#161), and a stale `current` then sends
+# verify-update-stream.php to inspect the wrong version — the false FAIL that
+# makes recovery start by distrusting a correct release.
+#
+# So: the failure is captured, step 8 runs regardless, step 9 is deferred
+# (announcing a release whose download item does not exist yet helps nobody),
+# and the run still exits non-zero at the end with exactly what is owed.
 echo "[7/9] Publishing to ARS..."
 ARS_ENDPOINT=$(read_config "ars.endpoint")
+ARS_FAILED=0
 if [ -n "$ARS_ENDPOINT" ]; then
     # The GitHub release now carries the hand-written notes plus the generated
     # list, so ARS reads them back from there and both pages agree.
-    cwm_mutate bash "${TOOLS_DIR}/scripts/ars-publish.sh" -v "$VERSION" -f "${ARTIFACTS[0]}"
+    cwm_mutate bash "${TOOLS_DIR}/scripts/ars-publish.sh" -v "$VERSION" -f "${ARTIFACTS[0]}" || ARS_FAILED=$?
+    if [ "$ARS_FAILED" -ne 0 ]; then
+        echo "  ✗ ARS publish failed (exit ${ARS_FAILED}). Continuing: step 8 records what"
+        echo "    already happened and must not be skipped over this. Details at the end."
+    fi
 else
     echo "  Skipped: no ars.endpoint configured."
 fi
@@ -581,7 +614,10 @@ BULLETS_DIR="${BULLETS_DIR:-build}"
 BULLETS_FILE="${BULLETS_DIR}/release-bullets-${VERSION}.txt"
 ARTICLE_CMD=$(read_config "announcement.command")
 
-if [ -n "$ARTICLE_CMD" ] && [ -f "$BULLETS_FILE" ]; then
+if [ "$ARS_FAILED" -ne 0 ]; then
+    echo "  Deferred: the ARS publish failed, so the download this would announce"
+    echo "  does not exist yet. Announce after finishing step 7 by hand."
+elif [ -n "$ARTICLE_CMD" ] && [ -f "$BULLETS_FILE" ]; then
     cwm_mutate bash -c "$ARTICLE_CMD '$VERSION' '$BULLETS_FILE'"
 elif [ -n "$ARTICLE_CMD" ]; then
     echo "  Skipped: ${BULLETS_FILE} not found."
@@ -607,7 +643,11 @@ echo ""
 #
 # Skipped under --dry-run: nothing was published, so the stream still describes
 # the previous release and checking it would report on the wrong version.
-if [ "$DRY_RUN" != "1" ] && [ -n "$PKG_MANIFEST" ]; then
+if [ "$ARS_FAILED" -ne 0 ]; then
+    : # The stream cannot serve an item that was never published; the debt
+      # block below says so once, instead of a verification failing to
+      # discover what is already known.
+elif [ "$DRY_RUN" != "1" ] && [ -n "$PKG_MANIFEST" ]; then
     echo "[post-flight] Verifying the published update stream..."
 
     if php "${TOOLS_DIR}/scripts/verify-update-stream.php" "$VERSION"; then
@@ -625,6 +665,25 @@ fi
 if [ "$DRY_RUN" = "1" ]; then
     echo "=== DRY RUN complete — nothing was changed ==="
     echo "  Re-run without --dry-run to release ${VERSION}."
+elif [ "$ARS_FAILED" -ne 0 ]; then
+    # The message that was missing both times this happened. Steps 1-6 are
+    # public and step 8 has run, so the repository is honest — what remains is
+    # exactly one command. Spelled with composer exec so it is correct in every
+    # repo this pipeline serves, whatever its vendor-dir.
+    echo "=== Release ${VERSION} is INCOMPLETE — the ARS publish failed ==="
+    echo ""
+    echo "  DONE and public:   tag ${TAG}, the GitHub release, the version-bump"
+    echo "                     commits, and versions.json (step 8 ran anyway)."
+    echo "  STILL OWED:        the ARS item — sites are NOT offered ${VERSION} yet."
+    echo "  DEFERRED:          the release announcement (step 9)."
+    echo ""
+    echo "  Finish with (safe to repeat — ars-publish refuses version collisions):"
+    echo "    composer exec -- cwm-ars-publish -v ${VERSION} -f ${ARTIFACTS[0]}"
+    echo "  then verify sites are offered it:"
+    echo "    composer exec -- cwm-verify-update-stream ${VERSION}"
+    echo "  and post the announcement when ready."
+
+    exit 1
 else
     echo "=== Release ${VERSION} complete! ==="
     if [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then

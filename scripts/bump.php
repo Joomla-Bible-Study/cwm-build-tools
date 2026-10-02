@@ -29,6 +29,7 @@
  */
 
 require_once __DIR__ . '/../src/Build/ManifestVersionWriter.php';
+require_once __DIR__ . '/../src/Release/DateTokenExpander.php';
 require_once __DIR__ . '/../src/Release/VersionTracker.php';
 require_once __DIR__ . '/../src/Config/ProfileResolver.php';
 

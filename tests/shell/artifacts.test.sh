@@ -90,4 +90,41 @@ fixture pkg_proclaim-10.3.2.zip pkg_proclaim-10.3.6.zip
 out="$(cwm_select_artifact_for_version 10.3.6 "$GLOB" 2>/dev/null)"
 assert_equals "1" "$(printf '%s' "$out" | grep -c .)" "stdout carries only the path"
 
+
+# --- cwm_require_artifact ----------------------------------------------------
+#
+# Added for #160: the bare [ -f ] it replaces refused a file that was present,
+# at the one step past the point of no return, and its message carried nothing
+# that would have said why. Fast retries here so the suite stays quick.
+export CWM_ARTIFACT_RETRY_DELAY=1
+
+# A present file passes, quietly.
+fixture pkg_proclaim-10.3.6.zip
+out="$(cwm_require_artifact "$WORK/dist/pkg_proclaim-10.3.6.zip" 2>&1)"
+assert_equals "0" "$?" "an existing artifact is accepted"
+assert_equals "" "$out" "and accepted silently — retry noise on the happy path would train people to ignore it"
+
+# A genuinely missing file fails, and the diagnostics carry what #160 lacked:
+# where the path was resolved from and what the directory actually held.
+fixture pkg_proclaim-10.3.2.zip
+err="$(cwm_require_artifact "$WORK/dist/pkg_proclaim-10.3.6.zip" 2>&1)"
+rc=$?
+assert_equals "1" "$rc" "a missing artifact still fails"
+assert_contains "$err" "looked from:" "the failure names the directory it resolved against"
+assert_contains "$err" "pkg_proclaim-10.3.2.zip" "and lists what the directory actually held"
+
+# The transient case: the file is not there on first look and is on the second.
+# This is the #160 shape — the publish must proceed, and must say it happened,
+# because that message is the evidence the next investigation needs.
+rm -f "$WORK/dist/pkg_proclaim-10.3.6.zip"
+( sleep 0.4; touch "$WORK/dist/pkg_proclaim-10.3.6.zip" ) &
+LATE=$!
+err="$(cwm_require_artifact "$WORK/dist/pkg_proclaim-10.3.6.zip" 2>&1)"
+rc=$?
+wait "$LATE"
+assert_equals "0" "$rc" "a file that appears on retry is accepted"
+assert_contains "$err" "appeared" "and the retry is reported loudly, never silently"
+
+unset CWM_ARTIFACT_RETRY_DELAY
+
 finish

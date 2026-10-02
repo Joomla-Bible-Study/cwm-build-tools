@@ -25,6 +25,20 @@ namespace CWM\BuildTools\Build;
  *                  {@see PackageBuilder} on that config and bundles the
  *                  result. CSL's `plg_task_cwmscripture` (a sibling
  *                  directory built in-process) maps to this.
+ *
+ * `installer` and `languageFiles` cover the two shipped-file shapes every
+ * outer package needs (the scriptfile, the package-level language INIs).
+ * `extraFiles` is the escape hatch for anything else a project's manifest
+ * lists at the package root (e.g. a top-level `LICENSE.txt`) that doesn't
+ * fit either shape. `manifestTokens` covers projects whose manifest
+ * template still uses an Ant/Phing-style `##TOKEN##` convention (Akeeba's
+ * `##VERSION##`/`##DATE##`, say) instead of `__DEPLOY_VERSION__` — it is
+ * resolved through the SAME {@see \CWM\BuildTools\Release\TokenSubstituter}
+ * engine `versionTracking.substituteTokens` uses project-wide, not a
+ * separate mechanism; see {@see PackageManifestSubstitution} for why the
+ * manifest specifically is substituted transiently (build-time only, never
+ * written back to the tracked template) rather than through that engine's
+ * normal permanent on-disk `paths` walk.
  */
 final class PackageConfig
 {
@@ -43,6 +57,10 @@ final class PackageConfig
      * @param string                                $innerLayout    Where child zips are placed inside the outer zip — `"root"` (default) or `"packages-prefix"` (under `packages/`).
      * @param string|null                           $installer      Optional install scriptfile path; added at outer-zip root if present.
      * @param list<array{from: string, to: string}> $languageFiles  Language INI files; `from` is project-relative source, `to` is its outer-zip path.
+     * @param list<array{from: string, to: string}> $extraFiles     Arbitrary extra top-level files (e.g. LICENSE.txt); `from` is project-relative source, `to` is its outer-zip path. Unlike `installer`, missing sources are an error, not silently skipped — an author who lists one means it to be there.
+     * @param array<string, string>|null            $manifestTokens Literal placeholder text (e.g. `"##VERSION##"`) => value template, resolved by
+     *                                               `TokenSubstituter::resolveValue()` (`"{version}"`, `"{date}"` / `"{date:FORMAT}"`, or a literal string) and
+     *                                               substituted into the manifest transiently — on disk only for the instant it is being zipped, then restored.
      * @param non-empty-list<array<string, mixed>>  $includes       Discriminated-union entries (see class doc).
      * @param array{expectedEntries?: list<string>}|null $verify    Optional self-verify block.
      */
@@ -53,6 +71,8 @@ final class PackageConfig
         public readonly string $innerLayout,
         public readonly ?string $installer,
         public readonly array $languageFiles,
+        public readonly array $extraFiles,
+        public readonly ?array $manifestTokens,
         public readonly array $includes,
         public readonly ?array $verify,
     ) {
@@ -96,6 +116,24 @@ final class PackageConfig
             $languageFiles[] = ['from' => (string) $entry['from'], 'to' => (string) $entry['to']];
         }
 
+        $rawExtra = $cfg['extraFiles'] ?? [];
+
+        if (!is_array($rawExtra)) {
+            throw new \InvalidArgumentException('package.extraFiles must be an array');
+        }
+
+        $extraFiles = [];
+
+        foreach ($rawExtra as $i => $entry) {
+            if (!is_array($entry) || empty($entry['from']) || empty($entry['to'])) {
+                throw new \InvalidArgumentException("package.extraFiles[$i] must have non-empty 'from' and 'to' keys");
+            }
+
+            $extraFiles[] = ['from' => (string) $entry['from'], 'to' => (string) $entry['to']];
+        }
+
+        $manifestTokens = self::validateManifestTokens($cfg['manifestTokens'] ?? null);
+
         $rawIncludes = $cfg['includes'] ?? [];
 
         if (!is_array($rawIncludes) || $rawIncludes === []) {
@@ -127,15 +165,52 @@ final class PackageConfig
         }
 
         return new self(
-            manifest:      (string) $cfg['manifest'],
-            outputDir:     (string) $cfg['outputDir'],
-            outputName:    (string) $cfg['outputName'],
-            innerLayout:   $innerLayout,
-            installer:     $installer,
-            languageFiles: $languageFiles,
-            includes:      $includes,
-            verify:        $verify,
+            manifest:       (string) $cfg['manifest'],
+            outputDir:      (string) $cfg['outputDir'],
+            outputName:     (string) $cfg['outputName'],
+            innerLayout:    $innerLayout,
+            installer:      $installer,
+            languageFiles:  $languageFiles,
+            extraFiles:     $extraFiles,
+            manifestTokens: $manifestTokens,
+            includes:       $includes,
+            verify:         $verify,
         );
+    }
+
+    /**
+     * Validate the optional `manifestTokens` map: literal placeholder text
+     * (e.g. `"##VERSION##"`) => value template. Flat, no delimiter concept —
+     * the placeholder is whatever full literal string the manifest actually
+     * contains, matching how `TokenSubstituter`'s existing `token` field
+     * already works (also a full literal string, e.g. `__DEPLOY_VERSION__`).
+     *
+     * @param  mixed $raw
+     * @return array<string, string>|null
+     */
+    private static function validateManifestTokens(mixed $raw): ?array
+    {
+        if ($raw === null) {
+            return null;
+        }
+
+        if (!is_array($raw) || $raw === []) {
+            throw new \InvalidArgumentException('package.manifestTokens must be a non-empty object');
+        }
+
+        $tokens = [];
+
+        foreach ($raw as $placeholder => $template) {
+            if (!is_string($placeholder) || $placeholder === '' || !is_string($template) || $template === '') {
+                throw new \InvalidArgumentException(
+                    'package.manifestTokens entries must be non-empty string => string (offending key: ' . var_export($placeholder, true) . ')'
+                );
+            }
+
+            $tokens[$placeholder] = $template;
+        }
+
+        return $tokens;
     }
 
     /**

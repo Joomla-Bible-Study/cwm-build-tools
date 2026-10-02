@@ -488,6 +488,136 @@ PHP);
         $this->assertContains('sub.zip', $entries);
     }
 
+    // --- extraFiles ---
+
+    #[Test]
+    public function extraFilesLandAtConfiguredPaths(): void
+    {
+        $this->writeManifest('build/pkg.xml', '1.0.0');
+        $this->prebuildChild('build/dist/sub-1.0.0.zip', 'sub.xml');
+        $this->writeFile('component/LICENSE.txt', 'GPLv3');
+
+        $config = $this->makePackageConfig([
+            'extraFiles' => [[
+                'from' => 'component/LICENSE.txt',
+                'to'   => 'LICENSE.txt',
+            ]],
+            'includes' => [[
+                'type'       => 'prebuilt',
+                'distGlob'   => 'build/dist/sub-*.zip',
+                'outputName' => 'sub.zip',
+            ]],
+        ]);
+
+        $packager = new Packager($config, null, $this->tmpDir);
+        $this->expectOutputRegex('/Assembling/');
+        $outer = $packager->package();
+
+        self::assertContains('LICENSE.txt', $this->zipEntries($outer));
+    }
+
+    #[Test]
+    public function extraFilesMissingSourceFailsWithHelpfulMessage(): void
+    {
+        $this->writeManifest('build/pkg.xml', '1.0.0');
+        $this->prebuildChild('build/dist/sub-1.0.0.zip', 'sub.xml');
+
+        $config = $this->makePackageConfig([
+            'extraFiles' => [[
+                'from' => 'component/LICENSE.txt',
+                'to'   => 'LICENSE.txt',
+            ]],
+            'includes' => [[
+                'type'       => 'prebuilt',
+                'distGlob'   => 'build/dist/sub-*.zip',
+                'outputName' => 'sub.zip',
+            ]],
+        ]);
+
+        $packager = new Packager($config, null, $this->tmpDir);
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage("package.extraFiles: source not found: component/LICENSE.txt");
+        $this->expectOutputRegex('/Assembling/');
+        $packager->package();
+    }
+
+    // --- manifestTokens ---
+
+    /**
+     * The scenario this whole feature exists for: a manifest template using
+     * an Ant/Phing-style `##TOKEN##` convention (Akeeba's `##VERSION##`/
+     * `##DATE##`) resolves before zipping, WITHOUT the tracked template on
+     * disk ever ending up rewritten — it must still read `##VERSION##`
+     * after the build, exactly as `ChildTokenSubstitution` leaves a
+     * submodule child's tree untouched.
+     */
+    #[Test]
+    public function manifestTokensSubstituteBeforeZippingAndRestoreTheSourceFile(): void
+    {
+        $this->writeFile('build/templates/pkg.xml', <<<XML
+        <?xml version="1.0"?>
+        <extension type="package">
+            <version>##VERSION##</version>
+            <creationDate>##DATE##</creationDate>
+        </extension>
+        XML);
+        $this->prebuildChild('build/dist/sub-1.0.0.zip', 'sub.xml');
+
+        $config = $this->makePackageConfig([
+            'manifest'       => 'build/templates/pkg.xml',
+            'manifestTokens' => [
+                '##VERSION##' => '{version}',
+                '##DATE##'    => '{date:Y-m-d}',
+            ],
+            'includes' => [[
+                'type'       => 'prebuilt',
+                'distGlob'   => 'build/dist/sub-*.zip',
+                'outputName' => 'sub.zip',
+            ]],
+        ]);
+
+        $packager = new Packager($config, null, $this->tmpDir);
+        $this->expectOutputRegex('/Assembling/');
+        $outer = $packager->package('7.5.2');
+
+        $zip = new ZipArchive();
+        $zip->open($outer);
+        $manifestInZip = (string) $zip->getFromName('pkg.xml');
+        $zip->close();
+
+        self::assertStringContainsString('<version>7.5.2</version>', $manifestInZip);
+        self::assertStringContainsString('<creationDate>' . date('Y-m-d') . '</creationDate>', $manifestInZip);
+
+        self::assertStringContainsString(
+            '##VERSION##',
+            (string) file_get_contents($this->tmpDir . '/build/templates/pkg.xml'),
+            'the tracked template must be restored, not left substituted'
+        );
+    }
+
+    #[Test]
+    public function manifestTokensRequireAnExplicitVersionWhenTheManifestsOwnVersionIsStillTheToken(): void
+    {
+        $this->writeFile('build/templates/pkg.xml', '<extension><version>##VERSION##</version></extension>');
+        $this->prebuildChild('build/dist/sub-1.0.0.zip', 'sub.xml');
+
+        $config = $this->makePackageConfig([
+            'manifest'       => 'build/templates/pkg.xml',
+            'manifestTokens' => ['##VERSION##' => '{version}'],
+            'includes'       => [[
+                'type'       => 'prebuilt',
+                'distGlob'   => 'build/dist/sub-*.zip',
+                'outputName' => 'sub.zip',
+            ]],
+        ]);
+
+        $packager = new Packager($config, null, $this->tmpDir);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage("still the literal token '##VERSION##'");
+        $packager->package();
+    }
+
     // --- verify step ---
 
     #[Test]
@@ -651,6 +781,80 @@ PHP);
             'outputName' => 'pkg-{version}.zip',
             'includes'   => [['type' => 'inline', 'outputName' => 'x.zip']],
         ]);
+    }
+
+    #[Test]
+    public function packageConfigRejectsExtraFilesMissingTo(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("package.extraFiles[0] must have non-empty 'from' and 'to' keys");
+
+        PackageConfig::fromArray([
+            'manifest'   => 'pkg.xml',
+            'outputDir'  => 'build/dist',
+            'outputName' => 'pkg-{version}.zip',
+            'extraFiles' => [['from' => 'LICENSE.txt']],
+            'includes'   => [['type' => 'self', 'outputName' => 'main.zip']],
+        ]);
+    }
+
+    #[Test]
+    public function packageConfigRejectsManifestTokensThatIsNotAnObject(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('package.manifestTokens must be a non-empty object');
+
+        PackageConfig::fromArray([
+            'manifest'       => 'pkg.xml',
+            'outputDir'      => 'build/dist',
+            'outputName'     => 'pkg-{version}.zip',
+            'manifestTokens' => 'not-an-object',
+            'includes'       => [['type' => 'self', 'outputName' => 'main.zip']],
+        ]);
+    }
+
+    #[Test]
+    public function packageConfigRejectsAnEmptyManifestTokensMap(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('package.manifestTokens must be a non-empty object');
+
+        PackageConfig::fromArray([
+            'manifest'       => 'pkg.xml',
+            'outputDir'      => 'build/dist',
+            'outputName'     => 'pkg-{version}.zip',
+            'manifestTokens' => [],
+            'includes'       => [['type' => 'self', 'outputName' => 'main.zip']],
+        ]);
+    }
+
+    #[Test]
+    public function packageConfigRejectsAManifestTokensEntryWithAnEmptyValue(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('package.manifestTokens entries must be non-empty string => string');
+
+        PackageConfig::fromArray([
+            'manifest'       => 'pkg.xml',
+            'outputDir'      => 'build/dist',
+            'outputName'     => 'pkg-{version}.zip',
+            'manifestTokens' => ['##VERSION##' => ''],
+            'includes'       => [['type' => 'self', 'outputName' => 'main.zip']],
+        ]);
+    }
+
+    #[Test]
+    public function packageConfigAcceptsManifestTokensAndDefaultsItToNullWhenAbsent(): void
+    {
+        $config = PackageConfig::fromArray([
+            'manifest'   => 'pkg.xml',
+            'outputDir'  => 'build/dist',
+            'outputName' => 'pkg-{version}.zip',
+            'includes'   => [['type' => 'self', 'outputName' => 'main.zip']],
+        ]);
+
+        self::assertNull($config->manifestTokens);
+        self::assertSame([], $config->extraFiles);
     }
 
     // --- Helpers ---

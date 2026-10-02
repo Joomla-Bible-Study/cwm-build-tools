@@ -18,6 +18,7 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../src/Release/DateTokenExpander.php';
 require_once __DIR__ . '/../src/Release/TokenSubstituter.php';
 require_once __DIR__ . '/../src/Config/ProfileResolver.php';
 
