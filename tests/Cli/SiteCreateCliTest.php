@@ -38,6 +38,11 @@ final class SiteCreateCliTest extends TestCase
         mkdir($this->tmp . '/Sites', 0o777, true);
         file_put_contents($this->globalConfig, "instrumentation_opt_in: false\n");
 
+        $zip = new \ZipArchive();
+        $zip->open($this->tmp . '/joomla.zip', \ZipArchive::CREATE);
+        $zip->addFromString('index.php', '<?php // joomla');
+        $zip->close();
+
         $this->stub('ddev', <<<'SH'
 #!/bin/sh
 echo "ddev $*" >> "$STUB_LOG"
@@ -67,11 +72,12 @@ SH);
     }
 
     /**
-     * @param  list<string>  $args
+     * @param  list<string>        $args
+     * @param  array<string, string>  $extraEnv
      *
      * @return array{int, string, string}  exit code, stdout, stderr
      */
-    private function runScript(array $args): array
+    private function runScript(array $args, array $extraEnv = []): array
     {
         $script = \dirname(__DIR__, 2) . '/scripts/site-create.php';
         $cmd    = array_merge([PHP_BINARY, $script], $args);
@@ -81,7 +87,7 @@ SH);
             'HOME'                   => $this->tmp,
             'STUB_LOG'               => $this->log,
             'CWM_DDEV_GLOBAL_CONFIG' => $this->globalConfig,
-        ];
+        ] + $extraEnv;
 
         $process = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $this->tmp . '/GitHub/proj', $env);
         $this->assertIsResource($process);
@@ -133,7 +139,7 @@ SH);
     {
         $site = $this->tmp . '/Sites/j6';
 
-        [$exit, $out, $err] = $this->runScript(['j6', '--path', $site, '--db-port', '34567']);
+        [$exit, $out, $err] = $this->runScript(['j6', '--path', $site, '--db-port', '34567', '--stack-only']);
 
         $this->assertSame(0, $exit, $out . $err);
         $this->assertStringContainsString('Site stack is running', $out);
@@ -144,6 +150,66 @@ SH);
         $override = $site . '/.ddev/docker-compose.cwm.yaml';
         $this->assertFileExists($override);
         $this->assertStringContainsString(':/var/GitHub/proj:cached', (string) file_get_contents($override));
+    }
+
+    #[Test]
+    public function aFullRunInstallsJoomlaAndPrintsWhereToLogIn(): void
+    {
+        $site = $this->tmp . '/Sites/j6';
+
+        [$exit, $out, $err] = $this->runScript(
+            ['j6', '--path', $site, '--db-port', '34567', '--joomla', '6.1.4'],
+            ['CWM_JOOMLA_PACKAGE_URL' => 'file://' . $this->tmp . '/joomla.zip']
+        );
+
+        $this->assertSame(0, $exit, $out . $err);
+        $this->assertFileExists($site . '/index.php', 'the package was extracted into the site');
+        $this->assertStringContainsString('Joomla 6.1.4 is installed.', $out);
+        $this->assertStringContainsString('https://j6.ddev.site/administrator/', $out);
+        $this->assertMatchesRegularExpression('/Password \(generated, shown once\): [A-Za-z0-9]{16}/', $out);
+
+        $calls = (string) file_get_contents($this->log);
+        $this->assertStringContainsString("'installation/joomla.php' 'install'", $calls);
+        $this->assertStringContainsString("'--db-host=db'", $calls);
+        $this->assertLessThan(strpos($calls, "'install'"), strpos($calls, 'ddev start'));
+        $this->assertGreaterThan(strpos($calls, "'install'"), strpos($calls, 'extension:list'));
+    }
+
+    #[Test]
+    public function aPasswordYouChooseIsNeverPrintedBack(): void
+    {
+        $site = $this->tmp . '/Sites/j6';
+
+        [$exit, $out] = $this->runScript(
+            ['j6', '--path', $site, '--db-port', '34567', '--joomla', '6.1.4', '--admin-password', 'MyOwnPassw0rd!x'],
+            ['CWM_JOOMLA_PACKAGE_URL' => 'file://' . $this->tmp . '/joomla.zip']
+        );
+
+        $this->assertSame(0, $exit, $out);
+        $this->assertStringContainsString('Password: the one you passed.', $out);
+        $this->assertStringNotContainsString('MyOwnPassw0rd!x', $out);
+    }
+
+    #[Test]
+    public function aTooShortPasswordIsRefusedBeforeAnythingStarts(): void
+    {
+        [$exit, , $err] = $this->runScript(['j6', '--path', $this->tmp . '/Sites/j6', '--db-port', '34567', '--admin-password', 'short']);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('12 characters', $err);
+        $this->assertFileDoesNotExist($this->log, 'no ddev or docker call before the input is validated');
+    }
+
+    #[Test]
+    public function stackOnlyLeavesJoomlaAlone(): void
+    {
+        $site = $this->tmp . '/Sites/j6';
+
+        [$exit, $out] = $this->runScript(['j6', '--path', $site, '--db-port', '34567', '--stack-only']);
+
+        $this->assertSame(0, $exit, $out);
+        $this->assertFileDoesNotExist($site . '/index.php');
+        $this->assertStringNotContainsString("'install'", (string) file_get_contents($this->log));
     }
 
     #[Test]

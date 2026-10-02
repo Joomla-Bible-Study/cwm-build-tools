@@ -19,8 +19,10 @@ class FakeRunner implements CommandRunner
     /**
      * @param  array<string, CommandResult>  $responses  Keyed by the first two words of the command.
      * @param  \Closure|null  $hook  Called with (command, cwd) before each answer, to simulate side effects.
+     * @param  \Closure|null  $responder  Called with the whole command line; returns a CommandResult to
+     *                                    answer it, or null to fall through to $responses.
      */
-    public function __construct(private readonly array $responses = [], private readonly ?\Closure $hook = null)
+    public function __construct(private readonly array $responses = [], private readonly ?\Closure $hook = null, private readonly ?\Closure $responder = null)
     {
     }
 
@@ -30,6 +32,14 @@ class FakeRunner implements CommandRunner
 
         if ($this->hook !== null) {
             ($this->hook)($command, $cwd);
+        }
+
+        if ($this->responder !== null) {
+            $answer = ($this->responder)(implode(' ', $command));
+
+            if ($answer !== null) {
+                return $answer;
+            }
         }
 
         $key = implode(' ', \array_slice($command, 0, 2));

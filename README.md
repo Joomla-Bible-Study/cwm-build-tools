@@ -187,7 +187,7 @@ composer joomla-latest     # what's the newest Joomla?
 
 ### Disposable sites with DDEV
 
-`cwm-site-create` builds the stack a site runs on, so a contributor needs only
+`cwm-site-create` builds a working Joomla site, so a contributor needs only
 Docker and [DDEV](https://ddev.com) rather than a local Apache/PHP/MySQL install:
 
 ```bash
@@ -196,13 +196,20 @@ composer site-create -- j6 --dry-run               # see the plan, change nothin
 composer site-create -- j6                         # a folder named j6 beside the project
 ```
 
-It mounts the project where the relative symlinks `cwm-link` writes will
-resolve inside the container, and publishes the database on a free host port.
-This is the first stage; later stages install Joomla and the project's
-extensions into the running site. Site and source paths are resolved through
-symlinks first, because `cwm-link` links from real paths. The site must sit no
-more than three directory levels below the nearest folder it shares with the
-project, since that is how far the container can climb from its docroot.
+It creates the DDEV stack, mounts the project where the relative symlinks
+`cwm-link` writes will resolve inside the container, publishes the database on
+a free host port, downloads Joomla and runs Joomla's headless installer. It ends
+by printing the site URL and the Super User login; a generated password is
+shown once. Options: `--joomla <x.y.z>`, `--php <x.y>`, `--site-name`,
+`--admin-user`, `--admin-password`, `--admin-email`, `--db-port`, `--path`,
+`--stack-only`, `--force`. Set `CWM_JOOMLA_PACKAGE_URL` to fetch Joomla from a
+mirror or a local zip.
+
+Site and source paths are resolved through symlinks first, because `cwm-link`
+links from real paths. The site must sit no more than three directory levels
+below the nearest folder it shares with the project, since that is how far the
+container can climb from its docroot. Installing the project's own extensions
+into the site is the next stage.
 
 Symlinks are derived automatically from the project's
 `manifests.extensions[]` plus the top-level `extension` block — components

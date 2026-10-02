@@ -9,14 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **`cwm-site-create`** (#167, first stage) — provisions the web, PHP and
-  database stack for a disposable Joomla site with DDEV, with the project's
-  source tree mounted so the relative symlinks `cwm-link` writes resolve
-  inside the container. Stops once the stack is running; installing Joomla
-  and the project's extensions are the following stages. `--dry-run` prints the
-  plan. The database port defaults to the first free one from 33061, so several
-  sites can run together. It will not answer DDEV's one-time usage-statistics
-  question for the user: it stops and prints the command to run.
+- **`cwm-site-create`** (#167) — provisions a disposable Joomla site with
+  DDEV: the web, PHP and database stack, with the project's source tree
+  mounted so the relative symlinks `cwm-link` writes resolve inside the
+  container, then Joomla itself, installed with its own headless installer in
+  place of the web installer. Prints the URL and Super User login when done
+  (a generated password is shown once and never stored). `--dry-run` prints the
+  plan, `--stack-only` stops before Joomla, and `CWM_JOOMLA_PACKAGE_URL` points
+  the download at a mirror or a local zip. The database port defaults to the
+  first free one from 33061, so several sites can run together. It will not
+  answer DDEV's one-time usage-statistics question for the user: it stops and
+  prints the command to run. Installing the project's own extensions is the
+  next stage.
+- **`JoomlaInstaller::install()`** takes an optional list of names that may
+  already exist in the target, and tolerates empty directories, so a folder a
+  tool has just prepared (a DDEV project's `.ddev`) is still a valid target.
+  `cwm-joomla-install` is unchanged.
 
 ## [1.37.0] - 2026-09-25
 

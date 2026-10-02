@@ -54,12 +54,37 @@ final class JoomlaInstaller
         ];
     }
 
-    public function install(string $version, string $targetPath, ?string $url = null): void
+    /**
+     * @param  list<string>  $tolerate  Names that may already exist in the target.
+     *                                  Empty directories are always tolerated, so a folder
+     *                                  that a tool has only just prepared (a DDEV project's
+     *                                  `.ddev`, an empty `images`) is still a valid target.
+     */
+    public function install(string $version, string $targetPath, ?string $url = null, array $tolerate = []): void
     {
-        if (is_dir($targetPath) && (new \FilesystemIterator($targetPath))->valid()) {
-            throw new \RuntimeException(
-                "Target directory is not empty: {$targetPath}. Remove it first or pick another path."
-            );
+        if (is_dir($targetPath)) {
+            $blocking = [];
+
+            foreach (new \FilesystemIterator($targetPath) as $entry) {
+                $name = $entry->getFilename();
+
+                if (in_array($name, $tolerate, true)) {
+                    continue;
+                }
+
+                if ($entry->isDir() && !$entry->isLink() && !(new \FilesystemIterator($entry->getPathname()))->valid()) {
+                    continue;
+                }
+
+                $blocking[] = $name;
+            }
+
+            if ($blocking !== []) {
+                throw new \RuntimeException(
+                    "Target directory is not empty: {$targetPath} (contains " . implode(', ', array_slice($blocking, 0, 5))
+                    . "). Remove it first or pick another path."
+                );
+            }
         }
 
         if (!is_dir($targetPath) && !mkdir($targetPath, 0o777, true) && !is_dir($targetPath)) {

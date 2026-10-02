@@ -18,6 +18,7 @@ final class DdevEnvironment
         private readonly DdevConfig $config,
         private readonly MountPlanner $planner,
         private readonly string $globalConfigPath,
+        private readonly ?\Closure $sleep = null,
     ) {
     }
 
@@ -82,6 +83,73 @@ final class DdevEnvironment
 
         $log('Starting the project (the first start pulls images and can take several minutes)');
         $this->must(['ddev', 'start', '--skip-confirmation'], $spec->path, 'ddev start failed', true);
+    }
+
+    /**
+     * What DDEV's database container is created with, so the Joomla installer
+     * can be pointed at it.
+     *
+     * @return array{host: string, name: string, user: string, password: string}
+     */
+    public function databaseSettings(): array
+    {
+        return ['host' => 'db', 'name' => 'db', 'user' => 'db', 'password' => 'db'];
+    }
+
+    /**
+     * The URL DDEV serves the site on.
+     */
+    public function url(SiteSpec $spec): string
+    {
+        return 'https://' . $this->config->projectName($spec->id) . '.ddev.site';
+    }
+
+    /**
+     * Run a command inside the site's web container.
+     *
+     * Arguments are shell-escaped into one string because `ddev exec` hands its
+     * arguments to a shell, so a value with a space would otherwise split.
+     *
+     * @param  list<string>  $argv
+     */
+    public function exec(SiteSpec $spec, array $argv, bool $stream = false): CommandResult
+    {
+        return $this->runner->run(
+            ['ddev', 'exec', implode(' ', array_map('escapeshellarg', $argv))],
+            $spec->path,
+            $stream
+        );
+    }
+
+    /**
+     * Wait until a file written on the host is visible inside the container.
+     *
+     * DDEV syncs files into the container asynchronously on macOS and Windows,
+     * so a command run straight after a host-side write can fail with "file not
+     * found". A sync is requested first (harmless where it is not needed), then
+     * the file is polled for.
+     *
+     * @throws SiteException  when the file has not appeared after $seconds
+     */
+    public function waitForFile(SiteSpec $spec, string $relativePath, int $seconds = 30): void
+    {
+        $this->runner->run(['ddev', 'mutagen', 'sync'], $spec->path);
+
+        $sleep = $this->sleep ?? static function (int $s): void {
+            sleep($s);
+        };
+
+        for ($waited = 0; $waited <= $seconds; $waited++) {
+            if ($this->exec($spec, ['test', '-f', $relativePath])->ok()) {
+                return;
+            }
+
+            if ($waited < $seconds) {
+                $sleep(1);
+            }
+        }
+
+        throw new SiteException(sprintf('%s did not appear inside the container after %d seconds. Run `ddev mutagen sync` in %s and try again.', $relativePath, $seconds, $spec->path));
     }
 
     private function preflight(): void
