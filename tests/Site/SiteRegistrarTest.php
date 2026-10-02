@@ -174,6 +174,81 @@ PROPS;
     }
 
     #[Test]
+    public function unregisteringRemovesTheBlockAndTheListedIdAndNothingElse(): void
+    {
+        $registrar  = new SiteRegistrar();
+        $registered = $registrar->apply(self::EXISTING, $this->site());
+
+        $back = $registrar->withoutSite($registered, 'ddev6');
+
+        $this->assertSame(rtrim(self::EXISTING), rtrim($back), 'back to what the developer had, apart from trailing blank lines');
+        $this->assertStringNotContainsString('ddev6', $back);
+    }
+
+    #[Test]
+    public function unregisteringLeavesOtherSitesBlocksAndHandWrittenKeysAlone(): void
+    {
+        $registrar = new SiteRegistrar();
+        $both      = $registrar->apply($registrar->apply(self::EXISTING, $this->site('ddev6')), $this->site('ddev7'));
+
+        $after = $registrar->withoutSite($both, 'ddev6');
+
+        $this->assertStringNotContainsString('builder.ddev6.', $after);
+        $this->assertStringContainsString('builder.ddev7.path=', $after);
+        $this->assertStringContainsString("builder.installs=j5dev, j6dev, j62, ddev7\n", $after);
+        $this->assertStringContainsString('builder.j62.path=/sites/j62', $after);
+    }
+
+    #[Test]
+    public function unregisteringAnIdThatIsNotThereChangesNothing(): void
+    {
+        $this->assertSame(self::EXISTING . "\n", (new SiteRegistrar())->withoutSite(self::EXISTING . "\n", 'ghost'));
+    }
+
+    #[Test]
+    public function unregisteringNeverTouchesAHandDefinedSiteWithTheSameId(): void
+    {
+        $after = (new SiteRegistrar())->withoutSite(self::EXISTING, 'j62');
+
+        $this->assertStringContainsString('builder.j62.path=/sites/j62', $after, 'no marker block, so nothing of ours to remove');
+    }
+
+    #[Test]
+    public function recordedIdsAreOnlyTheOnesThisToolWrote(): void
+    {
+        $registrar = new SiteRegistrar();
+        $content   = $registrar->apply($registrar->apply(self::EXISTING, $this->site('ddev6')), $this->site('ddev7'));
+
+        $this->assertSame(['ddev6', 'ddev7'], $registrar->recordedIds($content));
+        $this->assertSame([], $registrar->recordedIds(self::EXISTING), 'hand-written installs are not ours');
+    }
+
+    #[Test]
+    public function unregisterRewritesTheFileKeepingItsPermissions(): void
+    {
+        $path = $this->tmp . '/build.properties';
+        file_put_contents($path, self::EXISTING);
+        chmod($path, 0o640);
+        $registrar = new SiteRegistrar();
+        $registrar->register($path, $this->site());
+
+        $registrar->unregister($path, 'ddev6');
+
+        $this->assertStringNotContainsString('ddev6', (string) file_get_contents($path));
+        $this->assertSame('640', substr(sprintf('%o', fileperms($path)), -3));
+        $this->assertSame([], glob($path . '.cwm-tmp-*') ?: []);
+    }
+
+    #[Test]
+    public function unregisterOnAMissingFileSaysSo(): void
+    {
+        $this->expectException(SiteException::class);
+        $this->expectExceptionMessage('no record to remove');
+
+        (new SiteRegistrar())->unregister($this->tmp . '/nope.properties', 'ddev6');
+    }
+
+    #[Test]
     public function aMissingFileIsCreatedPrivate(): void
     {
         $path = $this->tmp . '/build.properties';

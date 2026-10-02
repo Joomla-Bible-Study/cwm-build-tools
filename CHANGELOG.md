@@ -48,6 +48,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   resolve now says so and names the fix. `PropertiesReader` leaves
   `InstallConfig::$db['host']` out when `db_host` is not set (`dbHost()` still
   answers `localhost`), so a recorded address can be told from the default.
+- **`cwm-site-remove <id>`** removes a site `cwm-site-create` made: its DDEV
+  project (containers and database), its folder, and its record in
+  `build.properties`, in that order, so a failure part-way leaves the site still
+  recorded and the command can be run again. Without `--yes` it prints the plan,
+  with counts, and removes nothing. It acts only on a site this tool recorded,
+  and refuses a folder that lacks the files only `cwm-site-create` writes, is a
+  git repository, is the home directory, or contains the project it is run from.
+  Symlinks in the folder (a linked dev site has them, pointing into the source)
+  are unlinked and never followed.
+- **`cwm-site-reset <id>`** puts a `role=test` site back to a known state and
+  reinstalls the built package: it starts the project if it is stopped, runs
+  `cwm-reset-testsite` for that site (not reimplemented), then installs the
+  package again with the installer's messages. `--dry-run` previews the reset
+  against the live database. A `role=dev` site is refused.
 - **`cwm-link --install <id>`** links into one install only. The role rule still
   applies: naming a `role=test` install is refused, not honoured.
 - **`JoomlaInstaller::install()`** takes an optional list of names that may

@@ -30,12 +30,12 @@ require_once __DIR__ . '/../src/Site/JoomlaSettings.php';
 require_once __DIR__ . '/../src/Site/JoomlaInstallStage.php';
 require_once __DIR__ . '/../src/Site/InstallReport.php';
 require_once __DIR__ . '/../src/Site/ExtensionInstallStage.php';
+require_once __DIR__ . '/../src/Site/PackageLocator.php';
 require_once __DIR__ . '/../src/Site/RegisteredSite.php';
 require_once __DIR__ . '/../src/Site/SiteRegistrar.php';
 require_once __DIR__ . '/../src/Site/PropertiesGuard.php';
 require_once __DIR__ . '/../src/Site/LinkStage.php';
 
-use CWM\BuildTools\Build\DistZipResolver;
 use CWM\BuildTools\Cli\Flags;
 use CWM\BuildTools\Site\DdevConfig;
 use CWM\BuildTools\Site\DdevEnvironment;
@@ -45,6 +45,7 @@ use CWM\BuildTools\Site\JoomlaInstallStage;
 use CWM\BuildTools\Site\JoomlaSettings;
 use CWM\BuildTools\Site\LinkStage;
 use CWM\BuildTools\Site\MountPlanner;
+use CWM\BuildTools\Site\PackageLocator;
 use CWM\BuildTools\Site\PathResolver;
 use CWM\BuildTools\Site\PortFinder;
 use CWM\BuildTools\Site\ProcessRunner;
@@ -177,29 +178,18 @@ try {
 
     // Decided before anything starts, so a bad --package fails now and not after
     // several minutes of provisioning.
-    $zip       = null;
-    $packageOn = Flags::value($argv, '--package') ?? 'auto';
+    $zip = null;
 
-    if ($installJoomla && $packageOn !== 'none') {
-        $resolver = new DistZipResolver();
+    if ($installJoomla) {
+        $located = (new PackageLocator())->locate(Flags::value($argv, '--package') ?? 'auto', $projectRoot, $source);
+        $zip     = $located['path'];
 
-        try {
-            if ($packageOn === 'auto') {
-                $configFile = $source . '/cwm-build.config.json';
-                $config     = is_file($configFile) ? json_decode((string) file_get_contents($configFile), true) : null;
-                $zip        = $resolver->resolveFromGlob($source, (string) (is_array($config) ? ($config['build']['outputGlob'] ?? '') : ''));
-            } else {
-                $zip = $resolver->resolveExplicit($projectRoot, $packageOn);
-            }
-        } catch (\RuntimeException $e) {
-            if ($packageOn !== 'auto') {
-                throw new SiteException(str_replace('--zip path', '--package path', $e->getMessage()));
-            }
-
+        if ($located['note'] !== null) {
             echo "Note: no built package to install, so only Joomla will be set up.\n  "
-                . str_replace("\n", "\n  ", $e->getMessage()) . "\n\n";
+                . str_replace("\n", "\n  ", $located['note']) . "\n\n";
         }
     }
+
     $generated     = Flags::value($argv, '--admin-password') === null;
     $settings      = new JoomlaSettings(
         Flags::value($argv, '--joomla'),

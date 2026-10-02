@@ -236,6 +236,16 @@ mirror or a local zip.
   exercising the built package itself. `cwm-link --install <id>` re-links one
   site, and refuses a test site.
 
+**Resetting and removing.** `cwm-site-reset <id>` returns a `role=test` site to a
+known state and reinstalls the built package, so each run of an install test
+starts clean (a stale extension row makes Joomla treat a fresh install as an
+update). It runs `cwm-reset-testsite` for that site, so the project needs the
+`testSite.reset` block that command reads. `cwm-site-remove <id>` deletes a site
+this tool made: its DDEV project, its folder and its `build.properties` record.
+It prints the plan and does nothing until you add `--yes`, refuses anything
+`cwm-site-create` did not make, and unlinks (never follows) the symlinks a linked
+dev site holds into your source.
+
 Site and source paths are resolved through symlinks first, because `cwm-link`
 links from real paths. The site must sit no more than three directory levels
 below the nearest folder it shares with the project, since that is how far the
