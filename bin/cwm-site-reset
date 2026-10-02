@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#
+# cwm-site-reset — see `cwm-site-reset --help`.
+#
+# Usage from a consuming project:
+#   composer site-reset -- <id>
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/site-reset.php" "$@"

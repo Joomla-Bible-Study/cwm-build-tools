@@ -683,6 +683,39 @@ final class PropertiesReaderTest extends TestCase
         self::assertCount(1, $reader->installs());
     }
 
+    #[Test]
+    public function an_unset_db_host_is_left_out_so_a_recorded_one_can_be_told_from_the_default(): void
+    {
+        $path = $this->writeProperties("builder.a.path=/x\nbuilder.b.path=/y\nbuilder.b.db_host=127.0.0.1:33061\n");
+
+        $installs = [];
+
+        foreach ((new PropertiesReader($path))->installs() as $install) {
+            $installs[$install->id] = $install;
+        }
+
+        self::assertArrayNotHasKey('host', $installs['a']->db, 'not set: nothing recorded');
+        self::assertSame('localhost', $installs['a']->dbHost(), 'the accessor still answers the default');
+        self::assertSame('127.0.0.1:33061', $installs['b']->db['host']);
+        self::assertSame('127.0.0.1:33061', $installs['b']->dbHost());
+    }
+
+    #[Test]
+    public function an_unset_db_host_is_left_out_in_the_sections_format_too(): void
+    {
+        $path = $this->writeProperties("[a]\npath=/x\n\n[b]\npath=/y\ndb_host=db.local\n");
+
+        $installs = [];
+
+        foreach ((new PropertiesReader($path))->installs() as $install) {
+            $installs[$install->id] = $install;
+        }
+
+        self::assertArrayNotHasKey('host', $installs['a']->db);
+        self::assertSame('localhost', $installs['a']->dbHost());
+        self::assertSame('db.local', $installs['b']->db['host']);
+    }
+
     private function writeProperties(string $contents): string
     {
         $path = $this->tmpDir . '/build.properties';

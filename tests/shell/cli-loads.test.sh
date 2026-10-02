@@ -54,11 +54,31 @@ for script in "${ROOT}"/scripts/*.php; do
             }
         }
 
+        // Code only: a docblock that says "see Linker::link()" is not a reference, and
+        // counting it demanded a require for a class nothing ever calls.
+        $code = static function (string $file): string {
+            $out = "";
+
+            foreach (token_get_all((string) file_get_contents($file)) as $t) {
+                if (is_array($t)) {
+                    if ($t[0] === T_COMMENT || $t[0] === T_DOC_COMMENT) {
+                        continue;
+                    }
+
+                    $out .= $t[1];
+                } else {
+                    $out .= $t;
+                }
+            }
+
+            return $out;
+        };
+
         // Every CWM class referenced by the script or by anything it loaded.
         $referenced = [];
 
         foreach (array_merge([$script], $loaded) as $file) {
-            $src = (string) file_get_contents($file);
+            $src = $code($file);
 
             if (preg_match_all("~\b([A-Z][A-Za-z0-9_]+)::~", $src, $r)) {
                 $referenced = array_merge($referenced, $r[1]);
@@ -90,7 +110,8 @@ for script in "${ROOT}"/scripts/*.php; do
             }
 
             foreach (["CWM\\BuildTools\\Dev\\", "CWM\\BuildTools\\Build\\", "CWM\\BuildTools\\Config\\",
-                      "CWM\\BuildTools\\Release\\", "CWM\\BuildTools\\Http\\", "CWM\\BuildTools\\Cli\\"] as $ns) {
+                      "CWM\\BuildTools\\Release\\", "CWM\\BuildTools\\Http\\", "CWM\\BuildTools\\Cli\\",
+                      "CWM\\BuildTools\\Site\\"] as $ns) {
                 if (class_exists($ns . $class, false) || interface_exists($ns . $class, false)
                     || trait_exists($ns . $class, false) || enum_exists($ns . $class, false)) {
                     continue 2;

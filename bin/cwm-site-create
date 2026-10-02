@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#
+# cwm-site-create — provision a disposable Joomla dev/test site (DDEV).
+#
+# Usage from a consuming project:
+#   composer site-create -- j6 --path /abs/path/Sites/j6
+#   composer site-create -- j6 --dry-run
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/site-create.php" "$@"

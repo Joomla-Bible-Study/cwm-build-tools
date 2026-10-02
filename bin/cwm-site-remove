@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#
+# cwm-site-remove — see `cwm-site-remove --help`.
+#
+# Usage from a consuming project:
+#   composer site-remove -- <id>
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/site-remove.php" "$@"

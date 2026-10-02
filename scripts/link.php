@@ -14,6 +14,7 @@ declare(strict_types=1);
  * remains portable across machines and CI.
  */
 
+require_once __DIR__ . '/../src/Cli/Flags.php';
 require_once __DIR__ . '/../src/Config/CwmPackage.php';
 require_once __DIR__ . '/../src/Config/InstalledPackageReader.php';
 require_once __DIR__ . '/../src/Dev/InstallConfig.php';
@@ -22,6 +23,7 @@ require_once __DIR__ . '/../src/Dev/LinkResolver.php';
 require_once __DIR__ . '/../src/Dev/Linker.php';
 require_once __DIR__ . '/../src/Dev/LinkPlanner.php';
 
+use CWM\BuildTools\Cli\Flags;
 use CWM\BuildTools\Config\InstalledPackageReader;
 use CWM\BuildTools\Dev\LinkPlanner;
 use CWM\BuildTools\Dev\LinkResolver;
@@ -60,11 +62,15 @@ USAGE
   composer link
   composer link -- -v           # verbose: print each link
   composer link -- --force      # overwrite conflicting symlinks
+  composer link -- --install j6 # link into just this install
 
 OPTIONS
   -v, --verbose    Print every link as it is created.
   -f, --force      Overwrite existing symlinks even when they point
                    somewhere other than the expected source.
+      --install <id>
+                   Link into this install only. It must be role=dev: naming a
+                   role=test install is refused, not honoured.
 
 EXIT CODE
   0 on success (all links ok/created), 1 when a conflict was reported
@@ -99,7 +105,20 @@ if (!$reader->exists()) {
 //
 // That choice lives in LinkPlanner rather than here because this is where it
 // was got wrong in v1.6.1, and nothing in scripts/ can be tested. See #32.
-$plan     = LinkPlanner::selectInstalls($reader);
+$only = Flags::value($argv, '--install');
+
+if ($only !== null) {
+    try {
+        $plan = ['linkable' => [LinkPlanner::selectInstall($reader, $only)], 'missing' => []];
+    } catch (\RuntimeException $e) {
+        fwrite(STDERR, $e->getMessage() . "\n");
+
+        exit(1);
+    }
+} else {
+    $plan = LinkPlanner::selectInstalls($reader);
+}
+
 $installs = $plan['linkable'];
 
 // Surfaced rather than skipped silently: a stale path usually means a machine

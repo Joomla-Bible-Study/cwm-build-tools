@@ -60,6 +60,49 @@ final class LinkPlanner
     }
 
     /**
+     * Select one install by id, for `cwm-link --install <id>`.
+     *
+     * The role rule still applies: asking for a `role=test` install by name is
+     * refused, not honoured. Naming it is not a reason to link it; that is the
+     * defect {@see self::selectInstalls()} exists to prevent.
+     *
+     * @throws  \RuntimeException  when the id is unknown, the install is not role=dev,
+     *                             or its folder is missing; the message says which
+     */
+    public static function selectInstall(PropertiesReader $reader, string $id): InstallConfig
+    {
+        $all = $reader->installs();
+
+        foreach ($all as $install) {
+            if ($install->id !== $id) {
+                continue;
+            }
+
+            if ($install->role !== InstallConfig::ROLE_DEV) {
+                throw new \RuntimeException(sprintf(
+                    'Install "%s" is role=%s. Only role=dev installs are linked: a test install is wiped and reinstalled by the release harness, and a link would put your source in its path.',
+                    $id,
+                    $install->role
+                ));
+            }
+
+            if (!is_dir($install->path)) {
+                throw new \RuntimeException(sprintf('Install "%s" points at %s, which does not exist.', $id, $install->path));
+            }
+
+            return $install;
+        }
+
+        $known = array_map(static fn (InstallConfig $i): string => $i->id, $all);
+
+        throw new \RuntimeException(sprintf(
+            'No install "%s" in build.properties. Known installs: %s.',
+            $id,
+            $known === [] ? '(none)' : implode(', ', $known)
+        ));
+    }
+
+    /**
      * Group dependency links by the package that owns them.
      *
      * Preserves both the order packages first appear and the order of links

@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`cwm-site-create`** (#167) — provisions a disposable Joomla site with
+  DDEV, from nothing to a working, linked dev site in one command:
+  the web, PHP and database stack, with the project's source tree mounted so the
+  relative symlinks `cwm-link` writes resolve inside the container; Joomla,
+  installed with its own headless installer in place of the web installer; and
+  the project's built package (`--package auto|<zip>|none`, default `auto`: the
+  newest zip matching `build.outputGlob`), installed through Joomla's installer
+  with the installer's own messages. A package goes in as one unit, so a
+  project needs no knowledge of its children's order, and an extension's own
+  install-script warnings are shown after the install.
+  The site is then recorded in `build.properties` and, for `--role dev` (the
+  default), the installed copy is replaced by links to the project's source
+  with `cwm-link --install <id>`, and every link is checked from inside the
+  container. `--role test` keeps the installed copy. `--dry-run` prints the
+  plan, `--stack-only` stops before Joomla, `--no-register` leaves
+  `build.properties` alone, and `CWM_JOOMLA_PACKAGE_URL` points the download at a
+  mirror or a local zip. The database port defaults to the first free one from
+  33061, so several sites can run together. It will not answer DDEV's one-time
+  usage-statistics question for the user: it stops and prints the command to
+  run.
+  Recording the site writes only a marker-delimited block plus the new id on the
+  `builder.installs` line, and leaves every other line as it was.
+  It writes the site's database and admin passwords into that file, so it
+  refuses unless git ignores it; a generated password is also shown once. Ids
+  that end in `dev` are refused, because `PropertiesReader` strips that suffix
+  and the site would be reported under another name.
+- **`cwm-verify` and `cwm-reset-testsite` reach a containerised site's database.**
+  `configuration.php` names the database host as the site sees it (`db` for a
+  DDEV site), which does not resolve on the machine the tools run on, so both
+  failed with "Could not connect to db at db". `TestSite::fromInstall()` now
+  replaces the **address only**, and only when the configured host does not
+  resolve from this machine and `build.properties` records a `db_host` for the
+  install (`cwm-site-create` records one). Credentials, database name and prefix
+  still come from `configuration.php`, which stays the source of truth for what
+  the running site connects with, and a host that resolves is never replaced, so
+  existing setups behave as before. A failed connection to a host that does not
+  resolve now says so and names the fix. `PropertiesReader` leaves
+  `InstallConfig::$db['host']` out when `db_host` is not set (`dbHost()` still
+  answers `localhost`), so a recorded address can be told from the default.
+- **`cwm-site-remove <id>`** removes a site `cwm-site-create` made: its DDEV
+  project (containers and database), its folder, and its record in
+  `build.properties`, in that order, so a failure part-way leaves the site still
+  recorded and the command can be run again. Without `--yes` it prints the plan,
+  with counts, and removes nothing. It acts only on a site this tool recorded,
+  and refuses a folder that lacks the files only `cwm-site-create` writes, is a
+  git repository, is the home directory, or contains the project it is run from.
+  Symlinks in the folder (a linked dev site has them, pointing into the source)
+  are unlinked and never followed.
+- **`cwm-site-reset <id>`** puts a `role=test` site back to a known state and
+  reinstalls the built package: it starts the project if it is stopped, runs
+  `cwm-reset-testsite` for that site (not reimplemented), then installs the
+  package again with the installer's messages. `--dry-run` previews the reset
+  against the live database. A `role=dev` site is refused.
+- **`cwm-link --install <id>`** links into one install only. The role rule still
+  applies: naming a `role=test` install is refused, not honoured.
+- **`JoomlaInstaller::install()`** takes an optional list of names that may
+  already exist in the target, and tolerates empty directories, so a folder a
+  tool has just prepared (a DDEV project's `.ddev`) is still a valid target.
+  `cwm-joomla-install` is unchanged.
+
 ### Documentation
 
 - **The version-suffix policy is written down** (`docs/releasing.md`), rather
