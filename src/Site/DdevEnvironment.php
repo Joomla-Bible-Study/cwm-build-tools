@@ -122,6 +122,17 @@ final class DdevEnvironment
     }
 
     /**
+     * Flush pending file changes between the host and the container.
+     *
+     * Harmless where DDEV is not syncing files. Without it, a delete made on one
+     * side can be undone by files the other side created in the meantime.
+     */
+    public function sync(SiteSpec $spec): void
+    {
+        $this->runner->run(['ddev', 'mutagen', 'sync'], $spec->path);
+    }
+
+    /**
      * Wait until a file written on the host is visible inside the container.
      *
      * DDEV syncs files into the container asynchronously on macOS and Windows,
@@ -133,7 +144,7 @@ final class DdevEnvironment
      */
     public function waitForFile(SiteSpec $spec, string $relativePath, int $seconds = 30): void
     {
-        $this->runner->run(['ddev', 'mutagen', 'sync'], $spec->path);
+        $this->sync($spec);
 
         $sleep = $this->sleep ?? static function (int $s): void {
             sleep($s);

@@ -199,17 +199,24 @@ composer site-create -- j6                         # a folder named j6 beside th
 It creates the DDEV stack, mounts the project where the relative symlinks
 `cwm-link` writes will resolve inside the container, publishes the database on
 a free host port, downloads Joomla and runs Joomla's headless installer. It ends
-by printing the site URL and the Super User login; a generated password is
-shown once. Options: `--joomla <x.y.z>`, `--php <x.y>`, `--site-name`,
+by installing the project's built package and printing the site URL and the
+Super User login; a generated password is shown once. Build the package first
+(`composer package`). Options: `--joomla <x.y.z>`, `--php <x.y>`, `--site-name`,
 `--admin-user`, `--admin-password`, `--admin-email`, `--db-port`, `--path`,
-`--stack-only`, `--force`. Set `CWM_JOOMLA_PACKAGE_URL` to fetch Joomla from a
-mirror or a local zip.
+`--package auto|<zip>|none`, `--stack-only`, `--force`. Set
+`CWM_JOOMLA_PACKAGE_URL` to fetch Joomla from a mirror or a local zip.
+
+The package is installed through Joomla's own installer, inside the container,
+so the messages you see are the installer's. A package goes in as one unit and
+Joomla installs its children, so the project does not declare an order. If an
+extension's install script reports a step it could not finish, it is shown as a
+warning after the install; the install itself still counts as done.
 
 Site and source paths are resolved through symlinks first, because `cwm-link`
 links from real paths. The site must sit no more than three directory levels
 below the nearest folder it shares with the project, since that is how far the
-container can climb from its docroot. Installing the project's own extensions
-into the site is the next stage.
+container can climb from its docroot. Linking the project's source into the
+site, and registering the site in `build.properties`, are the next stages.
 
 Symlinks are derived automatically from the project's
 `manifests.extensions[]` plus the top-level `extension` block — components

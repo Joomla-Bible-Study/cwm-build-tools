@@ -98,6 +98,12 @@ class DdevConfigTest extends TestCase
     }
 
     #[Test]
+    public function theOverrideSilencesDdevsCustomConfigurationNotice(): void
+    {
+        $this->assertStringContainsString("\n#ddev-silent-no-warn\n", $this->config->composeOverride([]));
+    }
+
+    #[Test]
     public function aPathWithAQuoteOrSpaceIsQuotedSafely(): void
     {
         $yaml = $this->config->composeOverride([new Mount('/Users/a b/"x"', '/var/x', 'r')]);

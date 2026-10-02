@@ -70,6 +70,8 @@ final class DdevConfig
     {
         $lines = [
             '# Written by cwm-site-create. Safe to edit; it is not regenerated unless you re-run with --force.',
+            // DDEV prints a notice about custom compose files on every start; this one is deliberate.
+            '#ddev-silent-no-warn',
             '#',
         ];
 

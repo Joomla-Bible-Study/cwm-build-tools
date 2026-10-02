@@ -19,8 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the download at a mirror or a local zip. The database port defaults to the
   first free one from 33061, so several sites can run together. It will not
   answer DDEV's one-time usage-statistics question for the user: it stops and
-  prints the command to run. Installing the project's own extensions is the
-  next stage.
+  prints the command to run. Installs the project's built package too
+  (`--package auto|<zip>|none`, default `auto`: the newest zip matching
+  `build.outputGlob`), through Joomla's installer, and prints the installer's
+  own messages. A package goes in as one unit, so a project needs no knowledge
+  of its children's order. An extension's own install-script warnings are shown
+  after the install. Linking the source tree into the site and registering the
+  site are the next stages.
 - **`JoomlaInstaller::install()`** takes an optional list of names that may
   already exist in the target, and tolerates empty directories, so a folder a
   tool has just prepared (a DDEV project's `.ddev`) is still a valid target.

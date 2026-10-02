@@ -10,6 +10,7 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/../src/Cli/Flags.php';
+require_once __DIR__ . '/../src/Build/DistZipResolver.php';
 require_once __DIR__ . '/../src/Dev/JoomlaInstaller.php';
 require_once __DIR__ . '/../src/Site/Mount.php';
 require_once __DIR__ . '/../src/Site/MountPlanner.php';
@@ -26,10 +27,14 @@ require_once __DIR__ . '/../src/Site/JoomlaSource.php';
 require_once __DIR__ . '/../src/Site/GithubJoomlaSource.php';
 require_once __DIR__ . '/../src/Site/JoomlaSettings.php';
 require_once __DIR__ . '/../src/Site/JoomlaInstallStage.php';
+require_once __DIR__ . '/../src/Site/InstallReport.php';
+require_once __DIR__ . '/../src/Site/ExtensionInstallStage.php';
 
+use CWM\BuildTools\Build\DistZipResolver;
 use CWM\BuildTools\Cli\Flags;
 use CWM\BuildTools\Site\DdevConfig;
 use CWM\BuildTools\Site\DdevEnvironment;
+use CWM\BuildTools\Site\ExtensionInstallStage;
 use CWM\BuildTools\Site\GithubJoomlaSource;
 use CWM\BuildTools\Site\JoomlaInstallStage;
 use CWM\BuildTools\Site\JoomlaSettings;
@@ -51,7 +56,12 @@ WHAT IT DOES
   2. Downloads Joomla and runs its headless installer inside the container, in
      place of the web installer.
 
-  The project's own extensions are installed by the stages that follow.
+  3. Installs the project's built package into the site through Joomla's
+     installer, and shows the installer's own messages, including any warning
+     an extension's install script raises.
+
+  Build the package first (composer package / composer build). Linking the
+  source tree into the site, and registering the site, are the next stages.
 
 PREREQUISITES
   - Docker (Docker Desktop, OrbStack or Colima) running
@@ -76,6 +86,9 @@ OPTIONS
       --admin-password  Super User password, 12+ characters. Default: a random
                         one, printed once at the end.
       --admin-email <s> Super User email. Default: admin@example.com.
+      --package <p>     The built zip to install: a path, "auto" (the newest zip
+                        matching build.outputGlob in cwm-build.config.json; the
+                        default, skipped with a note if there is none) or "none".
       --stack-only      Stop after the DDEV stack; do not install Joomla.
       --force           Reconfigure a site that already exists, in place.
       --dry-run         Print what would happen and change nothing.
@@ -91,7 +104,7 @@ HELP;
 }
 
 // The first argument that is neither a flag nor the value of one is the site id.
-$valueFlags = ['--path', '--php', '--db-port', '--source', '--joomla', '--site-name', '--admin-user', '--admin-password', '--admin-email'];
+$valueFlags = ['--path', '--php', '--db-port', '--source', '--joomla', '--site-name', '--admin-user', '--admin-password', '--admin-email', '--package'];
 $id         = null;
 
 foreach (\array_slice($argv, 1) as $i => $arg) {
@@ -140,6 +153,32 @@ try {
     );
 
     $installJoomla = !Flags::has($argv, ['--stack-only']);
+
+    // Decided before anything starts, so a bad --package fails now and not after
+    // several minutes of provisioning.
+    $zip       = null;
+    $packageOn = Flags::value($argv, '--package') ?? 'auto';
+
+    if ($installJoomla && $packageOn !== 'none') {
+        $resolver = new DistZipResolver();
+
+        try {
+            if ($packageOn === 'auto') {
+                $configFile = $source . '/cwm-build.config.json';
+                $config     = is_file($configFile) ? json_decode((string) file_get_contents($configFile), true) : null;
+                $zip        = $resolver->resolveFromGlob($source, (string) (is_array($config) ? ($config['build']['outputGlob'] ?? '') : ''));
+            } else {
+                $zip = $resolver->resolveExplicit($projectRoot, $packageOn);
+            }
+        } catch (\RuntimeException $e) {
+            if ($packageOn !== 'auto') {
+                throw new SiteException(str_replace('--zip path', '--package path', $e->getMessage()));
+            }
+
+            echo "Note: no built package to install, so only Joomla will be set up.\n  "
+                . str_replace("\n", "\n  ", $e->getMessage()) . "\n\n";
+        }
+    }
     $generated     = Flags::value($argv, '--admin-password') === null;
     $settings      = new JoomlaSettings(
         Flags::value($argv, '--joomla'),
@@ -153,6 +192,8 @@ try {
         $environment,
         new GithubJoomlaSource(new CWM\BuildTools\Dev\JoomlaInstaller(), getenv('CWM_JOOMLA_PACKAGE_URL') ?: null)
     );
+
+    $extensions = new ExtensionInstallStage($environment);
 
     if (Flags::has($argv, ['--dry-run'])) {
         echo "Would do, in order:\n";
@@ -169,6 +210,12 @@ try {
             }
         }
 
+        if ($zip !== null) {
+            foreach ($extensions->plan($spec, $zip) as $step) {
+                echo \sprintf("  %d. %s\n", ++$n, $step);
+            }
+        }
+
         exit(0);
     }
 
@@ -179,6 +226,14 @@ try {
     $environment->provision($spec, $log);
 
     $version = $installJoomla ? $stage->run($spec, $settings, $log) : null;
+    $report  = null;
+
+    if ($zip !== null) {
+        $age = max(0, time() - (int) filemtime($zip));
+
+        $log(\sprintf('Using %s (built %s ago)', $zip, $age < 120 ? $age . ' seconds' : ($age < 7200 ? intdiv($age, 60) . ' minutes' : intdiv($age, 3600) . ' hours')));
+        $report = $extensions->run($spec, $zip, $log);
+    }
 } catch (SiteException | \InvalidArgumentException $e) {
     fwrite(STDERR, $e->getMessage() . "\n");
 
@@ -192,6 +247,21 @@ if ($version === null) {
 }
 
 echo "\nJoomla {$version} is installed.\n";
+
+if ($report !== null) {
+    echo '  ' . ($report->name ?? basename((string) $zip)) . ($report->version ? ' ' . $report->version : '') . " is installed.\n";
+
+    if ($report->warnings() !== []) {
+        echo "\n  The installer reported " . \count($report->warnings()) . " warning(s). The install went through, but check them:\n";
+
+        foreach ($report->warnings() as $warning) {
+            echo "    - {$warning}\n";
+        }
+
+        echo "\n";
+    }
+}
+
 echo '  Site:   ' . $environment->url($spec) . "/\n";
 echo '  Admin:  ' . $environment->url($spec) . "/administrator/\n";
 echo "  Login:  {$settings->adminUsername}\n";
