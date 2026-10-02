@@ -229,6 +229,33 @@ rather than forking the fetcher.
   major and documented under `### Changed (breaking)` in the
   [changelog](https://github.com/Joomla-Bible-Study/cwm-build-tools/blob/main/CHANGELOG.md).
 
+### Suffixes: what may be published, and what may not
+
+| Suffix | Publishable | ARS maturity | What it means |
+|---|---|---|---|
+| *(none)* | yes | `stable` | Offered to every site that checks for an update |
+| `-alpha…`, `-beta…`, `-rc…` | yes | `alpha` / `beta` / `rc` | Hidden from sites that have not opted into pre-release updates |
+| anything else | yes | `alpha` | Unrecognised, so treated as least mature |
+| `-dev` | **no** | — | Refused by `cwm-release` *and* `cwm-ars-publish` |
+
+**`-alpha` is the channel for an edge build you want held back from the
+public.** ARS accepts it, Joomla hides it from sites that have not opted in,
+and the release is still a real, downloadable, tagged artifact.
+
+**`-dev` is not a channel.** It marks the cycle currently in flight —
+`active_development: 10.5.11-dev` in `versions.json`, which `cwm-bump` clears
+to the plain version on the way out (see
+[the `activeDevelopment` block](configuration.md#versiontrackingactivedevelopment--reopening-the-cycle-after-a-release)).
+Publishing a `v10.5.11-dev` tag would make one string mean two things at once —
+"unreleased work in progress" and "shipped edge build" — so both entry points
+refuse it, and `cwm_validate_release_version` is the single place that says so.
+
+Maturity is the distribution gate, not a label, which is why an unrecognised
+suffix reads as `alpha` rather than falling through to `stable`. It used to
+fall through: a `-dev` build was marked pre-release on GitHub and published to
+ARS as a normal update, offered to every site, with nothing in the run
+reporting a problem (#155).
+
 ## Distribution
 
 CWM internal tooling ships **only** via Composer (`require-dev`) — never via
