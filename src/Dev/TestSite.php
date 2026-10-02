@@ -115,14 +115,71 @@ final class TestSite
     /**
      * Build one from an install declared in build.properties.
      *
-     * The install supplies the path only; the credentials still come from the
-     * site's own configuration.php. See the class docblock for why.
+     * The install supplies the path, and, in one case, the address. The
+     * credentials, database name and prefix still come from the site's own
+     * configuration.php. See the class docblock for why.
+     *
+     * The one case: `configuration.php` names the database host as the site
+     * sees it. For a site in a container that is an internal name (`db`) which
+     * does not resolve on the machine the tools run on, while the same database
+     * is published at an address build.properties records (`db_host`). When the
+     * configured host does not resolve from here and an address was recorded,
+     * the address is used. A host that resolves is never replaced, so a setup
+     * that already works is not touched.
+     *
+     * @param  (callable(string): bool)|null  $lookup  Whether a bare hostname resolves from this
+     *                                                 machine. Only asked about real names. Injectable
+     *                                                 so tests need no network.
      *
      * @throws RuntimeException As {@see fromPath()}.
      */
-    public static function fromInstall(InstallConfig $install): self
+    public static function fromInstall(InstallConfig $install, ?callable $lookup = null): self
     {
-        return self::fromPath($install->path);
+        $site     = self::fromPath($install->path);
+        $recorded = (string) ($install->db['host'] ?? '');
+
+        if ($recorded === '') {
+            return $site;
+        }
+
+        if (self::hostResolves($site->config['host'], $lookup)) {
+            return $site;
+        }
+
+        return new self($site->path, array_replace($site->config, ['host' => $recorded]));
+    }
+
+    /**
+     * Whether a configured database host can be reached from this machine.
+     *
+     * `localhost`, an IP address and a Unix socket path always can, with no
+     * lookup. Anything else is looked up, by bare name: the port, if the host
+     * carries one (`db:3306`), is dropped first.
+     *
+     * @param  (callable(string): bool)|null  $lookup  Replaces the DNS lookup; for tests.
+     */
+    public static function hostResolves(string $configuredHost, ?callable $lookup = null): bool
+    {
+        if ($configuredHost === '' || $configuredHost[0] === '/' || $configuredHost[0] === '[') {
+            return true;
+        }
+
+        $name = explode(':', $configuredHost, 2)[0];
+
+        if ($name === 'localhost' || $name === '' || filter_var($name, FILTER_VALIDATE_IP) !== false) {
+            return true;
+        }
+
+        return ($lookup ?? static fn (string $n): bool => gethostbyname($n) !== $n)($name);
+    }
+
+    /**
+     * The database host this object connects to, as configuration.php wrote it
+     * or as build.properties replaced it.
+     */
+    public function host(): string
+    {
+        return $this->config['host'];
     }
 
     /**
@@ -279,9 +336,15 @@ final class TestSite
                 [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION],
             );
         } catch (PDOException $e) {
+            $hint = self::hostResolves($this->config['host'])
+                ? ''
+                : "\n  The host \"{$this->config['host']}\" does not resolve from this machine; for a site in a container it is "
+                . "probably a name only the container knows.\n  Record the address you reach the database at as db_host for this "
+                . 'install in build.properties (cwm-site-create does this for the sites it creates).';
+
             throw new RuntimeException(
                 "Could not connect to {$this->config['db']} at {$this->config['host']} "
-                . "(credentials from {$this->path}/configuration.php): " . $e->getMessage(),
+                . "(credentials from {$this->path}/configuration.php): " . $e->getMessage() . $hint,
                 0,
                 $e,
             );

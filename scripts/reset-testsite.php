@@ -176,7 +176,7 @@ foreach ($installs as $install) {
     echo "\n=== reset {$install->id} ({$install->path}) ===\n";
 
     try {
-        $site = TestSite::fromPath($install->path);
+        $site = TestSite::fromInstall($install);
     } catch (\RuntimeException $e) {
         fwrite(STDERR, '  ERROR: ' . $e->getMessage() . "\n");
         $exit = 1;

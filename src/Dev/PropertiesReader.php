@@ -200,8 +200,9 @@ final class PropertiesReader
                 path:    rtrim((string) ($section['path'] ?? ''), '/'),
                 url:     ($section['url'] ?? '') === '' ? null : (string) $section['url'],
                 version: ($section['version'] ?? '') === '' ? null : (string) $section['version'],
-                db:      [
-                    'host' => (string) ($section['db_host'] ?? 'localhost'),
+                // `host` is left out when db_host is not set, so a recorded address can be told
+                // from the default; InstallConfig::dbHost() still answers 'localhost'.
+                db:      (isset($section['db_host']) ? ['host' => (string) $section['db_host']] : []) + [
                     'user' => (string) ($section['db_user'] ?? ''),
                     'pass' => (string) ($section['db_pass'] ?? ''),
                     'name' => (string) ($section['db_name'] ?? ''),
@@ -343,8 +344,8 @@ final class PropertiesReader
                 path:    $path,
                 url:     ($raw["{$prefix}.url"] ?? '') === '' ? null : (string) $raw["{$prefix}.url"],
                 version: $version === '' ? null : $version,
-                db:      [
-                    'host' => (string) ($raw["{$prefix}.db_host"] ?? 'localhost'),
+                // `host` is left out when db_host is not set; see the sections parser above.
+                db:      (isset($raw["{$prefix}.db_host"]) ? ['host' => (string) $raw["{$prefix}.db_host"]] : []) + [
                     'user' => (string) ($raw["{$prefix}.db_user"] ?? ''),
                     'pass' => (string) ($raw["{$prefix}.db_pass"] ?? ''),
                     'name' => (string) ($raw["{$prefix}.db_name"] ?? ''),

@@ -61,7 +61,7 @@ final class ExtensionVerifier
         // the one implementation of "read configuration.php, connect, know the
         // prefix" (#102). This method used to be that implementation, privately.
         try {
-            $site = TestSite::fromPath($install->path);
+            $site = TestSite::fromInstall($install);
             $pdo  = $site->db();
         } catch (\RuntimeException $e) {
             echo '  ERROR: ' . $e->getMessage() . "\n";

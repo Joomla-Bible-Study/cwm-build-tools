@@ -35,6 +35,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   refuses unless git ignores it; a generated password is also shown once. Ids
   that end in `dev` are refused, because `PropertiesReader` strips that suffix
   and the site would be reported under another name.
+- **`cwm-verify` and `cwm-reset-testsite` reach a containerised site's database.**
+  `configuration.php` names the database host as the site sees it (`db` for a
+  DDEV site), which does not resolve on the machine the tools run on, so both
+  failed with "Could not connect to db at db". `TestSite::fromInstall()` now
+  replaces the **address only**, and only when the configured host does not
+  resolve from this machine and `build.properties` records a `db_host` for the
+  install (`cwm-site-create` records one). Credentials, database name and prefix
+  still come from `configuration.php`, which stays the source of truth for what
+  the running site connects with, and a host that resolves is never replaced, so
+  existing setups behave as before. A failed connection to a host that does not
+  resolve now says so and names the fix. `PropertiesReader` leaves
+  `InstallConfig::$db['host']` out when `db_host` is not set (`dbHost()` still
+  answers `localhost`), so a recorded address can be told from the default.
 - **`cwm-link --install <id>`** links into one install only. The role rule still
   applies: naming a `role=test` install is refused, not honoured.
 - **`JoomlaInstaller::install()`** takes an optional list of names that may

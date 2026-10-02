@@ -222,6 +222,11 @@ mirror or a local zip.
   block holds the site's database and admin passwords, so the command refuses to
   run unless git ignores the file. Site ids ending in `dev` are refused, because
   the properties reader strips that suffix.
+- **Verifying and resetting** work from the host: `cwm-verify` and
+  `cwm-reset-testsite` read the site's credentials from `configuration.php` as
+  always, and reach its database at the `db_host` recorded in `build.properties`,
+  because the host `configuration.php` names (`db`) only resolves inside the
+  container. A `role=test` site is the one to exercise them on.
 - **Linking** (`--role dev`, the default) replaces the installed copy with links
   to your source, so edits reach the site as you save (a new file appears inside
   the container in tens of milliseconds, and PHP's opcache picks up an edit
