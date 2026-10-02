@@ -48,6 +48,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   resolve now says so and names the fix. `PropertiesReader` leaves
   `InstallConfig::$db['host']` out when `db_host` is not set (`dbHost()` still
   answers `localhost`), so a recorded address can be told from the default.
+- **`cwm-seed`** applies or removes a project's seed data on a site. The tool owns
+  no data: a project declares **layers** (PHP scripts) and **profiles** (named
+  sets of layers) in a `seed` block of `cwm-build.config.json`, and `cwm-seed`
+  runs them in order as `php <script> apply|remove`, telling each which site it
+  is working on through `CWM_SEED_*` environment variables (action, layer,
+  marker, site id, path, role, and the address the host reaches the database at).
+  Layers always run in the order the project declared them; `--remove` runs them
+  in reverse and carries on past a failure, while applying stops at the first.
+  It only touches an install listed in `build.properties`: with no `--install`,
+  every `role=test` install; a `role=dev` install only when it is named.
+  `--list`, `--dry-run`, `--layer` (repeatable) and `--install` are supported.
+  Seed data is not demo data: demo data is small, clean and meant for users, seed
+  data is for developers and CI and is deliberately awkward.
+- **`TestSite::fromSeedEnvironment()`** gives a layer script its site from that
+  environment, with the same rules as `fromInstall()`: credentials from
+  `configuration.php`, and only the address replaced when the configured host does
+  not resolve from the host.
+- **`CommandRunner::run()` takes an optional environment** that is added to the
+  current one; `ProcessRunner` merges rather than replaces it.
 - **`cwm-site-remove <id>`** removes a site `cwm-site-create` made: its DDEV
   project (containers and database), its folder, and its record in
   `build.properties`, in that order, so a failure part-way leaves the site still

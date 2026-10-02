@@ -55,13 +55,16 @@ for script in "${ROOT}"/scripts/*.php; do
         }
 
         // Code only: a docblock that says "see Linker::link()" is not a reference, and
-        // counting it demanded a require for a class nothing ever calls.
+        // counting it demanded a require for a class nothing ever calls. The same goes
+        // for a class named inside a string.
         $code = static function (string $file): string {
             $out = "";
 
             foreach (token_get_all((string) file_get_contents($file)) as $t) {
                 if (is_array($t)) {
-                    if ($t[0] === T_COMMENT || $t[0] === T_DOC_COMMENT) {
+                    // Comments and string contents are prose, not dependencies: a --help
+                    // text that mentions "TestSite::fromSeedEnvironment()" needs no require.
+                    if (in_array($t[0], [T_COMMENT, T_DOC_COMMENT, T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)) {
                         continue;
                     }
 
@@ -111,7 +114,7 @@ for script in "${ROOT}"/scripts/*.php; do
 
             foreach (["CWM\\BuildTools\\Dev\\", "CWM\\BuildTools\\Build\\", "CWM\\BuildTools\\Config\\",
                       "CWM\\BuildTools\\Release\\", "CWM\\BuildTools\\Http\\", "CWM\\BuildTools\\Cli\\",
-                      "CWM\\BuildTools\\Site\\"] as $ns) {
+                      "CWM\\BuildTools\\Site\\", "CWM\\BuildTools\\Seed\\"] as $ns) {
                 if (class_exists($ns . $class, false) || interface_exists($ns . $class, false)
                     || trait_exists($ns . $class, false) || enum_exists($ns . $class, false)) {
                     continue 2;

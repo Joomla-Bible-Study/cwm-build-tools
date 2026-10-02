@@ -10,9 +10,10 @@ namespace CWM\BuildTools\Site;
  */
 final class ProcessRunner implements CommandRunner
 {
-    public function run(array $command, ?string $cwd = null, bool $stream = false): CommandResult
+    public function run(array $command, ?string $cwd = null, bool $stream = false, ?array $env = null): CommandResult
     {
-        $process = @proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $cwd);
+        // proc_open() replaces the whole environment when it is given one, so add to the current one.
+        $process = @proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $cwd, $env === null ? null : array_merge(getenv(), $env));
 
         if (!\is_resource($process)) {
             return new CommandResult(127, '', 'Could not start ' . ($command[0] ?? '(empty command)'));

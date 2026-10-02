@@ -62,6 +62,7 @@
         "bin/cwm-site-create",
         "bin/cwm-site-remove",
         "bin/cwm-site-reset",
+        "bin/cwm-seed",
         "bin/cwm-joomla-cms-deps",
         "bin/cwm-baseline",
         "bin/cwm-lint-queries",

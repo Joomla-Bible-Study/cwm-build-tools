@@ -13,7 +13,7 @@ use CWM\BuildTools\Site\CommandRunner;
  */
 class FakeRunner implements CommandRunner
 {
-    /** @var list<array{command: list<string>, cwd: ?string, stream: bool}> */
+    /** @var list<array{command: list<string>, cwd: ?string, stream: bool, env: array<string, string>|null}> */
     public array $calls = [];
 
     /**
@@ -26,9 +26,9 @@ class FakeRunner implements CommandRunner
     {
     }
 
-    public function run(array $command, ?string $cwd = null, bool $stream = false): CommandResult
+    public function run(array $command, ?string $cwd = null, bool $stream = false, ?array $env = null): CommandResult
     {
-        $this->calls[] = ['command' => $command, 'cwd' => $cwd, 'stream' => $stream];
+        $this->calls[] = ['command' => $command, 'cwd' => $cwd, 'stream' => $stream, 'env' => $env];
 
         if ($this->hook !== null) {
             ($this->hook)($command, $cwd);

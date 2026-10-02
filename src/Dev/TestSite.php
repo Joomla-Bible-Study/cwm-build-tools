@@ -183,6 +183,36 @@ final class TestSite
     }
 
     /**
+     * Build one for a layer script that `cwm-seed` is running.
+     *
+     * `cwm-seed` describes the site through environment variables
+     * (`CWM_SEED_SITE_PATH`, and `CWM_SEED_DB_HOST` when build.properties records
+     * an address for it), so a seed script needs no knowledge of where
+     * build.properties is or how installs are named. The credentials still come
+     * from the site's configuration.php, as everywhere in this class.
+     *
+     * @param  array<string, string>|null  $env  Defaults to the process environment.
+     *
+     * @throws RuntimeException  when not running under cwm-seed, or as {@see fromInstall()}
+     */
+    public static function fromSeedEnvironment(?array $env = null, ?callable $lookup = null): self
+    {
+        $env  ??= array_map('strval', getenv());
+        $path   = $env['CWM_SEED_SITE_PATH'] ?? '';
+
+        if ($path === '') {
+            throw new RuntimeException('CWM_SEED_SITE_PATH is not set: this script is meant to be run by cwm-seed.');
+        }
+
+        $host = $env['CWM_SEED_DB_HOST'] ?? '';
+
+        return self::fromInstall(
+            new InstallConfig(id: $env['CWM_SEED_SITE_ID'] ?? 'seed', path: $path, db: $host === '' ? [] : ['host' => $host]),
+            $lookup
+        );
+    }
+
+    /**
      * Build one around a connection that is already open.
      *
      * For callers holding a PDO of their own — and for tests, which can then
