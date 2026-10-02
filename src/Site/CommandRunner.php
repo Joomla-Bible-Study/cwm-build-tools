@@ -14,6 +14,7 @@ interface CommandRunner
      * @param  list<string>  $command  Program and arguments, never a shell string.
      * @param  string|null   $cwd      Working directory, or null for the current one.
      * @param  bool          $stream   Echo output as it arrives, for long-running commands.
+     * @param  array<string, string>|null  $env  Variables added to the current environment for this command.
      */
-    public function run(array $command, ?string $cwd = null, bool $stream = false): CommandResult;
+    public function run(array $command, ?string $cwd = null, bool $stream = false, ?array $env = null): CommandResult;
 }

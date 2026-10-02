@@ -246,6 +246,46 @@ It prints the plan and does nothing until you add `--yes`, refuses anything
 `cwm-site-create` did not make, and unlinks (never follows) the symlinks a linked
 dev site holds into your source.
 
+### Seeding
+
+`cwm-seed` puts a project's test data on a site and takes it off again. The tool
+owns none of the data; the project declares **layers** (PHP scripts) and
+**profiles** (named sets of layers):
+
+```json
+"seed": {
+  "marker": "cwmseed-",
+  "defaultProfile": "test",
+  "layers": [
+    { "name": "content",   "script": "build/seed/content.php",   "description": "the baseline" },
+    { "name": "scenarios", "script": "build/seed/scenarios.php", "description": "awkward cases" }
+  ],
+  "profiles": { "test": ["content", "scenarios"] }
+}
+```
+
+```bash
+composer seed -- --list                       # marker, layers, profiles
+composer seed -- test                         # every role=test site
+composer seed -- test --install j6            # one named site; may be role=dev
+composer seed -- test --install j6 --remove   # take it off again
+```
+
+A layer is run as `php <script> apply` or `remove` from the project root. It is
+told which site it is working on through environment variables (`CWM_SEED_ACTION`,
+`CWM_SEED_LAYER`, `CWM_SEED_MARKER`, `CWM_SEED_SITE_ID`, `CWM_SEED_SITE_PATH`,
+`CWM_SEED_SITE_ROLE` and, when `build.properties` records one, `CWM_SEED_DB_HOST`),
+and gets its database with `TestSite::fromSeedEnvironment()`. Every row a layer
+writes should carry `CWM_SEED_MARKER`, so `remove` can find exactly what was
+written and nothing else. Layers run in the order declared; `--remove` reverses
+that and carries on past a failure, so cleanup tries everything, while applying
+stops at the first failure. It only ever touches an install listed in
+`build.properties`: with no `--install`, the `role=test` installs, and a
+`role=dev` install only when you name it.
+
+Seed data is not demo data. Demo data is small, clean and meant for users. Seed
+data is for developers and CI, and is deliberately awkward.
+
 Site and source paths are resolved through symlinks first, because `cwm-link`
 links from real paths. The site must sit no more than three directory levels
 below the nearest folder it shares with the project, since that is how far the

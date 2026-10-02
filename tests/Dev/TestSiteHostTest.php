@@ -155,6 +155,40 @@ final class TestSiteHostTest extends TestCase
     }
 
     #[Test]
+    public function aSeedScriptBuildsItsSiteFromTheEnvironmentCwmSeedSets(): void
+    {
+        $this->site('db');
+
+        $site = TestSite::fromSeedEnvironment(
+            ['CWM_SEED_SITE_PATH' => $this->tmp, 'CWM_SEED_SITE_ID' => 'j6', 'CWM_SEED_DB_HOST' => '127.0.0.1:33061'],
+            static fn (string $h): bool => false
+        );
+
+        self::assertSame('127.0.0.1:33061', $site->host(), 'the recorded address is used for a host that does not resolve');
+        self::assertSame('sitedb', $site->database(), 'everything else still comes from configuration.php');
+        self::assertSame('site_', $site->prefix());
+    }
+
+    #[Test]
+    public function aSeedScriptWithNoRecordedAddressUsesWhatConfigurationSays(): void
+    {
+        $this->site('localhost');
+
+        $site = TestSite::fromSeedEnvironment(['CWM_SEED_SITE_PATH' => $this->tmp]);
+
+        self::assertSame('localhost', $site->host());
+    }
+
+    #[Test]
+    public function runningAScriptOutsideCwmSeedSaysSo(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('meant to be run by cwm-seed');
+
+        TestSite::fromSeedEnvironment([]);
+    }
+
+    #[Test]
     public function aConnectionFailureOnAnUnresolvableHostExplainsWhatToDo(): void
     {
         // .invalid is reserved and never resolves.

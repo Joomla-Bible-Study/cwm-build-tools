@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#
+# cwm-seed — apply or remove a project's seed data on a site. See `cwm-seed --help`.
+#
+# Usage from a consuming project:
+#   composer seed -- --list
+#   composer seed -- test --install j6
+#
+set -euo pipefail
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec php "${TOOLS_DIR}/scripts/seed.php" "$@"
