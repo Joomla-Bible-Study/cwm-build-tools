@@ -141,6 +141,83 @@ final class SiteRegistrar
         }
     }
 
+    /**
+     * Ids of the sites this tool recorded, found by their marker blocks.
+     *
+     * A site defined by hand in the same file is not listed: this is the set the
+     * tool has the right to remove.
+     *
+     * @return list<string>
+     */
+    public function recordedIds(string $content): array
+    {
+        preg_match_all('/^# === cwm-build-tools: site (\S+) \(do not edit between markers\) ===$/m', $content, $m);
+
+        return array_values(array_unique($m[1]));
+    }
+
+    /**
+     * The file's contents with $siteId's block removed and its id taken off the
+     * `builder.installs` line. Every other line is left as it was.
+     *
+     * Registering and then unregistering returns the original, apart from the
+     * blank line the block was separated by.
+     */
+    public function withoutSite(string $content, string $siteId): string
+    {
+        $content = ManagedBlock::upsert($content, $this->blockId($siteId), '');
+
+        $content = preg_replace_callback(
+            '/^([ \t]*builder\.installs[ \t]*=[ \t]*)(.*?)([ \t]*)$/m',
+            static function (array $m) use ($siteId): string {
+                $ids = array_values(array_filter(
+                    array_map('trim', explode(',', $m[2])),
+                    static fn (string $s): bool => $s !== '' && $s !== $siteId
+                ));
+
+                return $m[1] . implode(', ', $ids) . $m[3];
+            },
+            $content,
+            1
+        ) ?? $content;
+
+        // The block was appended after a blank line; do not leave two at the end.
+        return preg_replace('/\n{2,}\z/', "\n", $content) ?? $content;
+    }
+
+    /**
+     * Remove $siteId's record from the file at $path, atomically.
+     *
+     * @throws SiteException  when the file is missing or cannot be replaced
+     */
+    public function unregister(string $path, string $siteId): void
+    {
+        if (!is_file($path)) {
+            throw new SiteException($path . ' does not exist, so there is no record to remove.');
+        }
+
+        $existing = (string) file_get_contents($path);
+        $updated  = $this->withoutSite($existing, $siteId);
+
+        if ($updated === $existing) {
+            return;
+        }
+
+        $tmp = $path . '.cwm-tmp-' . bin2hex(random_bytes(3));
+
+        if (@file_put_contents($tmp, $updated) === false) {
+            throw new SiteException('Could not write ' . $tmp . '.');
+        }
+
+        @chmod($tmp, fileperms($path) & 0o777);
+
+        if (!@rename($tmp, $path)) {
+            @unlink($tmp);
+
+            throw new SiteException('Could not replace ' . $path . '.');
+        }
+    }
+
     private function withoutBlock(string $content, string $siteId): string
     {
         return ManagedBlock::upsert($content, $this->blockId($siteId), '');
