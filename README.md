@@ -187,36 +187,54 @@ composer joomla-latest     # what's the newest Joomla?
 
 ### Disposable sites with DDEV
 
-`cwm-site-create` builds a working Joomla site, so a contributor needs only
-Docker and [DDEV](https://ddev.com) rather than a local Apache/PHP/MySQL install:
+`cwm-site-create` builds a working, linked Joomla dev site, so a contributor needs
+only Docker and [DDEV](https://ddev.com) rather than a local Apache/PHP/MySQL
+install:
 
 ```bash
 ddev config global --instrumentation-opt-in=false   # once; your choice, not ours
-composer site-create -- j6 --dry-run               # see the plan, change nothing
-composer site-create -- j6                         # a folder named j6 beside the project
+composer package                                    # build what will be installed
+composer site-create -- j6 --dry-run                # see the plan, change nothing
+composer site-create -- j6                          # a folder named j6 beside the project
 ```
 
 It creates the DDEV stack, mounts the project where the relative symlinks
-`cwm-link` writes will resolve inside the container, publishes the database on
-a free host port, downloads Joomla and runs Joomla's headless installer. It ends
-by installing the project's built package and printing the site URL and the
-Super User login; a generated password is shown once. Build the package first
-(`composer package`). Options: `--joomla <x.y.z>`, `--php <x.y>`, `--site-name`,
-`--admin-user`, `--admin-password`, `--admin-email`, `--db-port`, `--path`,
-`--package auto|<zip>|none`, `--stack-only`, `--force`. Set
-`CWM_JOOMLA_PACKAGE_URL` to fetch Joomla from a mirror or a local zip.
+`cwm-link` writes will resolve inside the container, publishes the database on a
+free host port, downloads Joomla and runs Joomla's headless installer, installs
+the project's built package, records the site in `build.properties`, and links
+the project's source into it. It ends by printing the site URL and the Super
+User login.
 
-The package is installed through Joomla's own installer, inside the container,
-so the messages you see are the installer's. A package goes in as one unit and
-Joomla installs its children, so the project does not declare an order. If an
-extension's install script reports a step it could not finish, it is shown as a
-warning after the install; the install itself still counts as done.
+Options: `--joomla <x.y.z>`, `--php <x.y>`, `--site-name`, `--admin-user`,
+`--admin-password`, `--admin-email`, `--db-port`, `--path`,
+`--package auto|<zip>|none`, `--role dev|test`, `--no-register`,
+`--stack-only`, `--force`. Set `CWM_JOOMLA_PACKAGE_URL` to fetch Joomla from a
+mirror or a local zip.
+
+- **The package** is installed through Joomla's own installer, inside the
+  container, so the messages you see are the installer's. A package goes in as
+  one unit and Joomla installs its children, so the project does not declare an
+  order. If an extension's install script reports a step it could not finish, it
+  is shown as a warning after the install; the install itself still counts as
+  done.
+- **`build.properties`** gets a marked block for the site, and the site's id is
+  added to the `builder.installs` line. Every other line is left as it was. The
+  block holds the site's database and admin passwords, so the command refuses to
+  run unless git ignores the file. Site ids ending in `dev` are refused, because
+  the properties reader strips that suffix.
+- **Linking** (`--role dev`, the default) replaces the installed copy with links
+  to your source, so edits reach the site as you save (a new file appears inside
+  the container in tens of milliseconds, and PHP's opcache picks up an edit
+  within 2 seconds). Switching branches is reflected the same way. What does
+  not follow a branch switch is the database schema and built assets such as
+  `npm run build` output. `--role test` keeps the installed copy instead, for
+  exercising the built package itself. `cwm-link --install <id>` re-links one
+  site, and refuses a test site.
 
 Site and source paths are resolved through symlinks first, because `cwm-link`
 links from real paths. The site must sit no more than three directory levels
 below the nearest folder it shares with the project, since that is how far the
-container can climb from its docroot. Linking the project's source into the
-site, and registering the site in `build.properties`, are the next stages.
+container can climb from its docroot.
 
 Symlinks are derived automatically from the project's
 `manifests.extensions[]` plus the top-level `extension` block — components

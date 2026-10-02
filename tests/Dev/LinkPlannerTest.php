@@ -73,6 +73,71 @@ class LinkPlannerTest extends TestCase
     }
 
     #[Test]
+    public function one_dev_install_can_be_selected_by_id(): void
+    {
+        $one = $this->makeInstallDir('j5-dev');
+        $two = $this->makeInstallDir('j6-dev');
+
+        $reader = $this->reader(<<<INI
+            builder.j5dev.path={$one}
+            builder.j5dev.role=dev
+            builder.j6dev.path={$two}
+            builder.j6dev.role=dev
+            INI);
+
+        self::assertSame($two, LinkPlanner::selectInstall($reader, 'j6')->path);
+    }
+
+    #[Test]
+    public function selecting_a_test_install_by_id_is_refused_not_linked(): void
+    {
+        $test = $this->makeInstallDir('j6-test');
+
+        $reader = $this->reader(<<<INI
+            builder.j6test.path={$test}
+            builder.j6test.role=test
+            INI);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('role=test');
+
+        LinkPlanner::selectInstall($reader, 'j6test');
+    }
+
+    #[Test]
+    public function selecting_an_unknown_id_lists_the_known_ones(): void
+    {
+        $one = $this->makeInstallDir('j5-dev');
+
+        $reader = $this->reader(<<<INI
+            builder.j5dev.path={$one}
+            builder.j5dev.role=dev
+            INI);
+
+        try {
+            LinkPlanner::selectInstall($reader, 'nope');
+            self::fail('expected a RuntimeException');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('"nope"', $e->getMessage());
+            self::assertStringContainsString('j5', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function selecting_an_install_whose_folder_is_gone_says_so(): void
+    {
+        $reader = $this->reader(<<<INI
+            builder.gone.path={$this->tmp}/not-there
+            builder.gone.role=dev
+            INI);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('does not exist');
+
+        LinkPlanner::selectInstall($reader, 'gone');
+    }
+
+    #[Test]
     public function only_dev_installs_are_linkable(): void
     {
         $dev  = $this->makeInstallDir('j6-dev');

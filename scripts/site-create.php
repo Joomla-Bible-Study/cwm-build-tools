@@ -10,6 +10,7 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/../src/Cli/Flags.php';
+require_once __DIR__ . '/../src/Config/ManagedBlock.php';
 require_once __DIR__ . '/../src/Build/DistZipResolver.php';
 require_once __DIR__ . '/../src/Dev/JoomlaInstaller.php';
 require_once __DIR__ . '/../src/Site/Mount.php';
@@ -29,6 +30,10 @@ require_once __DIR__ . '/../src/Site/JoomlaSettings.php';
 require_once __DIR__ . '/../src/Site/JoomlaInstallStage.php';
 require_once __DIR__ . '/../src/Site/InstallReport.php';
 require_once __DIR__ . '/../src/Site/ExtensionInstallStage.php';
+require_once __DIR__ . '/../src/Site/RegisteredSite.php';
+require_once __DIR__ . '/../src/Site/SiteRegistrar.php';
+require_once __DIR__ . '/../src/Site/PropertiesGuard.php';
+require_once __DIR__ . '/../src/Site/LinkStage.php';
 
 use CWM\BuildTools\Build\DistZipResolver;
 use CWM\BuildTools\Cli\Flags;
@@ -38,11 +43,15 @@ use CWM\BuildTools\Site\ExtensionInstallStage;
 use CWM\BuildTools\Site\GithubJoomlaSource;
 use CWM\BuildTools\Site\JoomlaInstallStage;
 use CWM\BuildTools\Site\JoomlaSettings;
+use CWM\BuildTools\Site\LinkStage;
 use CWM\BuildTools\Site\MountPlanner;
 use CWM\BuildTools\Site\PathResolver;
 use CWM\BuildTools\Site\PortFinder;
 use CWM\BuildTools\Site\ProcessRunner;
+use CWM\BuildTools\Site\PropertiesGuard;
+use CWM\BuildTools\Site\RegisteredSite;
 use CWM\BuildTools\Site\SiteException;
+use CWM\BuildTools\Site\SiteRegistrar;
 use CWM\BuildTools\Site\SiteSpec;
 
 if (Flags::has($argv, ['--help', '-h'])) {
@@ -60,8 +69,16 @@ WHAT IT DOES
      installer, and shows the installer's own messages, including any warning
      an extension's install script raises.
 
-  Build the package first (composer package / composer build). Linking the
-  source tree into the site, and registering the site, are the next stages.
+  4. Records the site in build.properties, so cwm-link, cwm-verify and the
+     other dev commands can find it. Only a marked block is written and the
+     rest of the file is left as it was. It holds the site's database and
+     admin passwords, so this refuses to run if git would commit the file.
+  5. For a dev site, replaces the installed copy with links to the project's
+     source (cwm-link --install <id>), so edits reach the site as you save,
+     and checks from inside the container that every link resolves. A test
+     site keeps the installed copy.
+
+  Build the package first (composer package / composer build).
 
 PREREQUISITES
   - Docker (Docker Desktop, OrbStack or Colima) running
@@ -89,6 +106,10 @@ OPTIONS
       --package <p>     The built zip to install: a path, "auto" (the newest zip
                         matching build.outputGlob in cwm-build.config.json; the
                         default, skipped with a note if there is none) or "none".
+      --role <r>        dev (default): link the source in. test: keep the
+                        installed copy, for exercising the built package.
+      --no-register     Do not touch build.properties (this also means no
+                        linking, which needs the site recorded there).
       --stack-only      Stop after the DDEV stack; do not install Joomla.
       --force           Reconfigure a site that already exists, in place.
       --dry-run         Print what would happen and change nothing.
@@ -104,7 +125,7 @@ HELP;
 }
 
 // The first argument that is neither a flag nor the value of one is the site id.
-$valueFlags = ['--path', '--php', '--db-port', '--source', '--joomla', '--site-name', '--admin-user', '--admin-password', '--admin-email', '--package'];
+$valueFlags = ['--path', '--php', '--db-port', '--source', '--joomla', '--site-name', '--admin-user', '--admin-password', '--admin-email', '--package', '--role'];
 $id         = null;
 
 foreach (\array_slice($argv, 1) as $i => $arg) {
@@ -194,6 +215,41 @@ try {
     );
 
     $extensions = new ExtensionInstallStage($environment);
+    $link       = new LinkStage(new ProcessRunner(), $environment);
+
+    // The site is described and checked now, so an id that collides with one already
+    // in build.properties, a role that does not exist, or a credentials file git would
+    // commit stops the run before anything is provisioned.
+    $role      = Flags::value($argv, '--role') ?? 'dev';
+    $register  = $installJoomla && !Flags::has($argv, ['--no-register']);
+    $propsFile = $projectRoot . '/build.properties';
+    $registrar = new SiteRegistrar();
+    $makeSite  = static function (?string $installed) use ($id, $role, $path, $environment, $spec, $settings): RegisteredSite {
+        $db = $environment->databaseSettings();
+
+        return new RegisteredSite(
+            $id,
+            $role,
+            $path,
+            $environment->url($spec),
+            $installed ?? $settings->version,
+            '127.0.0.1:' . $spec->dbHostPort,
+            $db['user'],
+            $db['password'],
+            $db['name'],
+            $settings->adminUsername,
+            $settings->adminPassword,
+            $settings->adminEmail
+        );
+    };
+
+    if ($register) {
+        $registrar->apply(is_file($propsFile) ? (string) file_get_contents($propsFile) : '', $makeSite(null));
+        (new PropertiesGuard(new ProcessRunner()))->assertSafeToHoldCredentials($projectRoot);
+    }
+
+    $registered = false;
+    $linked     = false;
 
     if (Flags::has($argv, ['--dry-run'])) {
         echo "Would do, in order:\n";
@@ -216,6 +272,16 @@ try {
             }
         }
 
+        if ($register) {
+            echo \sprintf("  %d. record the site in build.properties as \"%s\" (role %s)\n", ++$n, $id, $role);
+
+            if ($role === 'dev' && $zip !== null) {
+                foreach ($link->plan($id) as $step) {
+                    echo \sprintf("  %d. %s\n", ++$n, $step);
+                }
+            }
+        }
+
         exit(0);
     }
 
@@ -233,6 +299,17 @@ try {
 
         $log(\sprintf('Using %s (built %s ago)', $zip, $age < 120 ? $age . ' seconds' : ($age < 7200 ? intdiv($age, 60) . ' minutes' : intdiv($age, 3600) . ' hours')));
         $report = $extensions->run($spec, $zip, $log);
+    }
+
+    if ($register && $version !== null) {
+        $registrar->register($propsFile, $makeSite($version));
+        $registered = true;
+        $log("Recorded \"{$id}\" in build.properties");
+
+        if ($role === 'dev' && $report !== null) {
+            $link->run($spec, $id, $projectRoot, $log);
+            $linked = true;
+        }
     }
 } catch (SiteException | \InvalidArgumentException $e) {
     fwrite(STDERR, $e->getMessage() . "\n");
@@ -265,7 +342,26 @@ if ($report !== null) {
 echo '  Site:   ' . $environment->url($spec) . "/\n";
 echo '  Admin:  ' . $environment->url($spec) . "/administrator/\n";
 echo "  Login:  {$settings->adminUsername}\n";
-echo $generated
-    ? "  Password (generated, shown once): {$settings->adminPassword}\n"
-    : "  Password: the one you passed.\n";
+if ($generated) {
+    echo $registered
+        ? "  Password (generated): {$settings->adminPassword}\n    Also recorded in build.properties, which is gitignored.\n"
+        : "  Password (generated, shown once and not recorded anywhere): {$settings->adminPassword}\n";
+} else {
+    echo "  Password: the one you passed.\n";
+}
+
 echo "  Browsers warn about the certificate until you run: mkcert -install\n";
+
+if ($registered) {
+    echo "\n  Recorded in build.properties as \"{$id}\" ({$role}); cwm-link, cwm-verify and the other dev commands can see it.\n";
+}
+
+if ($linked) {
+    echo "  The source is linked in, so edits in the repo reach the site as you save.\n"
+        . "  Database changes and built assets (npm run build) do not follow a branch switch.\n";
+} elseif ($registered && $role === 'test') {
+    echo "  role=test: the built package stays installed as a copy, for exercising the build itself.\n";
+} elseif ($registered && $report === null) {
+    echo "  Nothing was installed, so nothing was linked. Build the package and run cwm-site-create again with --force\n"
+        . "  after removing the site, or install it into the site by hand.\n";
+}

@@ -34,8 +34,13 @@ final class SiteCreateCliTest extends TestCase
         $this->globalConfig = $this->tmp . '/global_config.yaml';
 
         mkdir($this->stubBin, 0o777, true);
-        mkdir($this->tmp . '/GitHub/proj', 0o777, true);
+        mkdir($this->tmp . '/GitHub/proj/admin', 0o777, true);
+        mkdir($this->tmp . '/GitHub/proj/site', 0o777, true);
         mkdir($this->tmp . '/Sites', 0o777, true);
+
+        // A real (if tiny) component, so cwm-link has a manifest to derive links from.
+        file_put_contents($this->tmp . '/GitHub/proj/demo.xml', '<?xml version="1.0"?><extension type="component"><name>com_demo</name></extension>');
+        file_put_contents($this->tmp . '/GitHub/proj/cwm-build.config.json', json_encode($this->projectConfig()));
         file_put_contents($this->globalConfig, "instrumentation_opt_in: false\n");
 
         $zip = new \ZipArchive();
@@ -78,6 +83,19 @@ SH);
     protected function tearDown(): void
     {
         $this->rrmdir($this->tmp);
+    }
+
+    /**
+     * @param  array<string, mixed>  $extra
+     *
+     * @return array<string, mixed>
+     */
+    private function projectConfig(array $extra = []): array
+    {
+        return array_merge([
+            'extension' => ['type' => 'component', 'name' => 'com_demo'],
+            'manifests' => ['extensions' => [['type' => 'component', 'path' => 'demo.xml']]],
+        ], $extra);
     }
 
     private function stub(string $name, string $body): void
@@ -181,7 +199,7 @@ SH);
         $this->assertFileExists($site . '/index.php', 'the package was extracted into the site');
         $this->assertStringContainsString('Joomla 6.1.4 is installed.', $out);
         $this->assertStringContainsString('https://j6.ddev.site/administrator/', $out);
-        $this->assertMatchesRegularExpression('/Password \(generated, shown once\): [A-Za-z0-9]{16}/', $out);
+        $this->assertMatchesRegularExpression('/Password \(generated\): [A-Za-z0-9]{16}\n.*Also recorded in build.properties/s', $out);
 
         $calls = (string) file_get_contents($this->log);
         $this->assertStringContainsString("'installation/joomla.php' 'install'", $calls);
@@ -299,7 +317,7 @@ SH);
     {
         $proj = $this->tmp . '/GitHub/proj';
         mkdir($proj . '/build/dist', 0o777, true);
-        file_put_contents($proj . '/cwm-build.config.json', json_encode(['build' => ['outputGlob' => 'build/dist/pkg_stub-*.zip']]));
+        file_put_contents($proj . '/cwm-build.config.json', json_encode($this->projectConfig(['build' => ['outputGlob' => 'build/dist/pkg_stub-*.zip']])));
         copy($this->builtPackage(), $proj . '/build/dist/pkg_stub-1.0.0.zip');
 
         [$exit, $out, $err] = $this->runScript(
@@ -356,6 +374,165 @@ SH);
 
         $this->assertSame(0, $exit, $out);
         $this->assertStringContainsString('extract built-pkg.zip', $out);
+        $this->assertFileDoesNotExist($this->log);
+    }
+
+    private function props(): string
+    {
+        return $this->tmp . '/GitHub/proj/build.properties';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function fullRunArgs(string ...$extra): array
+    {
+        return array_merge(
+            ['j6', '--path', $this->tmp . '/Sites/j6', '--db-port', '34567', '--joomla', '6.1.4', '--package', $this->builtPackage()],
+            $extra
+        );
+    }
+
+    #[Test]
+    public function aDevSiteIsRecordedAndItsInstalledCopyIsReplacedByLinks(): void
+    {
+        [$exit, $out, $err] = $this->runScript($this->fullRunArgs(), $this->joomlaEnv());
+
+        $this->assertSame(0, $exit, $out . $err);
+        $this->assertStringContainsString('Recorded "j6" in build.properties', $out);
+        $this->assertStringContainsString('The source is linked in', $out);
+
+        $props = (string) file_get_contents($this->props());
+        $this->assertStringContainsString('builder.j6.role=dev', $props);
+        $this->assertStringContainsString('builder.j6.db_host=127.0.0.1:34567', $props);
+        $this->assertStringContainsString('builder.j6.admin_pass=', $props);
+
+        $link = $this->tmp . '/Sites/j6/administrator/components/com_demo';
+        $this->assertTrue(is_link($link), 'cwm-link replaced the installed copy');
+        $this->assertSame(realpath($this->tmp . '/GitHub/proj/admin'), realpath($link));
+    }
+
+    #[Test]
+    public function aTestSiteIsRecordedButNeverLinked(): void
+    {
+        [$exit, $out, $err] = $this->runScript($this->fullRunArgs('--role', 'test'), $this->joomlaEnv());
+
+        $this->assertSame(0, $exit, $out . $err);
+        $this->assertStringContainsString('builder.j6.role=test', (string) file_get_contents($this->props()));
+        $this->assertFalse(is_link($this->tmp . '/Sites/j6/administrator/components/com_demo'), 'a test site keeps the installed copy');
+        $this->assertStringContainsString('role=test: the built package stays installed as a copy', $out);
+    }
+
+    #[Test]
+    public function noRegisterLeavesBuildPropertiesAloneAndSaysThePasswordIsNotRecorded(): void
+    {
+        [$exit, $out, $err] = $this->runScript($this->fullRunArgs('--no-register'), $this->joomlaEnv());
+
+        $this->assertSame(0, $exit, $out . $err);
+        $this->assertFileDoesNotExist($this->props());
+        $this->assertFalse(is_link($this->tmp . '/Sites/j6/administrator/components/com_demo'), 'linking needs the site recorded');
+        $this->assertMatchesRegularExpression('/Password \(generated, shown once and not recorded anywhere\): [A-Za-z0-9]{16}/', $out);
+    }
+
+    #[Test]
+    public function theDevelopersOtherLinesSurviveAndTheSiteJoinsTheInstallsList(): void
+    {
+        $existing = "# my notes\nbuilder.installs=a1, b2\njoomla.version=5.4.2\nbuilder.a1.path=/x\nbuilder.b2.path=/y\n";
+        file_put_contents($this->props(), $existing);
+
+        [$exit, $out, $err] = $this->runScript($this->fullRunArgs(), $this->joomlaEnv());
+
+        $this->assertSame(0, $exit, $out . $err);
+
+        $props = (string) file_get_contents($this->props());
+        $this->assertStringContainsString("# my notes\n", $props);
+        $this->assertStringContainsString("joomla.version=5.4.2\n", $props);
+        $this->assertStringContainsString("builder.installs=a1, b2, j6\n", $props);
+    }
+
+    #[Test]
+    public function anIdAlreadyDefinedByHandStopsTheRunBeforeAnythingStarts(): void
+    {
+        file_put_contents($this->props(), "builder.j6.path=/somewhere/else\n");
+
+        [$exit, , $err] = $this->runScript($this->fullRunArgs(), $this->joomlaEnv());
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('already defines "j6" by hand', $err);
+        $this->assertFileDoesNotExist($this->log, 'no ddev or docker call before the input is validated');
+        $this->assertSame("builder.j6.path=/somewhere/else\n", file_get_contents($this->props()), 'the file is untouched');
+    }
+
+    #[Test]
+    public function anIdEndingInDevIsRefusedBeforeAnythingStarts(): void
+    {
+        [$exit, , $err] = $this->runScript(['mydev', '--path', $this->tmp . '/Sites/mydev', '--db-port', '34567', '--joomla', '6.1.4']);
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('ends in "dev"', $err);
+        $this->assertFileDoesNotExist($this->log);
+    }
+
+    #[Test]
+    public function aBuildPropertiesGitWouldCommitStopsTheRunBeforeAnythingStarts(): void
+    {
+        $git = $this->git();
+
+        if ($git === false) {
+            $this->markTestSkipped('git is not available');
+        }
+
+        [$exit, , $err] = $this->runScript($this->fullRunArgs(), $this->joomlaEnv());
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('build.properties is not gitignored', $err);
+        $this->assertFileDoesNotExist($this->log);
+        $this->assertFileDoesNotExist($this->props(), 'no credentials were written');
+    }
+
+    #[Test]
+    public function anIgnoredBuildPropertiesIsFine(): void
+    {
+        if ($this->git() === false) {
+            $this->markTestSkipped('git is not available');
+        }
+
+        file_put_contents($this->tmp . '/GitHub/proj/.gitignore', "build.properties\n");
+
+        [$exit, $out, $err] = $this->runScript($this->fullRunArgs(), $this->joomlaEnv());
+
+        $this->assertSame(0, $exit, $out . $err);
+        $this->assertFileExists($this->props());
+    }
+
+    /**
+     * Turn the fixture project into a git repository; false when git is unavailable.
+     */
+    private function git(): bool
+    {
+        $process = @proc_open(['git', 'init', '-q'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $this->tmp . '/GitHub/proj');
+
+        if (!\is_resource($process)) {
+            return false;
+        }
+
+        stream_get_contents($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return proc_close($process) === 0;
+    }
+
+    #[Test]
+    public function aDryRunListsRecordingAndLinkingWithoutWritingAnything(): void
+    {
+        [$exit, $out] = $this->runScript(array_merge($this->fullRunArgs(), ['--dry-run']));
+
+        $this->assertSame(0, $exit, $out);
+        $this->assertStringContainsString('record the site in build.properties as "j6" (role dev)', $out);
+        $this->assertStringContainsString('cwm-link --install j6', $out);
+        $this->assertFileDoesNotExist($this->props());
         $this->assertFileDoesNotExist($this->log);
     }
 

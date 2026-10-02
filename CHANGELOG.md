@@ -10,22 +10,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - **`cwm-site-create`** (#167) — provisions a disposable Joomla site with
-  DDEV: the web, PHP and database stack, with the project's source tree
-  mounted so the relative symlinks `cwm-link` writes resolve inside the
-  container, then Joomla itself, installed with its own headless installer in
-  place of the web installer. Prints the URL and Super User login when done
-  (a generated password is shown once and never stored). `--dry-run` prints the
-  plan, `--stack-only` stops before Joomla, and `CWM_JOOMLA_PACKAGE_URL` points
-  the download at a mirror or a local zip. The database port defaults to the
-  first free one from 33061, so several sites can run together. It will not
-  answer DDEV's one-time usage-statistics question for the user: it stops and
-  prints the command to run. Installs the project's built package too
-  (`--package auto|<zip>|none`, default `auto`: the newest zip matching
-  `build.outputGlob`), through Joomla's installer, and prints the installer's
-  own messages. A package goes in as one unit, so a project needs no knowledge
-  of its children's order. An extension's own install-script warnings are shown
-  after the install. Linking the source tree into the site and registering the
-  site are the next stages.
+  DDEV, from nothing to a working, linked dev site in one command:
+  the web, PHP and database stack, with the project's source tree mounted so the
+  relative symlinks `cwm-link` writes resolve inside the container; Joomla,
+  installed with its own headless installer in place of the web installer; and
+  the project's built package (`--package auto|<zip>|none`, default `auto`: the
+  newest zip matching `build.outputGlob`), installed through Joomla's installer
+  with the installer's own messages. A package goes in as one unit, so a
+  project needs no knowledge of its children's order, and an extension's own
+  install-script warnings are shown after the install.
+  The site is then recorded in `build.properties` and, for `--role dev` (the
+  default), the installed copy is replaced by links to the project's source
+  with `cwm-link --install <id>`, and every link is checked from inside the
+  container. `--role test` keeps the installed copy. `--dry-run` prints the
+  plan, `--stack-only` stops before Joomla, `--no-register` leaves
+  `build.properties` alone, and `CWM_JOOMLA_PACKAGE_URL` points the download at a
+  mirror or a local zip. The database port defaults to the first free one from
+  33061, so several sites can run together. It will not answer DDEV's one-time
+  usage-statistics question for the user: it stops and prints the command to
+  run.
+  Recording the site writes only a marker-delimited block plus the new id on the
+  `builder.installs` line, and leaves every other line as it was.
+  It writes the site's database and admin passwords into that file, so it
+  refuses unless git ignores it; a generated password is also shown once. Ids
+  that end in `dev` are refused, because `PropertiesReader` strips that suffix
+  and the site would be reported under another name.
+- **`cwm-link --install <id>`** links into one install only. The role rule still
+  applies: naming a `role=test` install is refused, not honoured.
 - **`JoomlaInstaller::install()`** takes an optional list of names that may
   already exist in the target, and tolerates empty directories, so a folder a
   tool has just prepared (a DDEV project's `.ddev`) is still a valid target.
