@@ -15,7 +15,7 @@ Across `Proclaim`, `lib_cwmscripture`, `CWMScriptureLinks`, and `plg_task_cwmscr
 
 | Surface | What | Where |
 |---|---|---|
-| **CLI tools** | `cwm-release`, `cwm-bump`, `cwm-build`, `cwm-package`, `cwm-sync-configs`, `cwm-sync-languages`, `cwm-ars-publish`, `cwm-changelog`, `cwm-article`, `cwm-init`, `cwm-setup`, `cwm-link`, `cwm-link-check`, `cwm-lint-deprecations`, `cwm-clean`, `cwm-verify`, `cwm-joomla-install`, `cwm-joomla-latest`, `cwm-joomla-cms-deps` | `bin/` |
+| **CLI tools** | `cwm-release`, `cwm-bump`, `cwm-build`, `cwm-package`, `cwm-sync-configs`, `cwm-sync-languages`, `cwm-ars-publish`, `cwm-changelog`, `cwm-article`, `cwm-init`, `cwm-setup`, `cwm-link`, `cwm-link-check`, `cwm-lint-deprecations`, `cwm-clean`, `cwm-verify`, `cwm-joomla-install`, `cwm-joomla-latest`, `cwm-joomla-cms-deps`, `cwm-site-create` | `bin/` |
 | **Scripts** | Generic 9-step release pipeline, multi-manifest version bumper, config syncer | `scripts/` |
 | **PHP library** | `ProjectConfig`, `ManifestReader`, `PackageBuilder`, `Packager`, `ArsPublisher`, `VersionTracker`, `TokenSubstituter`, `LinkResolver`, `Linker`, `PropertiesReader`, `ExtensionVerifier` | `src/` (PSR-4 `CWM\BuildTools\`) |
 | **Reusable GH Actions** | `joomla-package-ci.yml`, `joomla-library-ci.yml` (called via `workflow_call`) | `.github/workflows/` |
@@ -44,7 +44,8 @@ Add as a Composer dev dependency:
     "clean":           "vendor/bin/cwm-clean",
     "verify":          "vendor/bin/cwm-verify",
     "joomla-install":  "vendor/bin/cwm-joomla-install",
-    "joomla-latest":   "vendor/bin/cwm-joomla-latest"
+    "joomla-latest":   "vendor/bin/cwm-joomla-latest",
+    "site-create":     "vendor/bin/cwm-site-create"
   }
 }
 ```
@@ -183,6 +184,25 @@ composer link-check        # are my dev symlinks still healthy?
 composer clean             # remove every dev symlink (clean install test)
 composer joomla-latest     # what's the newest Joomla?
 ```
+
+### Disposable sites with DDEV
+
+`cwm-site-create` builds the stack a site runs on, so a contributor needs only
+Docker and [DDEV](https://ddev.com) rather than a local Apache/PHP/MySQL install:
+
+```bash
+ddev config global --instrumentation-opt-in=false   # once; your choice, not ours
+composer site-create -- j6 --dry-run               # see the plan, change nothing
+composer site-create -- j6                         # a folder named j6 beside the project
+```
+
+It mounts the project where the relative symlinks `cwm-link` writes will
+resolve inside the container, and publishes the database on a free host port.
+This is the first stage; later stages install Joomla and the project's
+extensions into the running site. Site and source paths are resolved through
+symlinks first, because `cwm-link` links from real paths. The site must sit no
+more than three directory levels below the nearest folder it shares with the
+project, since that is how far the container can climb from its docroot.
 
 Symlinks are derived automatically from the project's
 `manifests.extensions[]` plus the top-level `extension` block — components

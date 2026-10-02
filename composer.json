@@ -59,6 +59,7 @@
         "bin/cwm-install-zip",
         "bin/cwm-joomla-install",
         "bin/cwm-joomla-latest",
+        "bin/cwm-site-create",
         "bin/cwm-joomla-cms-deps",
         "bin/cwm-baseline",
         "bin/cwm-lint-queries",

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`cwm-site-create`** (#167, first stage) — provisions the web, PHP and
+  database stack for a disposable Joomla site with DDEV, with the project's
+  source tree mounted so the relative symlinks `cwm-link` writes resolve
+  inside the container. Stops once the stack is running; installing Joomla
+  and the project's extensions are the following stages. `--dry-run` prints the
+  plan. The database port defaults to the first free one from 33061, so several
+  sites can run together. It will not answer DDEV's one-time usage-statistics
+  question for the user: it stops and prints the command to run.
+
 ## [1.37.0] - 2026-09-25
 
 ### Added
