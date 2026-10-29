@@ -19,6 +19,9 @@
  *   - eslint.config.mjs (writes a starter wrapper that extends the shared
  *     base when no config exists; leaves an existing config alone but
  *     prints a hint when it doesn't yet import the shared base).
+ *   - .claude/skills/<name>/SKILL.md (Claude Code skills from
+ *     templates/claude-skills/; created, and refreshed while the copy still
+ *     carries its "Managed by cwm-sync-configs" header).
  *
  * The recurring rule across all of them: a file the consumer wrote is never
  * silently replaced. Either the tool can prove it wrote the file (a managed
@@ -147,6 +150,7 @@ syncEditorConfig($projectRoot, $templates, $dryRun);
 syncPhpCsFixer($projectRoot, $dryRun);
 syncPhpunit($projectRoot, $templates, $dryRun);
 syncDatabaseComposeFile($projectRoot, $templates, $dryRun);
+syncClaudeSkills($projectRoot, $templates, $dryRun);
 syncEslint($projectRoot, $templates, $projectConfig, $dryRun);
 checkEslintInvocation($projectRoot);
 checkProfileHints($projectConfig, $toolsRoot);
@@ -582,6 +586,60 @@ function syncDatabaseComposeFile(string $projectRoot, string $templates, bool $d
 
     file_put_contents($target, (string) file_get_contents($source));
     echo "docker-compose.databases.yml: created — `docker compose -f docker-compose.databases.yml up -d` for a known-empty MySQL/MariaDB\n";
+}
+
+/**
+ * Install and refresh the Claude Code skills shipped with the toolchain.
+ *
+ * Every `templates/claude-skills/<name>/SKILL.md` lands at
+ * `.claude/skills/<name>/SKILL.md` in the project, where Claude Code loads it.
+ * Unlike the compose file, a skill is the toolchain's own runbook, not project
+ * configuration: it describes these scripts and the failures they have hit, so
+ * an outdated copy is the problem it exists to prevent. It is therefore
+ * refreshed whenever the template changes — but only while the copy still
+ * carries the template's "Managed by cwm-sync-configs" header, the same proof
+ * of authorship the other handlers require. A copy someone rewrote without it
+ * is left alone with a hint.
+ *
+ * Skills the project wrote itself, under other names, are never touched.
+ */
+function syncClaudeSkills(string $projectRoot, string $templates, bool $dryRun): void
+{
+    $sources = glob($templates . '/claude-skills/*/SKILL.md') ?: [];
+
+    foreach ($sources as $source) {
+        $name    = basename(\dirname($source));
+        $target  = $projectRoot . '/.claude/skills/' . $name . '/SKILL.md';
+        $content = (string) file_get_contents($source);
+        $exists  = is_file($target);
+
+        if ($exists && (string) file_get_contents($target) === $content) {
+            continue;
+        }
+
+        if ($exists && !str_contains((string) file_get_contents($target), 'Managed by cwm-sync-configs')) {
+            echo ".claude/skills/{$name}: locally rewritten (no managed header) — left alone; delete it to take the shipped version\n";
+
+            continue;
+        }
+
+        $action = $exists ? 'refresh' : 'create';
+
+        if ($dryRun) {
+            echo ".claude/skills/{$name}: would {$action} (dry-run)\n";
+
+            continue;
+        }
+
+        if (!is_dir(\dirname($target)) && !mkdir(\dirname($target), 0o755, true) && !is_dir(\dirname($target))) {
+            fwrite(\STDERR, ".claude/skills/{$name}: could not create the directory\n");
+
+            continue;
+        }
+
+        file_put_contents($target, $content);
+        echo ".claude/skills/{$name}: " . ($exists ? 'refreshed' : 'created') . "\n";
+    }
 }
 
 /**

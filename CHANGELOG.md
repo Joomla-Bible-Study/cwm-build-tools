@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Claude Code skill: `cwm-release-troubleshooting`**, shipped in
+  `templates/claude-skills/` and installed by `cwm-sync-configs` into each
+  project's `.claude/skills/`. It's a runbook for a release that stopped
+  halfway: how to tell what is already public, publishing from the asset
+  GitHub actually serves, reading a ModSecurity block, probing ARS without
+  creating anything, and the three update-feed checks. The copy is refreshed
+  while it keeps its managed header; a locally rewritten copy is left alone.
+
+### Fixed
+
+- **ARS items were blocked by ModSecurity on hosts running the OWASP CRS.**
+  `environments` went out as a JSON list, which the CRS flattens into the
+  argument name `environments.environments`; rule 930120 matches `.env` there
+  and blocked the request before it reached ARS. The host logged 418 and
+  served a bare 500 page (DreamHost, CRS 4.7). `ArsPublisher` now sends
+  environments as an object, which PHP decodes back to the same list.
+- **`cwm-ars-publish` exited silently when the local zip differed from the
+  GitHub asset.** Under `set -e` the comparison's non-zero return ended the
+  script before the branch that hashes the served asset instead.
+- **`cwm-release` step 8 popped an unrelated stash.** With no tracked changes,
+  `git stash` saves nothing but exits 0, and the unconditional `git stash pop`
+  then restored whatever the developer had stashed before the release. It now
+  pops only a stash it made.
+
 ## [1.38.0] - 2026-10-02
 
 ### Added
