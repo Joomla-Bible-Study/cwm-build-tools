@@ -27,7 +27,21 @@ from items, so sites still see the previous version. `cwm-ars-publish` is an
 upsert — re-running it reuses the release and creates only what is missing.
 It never creates a duplicate.
 
-## 2. Always publish the bytes GitHub serves
+## 2. Know where the download is served from
+
+`ars.hosting` decides it:
+- **`"github"` (default):** the item links to the GitHub release asset. A
+  private repository serves that to nobody, and every site's update gets a 404.
+- **`"ars"`:** `cwm-ars-publish` uploads the zip to `ars.uploadTarget` (the
+  category's repository directory) and publishes a file item behind the
+  category's access level / Download ID.
+
+  The upload refuses to replace a different file under the same name. If you
+  see that refusal, the bytes for this version already exist: bump the
+  version rather than deleting the published file. Feed checks then need the
+  file (`--file`) or a valid key to fetch the gated URL.
+
+## 3. With GitHub hosting, publish the bytes GitHub serves
 
 CI's tag-push job rebuilds the package and **replaces the release asset** about
 a minute after the tag. gzip timestamps and bundler paths make that build
@@ -39,7 +53,7 @@ gh release download vX.Y.Z --pattern '*.zip' --dir "$(mktemp -d)"
 composer ars-publish -- -v X.Y.Z -f <that dir>/<package>-X.Y.Z.zip
 ```
 
-## 3. ARS write fails with HTTP 500 (Apache HTML page, not JSON)
+## 4. ARS write fails with HTTP 500 (Apache HTML page, not JSON)
 
 Joomla's API answers its own errors in JSON. A bare HTML 500 means the request
 never reached PHP, or PHP died hard. Check the site's **access log** for that
@@ -65,7 +79,7 @@ experiment with real release ids on a live site.
 Never print the API token. `cwm_op_token` (scripts/lib/optoken.sh) reads it
 into a variable; pass it in a header from there.
 
-## 4. Other known traps
+## 5. Other known traps
 
 - **`op whoami` says "not signed in."** That's normal with the 1Password
   desktop integration; `op` asks for an unlock when the token is read. It is
@@ -73,7 +87,7 @@ into a variable; pass it in a header from there.
 - **`ars-publish` stops after "Computing checksums..." with no message.**
   This was `set -e` killing the script when the local zip differed from the
   asset; it's fixed in current build-tools. Publish from the served asset
-  (section 2).
+  (section 3).
 - **A stash appeared or vanished around step 8.** Older `release.sh` ran
   `git stash pop` even when its own stash saved nothing, which popped the
   developer's older stash. Check `git stash list` after a release. A popped
@@ -81,7 +95,7 @@ into a variable; pass it in a header from there.
 - **Ordering at 0** (`no room to place this one below it`):
   `composer ars-reorder -- --category <id>`, then re-publish.
 
-## 5. Done means verified
+## 6. Done means verified
 
 ```
 composer exec -- cwm-verify-update-stream X.Y.Z   # entry exists, php_minimum + targetplatform
