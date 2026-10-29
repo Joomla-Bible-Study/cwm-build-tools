@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.39.0] - 2026-10-28
+
 ### Added
 
 - **Hosted downloads: `ars.hosting: "ars"`.** `cwm-ars-publish` can copy the
