@@ -439,6 +439,41 @@ final class ArsPublisherTest extends TestCase
     }
 
     #[Test]
+    public function environments_are_sent_as_an_object_so_modsecurity_does_not_block_them(): void
+    {
+        // As a JSON list, ModSecurity's CRS flattens the field into argument
+        // names `environments.environments`, and rule 930120 blocks `.env`
+        // there. Keyed "0","1" the names carry no `.env`, and PHP decodes the
+        // sequential keys back to the same list.
+        $http = new FakeTransport([
+            self::itemList([]),
+            self::ok(['data' => ['attributes' => ['id' => 9]]]),
+        ]);
+
+        self::publisher($http)->upsertItem(self::item());
+
+        $body = (string) $http->calls[1]['body'];
+
+        self::assertSame('POST', $http->calls[1]['method']);
+        self::assertStringContainsString('"environments":{"0":1,"1":2}', $body);
+        self::assertSame([1, 2], json_decode($body, true)['environments']);
+    }
+
+    #[Test]
+    public function environments_are_sent_as_an_object_on_update_too(): void
+    {
+        $http = new FakeTransport([
+            self::itemList([['id' => 5, 'url' => 'https://github.com/o/r/releases/download/v1.2.0/pkg_x-1.2.0.zip']]),
+            self::ok(['data' => ['attributes' => ['id' => 5]]]),
+        ]);
+
+        self::publisher($http)->upsertItem(self::item());
+
+        self::assertSame('PATCH', $http->calls[1]['method']);
+        self::assertStringContainsString('"environments":{"0":1,"1":2}', (string) $http->calls[1]['body']);
+    }
+
+    #[Test]
     public function item_match_is_on_the_whole_basename(): void
     {
         // A suffix match would claim other-pkg_x-1.2.0.zip when looking for

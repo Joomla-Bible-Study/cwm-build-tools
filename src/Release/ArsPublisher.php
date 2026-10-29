@@ -390,6 +390,8 @@ final class ArsPublisher
 
         self::assertEnvironments($item['environments'] ?? null);
 
+        $item['environments'] = self::environmentsForTransport($item['environments']);
+
         $existingId = $this->findItemId($releaseId, self::basename($url));
 
         if ($existingId !== null) {
@@ -401,6 +403,25 @@ final class ArsPublisher
         $response = $this->send('POST', '/items', $item);
 
         return ['id' => $this->idFromWriteResponse($response, 'item'), 'created' => true];
+    }
+
+    /**
+     * Send environment ids as a JSON object (`{"0":"44","1":"45"}`), not a list.
+     *
+     * Hosts running ModSecurity with the OWASP Core Rule Set flatten a JSON
+     * array into argument names like `environments.environments`. CRS rule
+     * 930120 ("OS File Access Attempt") matches the phrase `.env` in argument
+     * names, scoring 5 per element — three environments reach the blocking
+     * threshold and the request never reaches ARS. The host logs 418 and
+     * serves a bare 500 page (DreamHost, CRS 4.7, pkg_licenseportal 1.5.2).
+     * As an object the names are `environments.0`, which match nothing, and
+     * PHP decodes sequential keys back to the same list ARS stores.
+     *
+     * @param  list<int|string> $environments
+     */
+    public static function environmentsForTransport(array $environments): \stdClass
+    {
+        return (object) array_values($environments);
     }
 
     /**

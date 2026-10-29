@@ -581,7 +581,15 @@ elif [ -n "$DEV_BRANCH" ]; then
     # follow the checkout onto the development branch. Staging the versions
     # file by name — rather than the `git add -A` this used to run — is what
     # keeps them from being committed and pushed there.
-    git stash 2>/dev/null || true
+    #
+    # Pop only a stash this step made. With no tracked changes `git stash`
+    # saves nothing and still exits 0, so an unconditional `git stash pop`
+    # below popped whatever the developer had stashed before the release
+    # (seen cutting pkg_licenseportal 1.5.2).
+    RELEASE_STASHED=0
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+        git stash push -m "cwm-release ${TAG}: step 8" >/dev/null && RELEASE_STASHED=1
+    fi
     git checkout "$DEV_BRANCH"
     git pull
 
@@ -594,7 +602,10 @@ elif [ -n "$DEV_BRANCH" ]; then
     fi
 
     git checkout "$RELEASE_BRANCH"
-    git stash pop 2>/dev/null || true
+
+    if [ "$RELEASE_STASHED" = 1 ]; then
+        git stash pop || echo "  ⚠ Could not restore the changes stashed for step 8 — they are still in 'git stash list' (\"cwm-release ${TAG}: step 8\")."
+    fi
 else
     # Single-branch project: update inline on the release branch
     php "${TOOLS_DIR}/scripts/version-tracker.php" --mode=release -v "$VERSION"

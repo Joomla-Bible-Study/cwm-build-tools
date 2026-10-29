@@ -274,8 +274,12 @@ HASH_SOURCE="$ZIP_PATH"
 LOCAL_SIZE=$(wc -c < "$ZIP_PATH" | tr -d ' ')
 LOCAL_SHA256=$(shasum -a 256 "$ZIP_PATH" 2>/dev/null | cut -d' ' -f1 || echo "")
 
-cwm_ars_local_matches_asset "$LOCAL_SIZE" "$LOCAL_SHA256" "$FILESIZE" "$ASSET_DIGEST"
-MATCH_STATUS=$?
+# `|| MATCH_STATUS=$?`, not a bare call: this script runs under `set -e`, so a
+# non-zero return (1 = the asset differs, 2 = no digest) used to end the script
+# silently right here, before the branch below that hashes the served asset
+# instead — the one case this check exists for.
+MATCH_STATUS=0
+cwm_ars_local_matches_asset "$LOCAL_SIZE" "$LOCAL_SHA256" "$FILESIZE" "$ASSET_DIGEST" || MATCH_STATUS=$?
 
 if [ "$MATCH_STATUS" -ne 0 ]; then
     if [ "$MATCH_STATUS" -eq 1 ]; then
