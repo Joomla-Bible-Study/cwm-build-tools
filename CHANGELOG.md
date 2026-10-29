@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Hosted downloads: `ars.hosting: "ars"`.** `cwm-ars-publish` can copy the
+  zip into the ARS category's repository (`ars.uploadTarget`, an scp
+  destination) and publish a file item instead of a GitHub link. ARS then
+  serves the download behind the category's access level and Download ID,
+  which a private repository's GitHub assets can't offer: they 404 for every
+  site. Published bytes are never replaced, re-runs are safe, the upload is
+  verified on the server, and an existing link item is switched in place.
+  The default stays `github`.
 - **Claude Code skill: `cwm-release-troubleshooting`**, shipped in
   `templates/claude-skills/` and installed by `cwm-sync-configs` into each
   project's `.claude/skills/`. It's a runbook for a release that stopped

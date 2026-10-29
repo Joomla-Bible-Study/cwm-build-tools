@@ -141,3 +141,114 @@ cwm_ars_local_matches_asset() {
 
     return 1
 }
+
+# --- Hosted downloads (`ars.hosting: "ars"`) ---------------------------------
+#
+# By default an ARS item is a link to the GitHub release asset. A private
+# repository serves that asset to nobody, and a link bypasses ARS's own access
+# checks, so a commercial package cannot sit behind its download ID that way.
+# With `ars.hosting: "ars"` the zip is copied into the category's repository
+# directory and the item is a file item: ARS serves it, and the category's
+# access level (plus the site's Download ID handling) decides who gets it.
+
+# Validate the hosting settings.
+#
+# Arguments:
+#   $1  ars.hosting ("github" — the default — or "ars")
+#   $2  ars.uploadTarget, an scp destination "user@host:path/to/repository"
+#
+# Returns 0 when usable, 1 (with the reason on stderr) otherwise.
+cwm_ars_validate_hosting() {
+    local hosting="$1"
+    local target="$2"
+
+    case "$hosting" in
+        github) return 0 ;;
+        ars)
+            if [[ "$target" =~ ^[^:/]+:.+ ]]; then
+                return 0
+            fi
+            echo "Error: ars.hosting is \"ars\" but ars.uploadTarget is not an scp destination (user@host:path)." >&2
+            echo "  Set it to the ARS category's repository directory, e.g. \"me@example.com:site/arsfiles\"." >&2
+            return 1
+            ;;
+        *)
+            echo "Error: ars.hosting must be \"github\" or \"ars\", got \"${hosting}\"." >&2
+            return 1
+            ;;
+    esac
+}
+
+# Copy the zip into the ARS repository directory over ssh.
+#
+# Never replaces a different file of the same name: its checksums may already
+# be published, and changing the bytes under them fails every site's update.
+# The same bytes already there is success (a re-run). The upload lands under a
+# temporary name and is moved into place, then hashed on the server.
+#
+# Arguments:
+#   $1  Local zip path.
+#   $2  ars.uploadTarget ("user@host:dir").
+#   $3  Local sha256, lowercase hex.
+#
+# Returns 0 when the server holds exactly these bytes, 1 otherwise.
+cwm_ars_upload_hosted() {
+    local zip="$1"
+    local target="$2"
+    local sha="$3"
+    local host="${target%%:*}"
+    local dir="${target#*:}"
+    local remote
+
+    dir="${dir%/}"
+    remote="${dir}/$(basename "$zip")"
+
+    # Prints the file's sha256, or ABSENT. Exits 0 whenever ssh connected, so a
+    # connection failure is told apart from "not uploaded yet" — and, under the
+    # callers' `set -e`, neither case ends the script before it can report.
+    local hash_cmd="if [ -e '${remote}' ]; then (sha256sum -- '${remote}' 2>/dev/null || shasum -a 256 -- '${remote}') | cut -d' ' -f1; else echo ABSENT; fi"
+    local existing
+
+    if ! existing="$(ssh -o BatchMode=yes "$host" "$hash_cmd")"; then
+        echo "Error: could not reach ${host} over ssh to check ${remote}." >&2
+        return 1
+    fi
+
+    if [ "$existing" = "ABSENT" ]; then
+        existing=""
+    fi
+
+    if [ -n "$existing" ]; then
+        if [ "$existing" = "$sha" ]; then
+            echo "  ${remote} is already on ${host} with the same sha256 — not uploading again."
+            return 0
+        fi
+
+        echo "Error: ${host}:${remote} already exists with different content (sha256 ${existing})." >&2
+        echo "  Refusing to replace it: published checksums may describe it. Bump the version instead." >&2
+        return 1
+    fi
+
+    echo "  Uploading to ${host}:${remote}..."
+
+    if ! scp -q -o BatchMode=yes "$zip" "${host}:${remote}.uploading"; then
+        echo "Error: upload to ${host}:${dir} failed." >&2
+        return 1
+    fi
+
+    if ! ssh -o BatchMode=yes "$host" "mv -- '${remote}.uploading' '${remote}'"; then
+        echo "Error: could not move the upload into place on ${host}." >&2
+        return 1
+    fi
+
+    local after=""
+    after="$(ssh -o BatchMode=yes "$host" "$hash_cmd")" || after=""
+
+    if [ "$after" != "$sha" ]; then
+        echo "Error: ${host}:${remote} has sha256 ${after:-<unreadable>}, expected ${sha}." >&2
+        return 1
+    fi
+
+    echo "  Uploaded; sha256 verified on ${host}."
+    return 0
+}

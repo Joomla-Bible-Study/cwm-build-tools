@@ -256,6 +256,48 @@ fall through: a `-dev` build was marked pre-release on GitHub and published to
 ARS as a normal update, offered to every site, with nothing in the run
 reporting a problem (#155).
 
+## Where downloads are served from
+
+By default the ARS item **links to the GitHub release asset**. That's fine for
+a public repository, but it has two consequences:
+
+- **Private repository:** GitHub serves its assets to nobody without
+  credentials, so every site's update download is a 404.
+- **No ARS gating:** a link sends the site straight to GitHub, so the
+  category's access level and any Download ID handling never run. A
+  commercial package can't be kept behind its licence that way.
+
+With `ars.hosting: "ars"`, `cwm-ars-publish` copies the zip into the ARS
+category's repository directory over ssh and publishes a **file** item. ARS
+then serves the download and applies the category's access level, so a site
+needs a valid Download ID to update.
+
+```json
+"ars": {
+  "hosting": "ars",
+  "uploadTarget": "me@example.com:example.com/arsfiles"
+}
+```
+
+- `uploadTarget` is an scp destination, `user@host:path`, pointing at the
+  directory the category's *Directory* setting names. The upload uses your ssh
+  agent.
+- **Never replaces published bytes:** the same bytes already there count as
+  success (a re-run), but a *different* file under the same name is refused,
+  because its checksums may already be in the update feed. The upload lands
+  under a temporary name, is moved into place, and is hashed on the server.
+- **Switching modes:** an existing link item for the same zip is updated in
+  place when a release moves to hosted mode.
+- **Access level:** give the category an access level anonymous visitors
+  don't have (e.g. Registered). Otherwise the hosted file is as public as the
+  GitHub link was.
+- **Direct URLs:** keep the repository directory from being served directly,
+  for example with an `.htaccess` containing `Require all denied`. ARS reads
+  the file from disk, so this doesn't affect downloads through ARS.
+- **Checking the digest:** the update feed's download URL now needs a
+  Download ID, so a feed-vs-asset digest check has to be given the file
+  (`--file`), or a key.
+
 ## Distribution
 
 CWM internal tooling ships **only** via Composer (`require-dev`) — never via

@@ -378,13 +378,21 @@ final class ArsPublisher
     public function upsertItem(array $item): array
     {
         $releaseId = (int) ($item['release_id'] ?? 0);
+        $isFile    = ($item['type'] ?? 'link') === 'file';
         $url       = (string) ($item['url'] ?? '');
+        $filename  = (string) ($item['filename'] ?? '');
 
         if ($releaseId <= 0) {
             throw new \InvalidArgumentException('ARS item requires a positive release_id.');
         }
 
-        if ($url === '') {
+        if ($isFile && ($filename === '' || $filename !== self::basename($filename))) {
+            throw new \InvalidArgumentException(
+                'An ARS file item requires a bare filename inside the category\'s repository directory.'
+            );
+        }
+
+        if (!$isFile && $url === '') {
             throw new \InvalidArgumentException('ARS item requires a download url.');
         }
 
@@ -392,7 +400,9 @@ final class ArsPublisher
 
         $item['environments'] = self::environmentsForTransport($item['environments']);
 
-        $existingId = $this->findItemId($releaseId, self::basename($url));
+        // A hosted file and a GitHub link for the same zip are the same download:
+        // switching a release from one to the other updates the item in place.
+        $existingId = $this->findItemId($releaseId, $isFile ? $filename : self::basename($url));
 
         if ($existingId !== null) {
             $this->send('PATCH', "/items/{$existingId}", ['id' => $existingId] + $item);
@@ -474,10 +484,11 @@ final class ArsPublisher
     /**
      * The id of the download item pointing at this file name, or null.
      *
-     * Matched on the exact basename of the item's URL. Items point at GitHub
-     * download URLs whose path carries the tag and can be rewritten, so the
-     * basename is the stable part — but a suffix match would also claim
-     * `other-pkg_x-1.0.zip` when looking for `pkg_x-1.0.zip`.
+     * Matched on the exact basename of the item's URL (link items, which point
+     * at GitHub download URLs whose path carries the tag and can be rewritten)
+     * or on its filename (file items hosted in the ARS repository). A suffix
+     * match would also claim `other-pkg_x-1.0.zip` when looking for
+     * `pkg_x-1.0.zip`.
      */
     public function findItemId(int $releaseId, string $zipName): ?int
     {
@@ -491,7 +502,8 @@ final class ArsPublisher
         foreach ($rows as $row) {
             $attributes = $row['attributes'] ?? [];
 
-            if (self::basename((string) ($attributes['url'] ?? '')) === $zipName) {
+            if (self::basename((string) ($attributes['url'] ?? '')) === $zipName
+                || (string) ($attributes['filename'] ?? '') === $zipName) {
                 return (int) $attributes['id'];
             }
         }

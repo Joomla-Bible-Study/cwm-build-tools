@@ -22,6 +22,15 @@
 #                    extension.name with the "pkg_"/"com_"/"lib_" stripped.
 #   itemDescription  HTML-friendly description for the download Item shown
 #                    on the ARS public page. Defaults to extension.name.
+#   hosting          "github" (default): the item links to the GitHub release
+#                    asset. "ars": the zip is copied into the ARS repository
+#                    and published as a file item, so ARS serves it behind the
+#                    category's access level / Download ID — required for a
+#                    private repository, whose assets nobody can download.
+#   uploadTarget     With hosting "ars": scp destination of the category's
+#                    repository directory, e.g. "me@example.com:site/arsfiles".
+#                    Uses your ssh agent; the same file name is never replaced
+#                    with different bytes.
 #
 # Note: there is no `ars.changelogUrl` setting any longer. Modern ARS
 # (v7.x) does not expose a changelog field on update streams; Joomla
@@ -167,6 +176,8 @@ TOKEN_VAULT=$(read_config "ars.tokenVault")
 ZIP_PREFIX=$(read_config "ars.zipPrefix")
 ALIAS_PREFIX=$(read_config "ars.aliasPrefix")
 ITEM_DESCRIPTION=$(read_config "ars.itemDescription")
+ARS_HOSTING=$(read_config "ars.hosting")
+ARS_UPLOAD_TARGET=$(read_config "ars.uploadTarget")
 
 EXT_NAME=$(read_config "extension.name")
 GH_OWNER=$(read_config "github.owner")
@@ -183,6 +194,12 @@ fi
 if ! cwm_ars_validate_environments "$ARS_ENVIRONMENTS"; then
     echo "Error: ars.environments must be a non-empty JSON array of ARS environment ids in cwm-build.config.json (got: ${ARS_ENVIRONMENTS})."
     echo "       Copy the ids from a known-good existing item: GET {endpoint}/api/index.php/v1/ars/items and read its \"environments\" attribute."
+    exit 1
+fi
+
+ARS_HOSTING="${ARS_HOSTING:-github}"
+
+if ! cwm_ars_validate_hosting "$ARS_HOSTING" "$ARS_UPLOAD_TARGET"; then
     exit 1
 fi
 
@@ -211,7 +228,11 @@ echo "Publishing ${EXT_NAME} ${VERSION} to ARS (maturity: ${ARS_MATURITY})..."
 echo "  endpoint:      ${SITE_URL}"
 echo "  category:      ${ARS_CATEGORY_ID}"
 echo "  artifact:      ${ZIP_NAME}"
-echo "  download URL:  ${GITHUB_DOWNLOAD_URL}"
+if [ "$ARS_HOSTING" = "ars" ]; then
+    echo "  download:      served by ARS from ${ARS_UPLOAD_TARGET%/}/${ZIP_NAME}"
+else
+    echo "  download URL:  ${GITHUB_DOWNLOAD_URL}"
+fi
 
 # --- Get API token ---
 # Retrieval, and the reason when it fails, live in lib/optoken.sh (#126).
@@ -249,68 +270,82 @@ fi
 rm -f "$GH_ERR"
 RELEASE_DATE=$(printf '%s' "$RELEASE_DATE" | sed 's/T/ /' | sed 's/Z//')
 
-ASSET_INFO=$(gh release view "$TAG" --repo "${GH_OWNER}/${GH_REPO}" --json assets --jq ".assets[] | select(.name==\"${ZIP_NAME}\")")
+if [ "$ARS_HOSTING" = "ars" ]; then
+    # --- Hosted: the bytes users download are the ones uploaded here ---
+    #
+    # No GitHub asset is involved, so there is nothing to compare against:
+    # the local zip is uploaded, verified on the server, and hashed.
+    echo "Uploading the artifact to the ARS repository..."
+    HASH_SOURCE="$ZIP_PATH"
+    FILESIZE=$(wc -c < "$ZIP_PATH" | tr -d ' ')
 
-if [ -z "$ASSET_INFO" ]; then
-    echo "Error: Asset ${ZIP_NAME} not found in GitHub release ${TAG}."
-    exit 1
-fi
-
-FILESIZE=$(echo "$ASSET_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin)['size'])" 2>/dev/null || echo "0")
-ASSET_DIGEST=$(echo "$ASSET_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin).get('digest') or '')" 2>/dev/null || echo "")
-
-# --- Checksums must describe the bytes users download ---
-#
-# This item is `type: link`: it points at the GitHub asset, so a site downloads
-# THAT, not whatever is in build/dist right now. Publishing the local file's
-# checksums when the two differ makes Joomla fetch the asset, compare it
-# against the advertised sha512 and refuse the update — while the feed stays
-# valid and ARS reports success (#132).
-#
-# So the local file is only trusted once it is shown to be the served bytes.
-# When it is not, the asset itself is downloaded and hashed.
-echo "Computing checksums..."
-HASH_SOURCE="$ZIP_PATH"
-LOCAL_SIZE=$(wc -c < "$ZIP_PATH" | tr -d ' ')
-LOCAL_SHA256=$(shasum -a 256 "$ZIP_PATH" 2>/dev/null | cut -d' ' -f1 || echo "")
-
-# `|| MATCH_STATUS=$?`, not a bare call: this script runs under `set -e`, so a
-# non-zero return (1 = the asset differs, 2 = no digest) used to end the script
-# silently right here, before the branch below that hashes the served asset
-# instead — the one case this check exists for.
-MATCH_STATUS=0
-cwm_ars_local_matches_asset "$LOCAL_SIZE" "$LOCAL_SHA256" "$FILESIZE" "$ASSET_DIGEST" || MATCH_STATUS=$?
-
-if [ "$MATCH_STATUS" -ne 0 ]; then
-    if [ "$MATCH_STATUS" -eq 1 ]; then
-        echo "  The local artifact is NOT the published asset:"
-        echo "    local: ${LOCAL_SIZE} bytes, sha256 ${LOCAL_SHA256}"
-        echo "    asset: ${FILESIZE} bytes, ${ASSET_DIGEST:-no digest reported}"
-        echo "  Hashing the asset instead, so the update stream advertises what sites receive."
-        echo "  (A rebuild between build and publish is the usual cause: gzip records an"
-        echo "   mtime, so .gz output differs from identical sources.)"
-    else
-        echo "  GitHub reported no digest for this asset, so the local file cannot be"
-        echo "  shown to be the served bytes. Hashing the asset to be certain."
-    fi
-
-    ASSET_DIR=$(mktemp -d)
-
-    # NO_COLOR: see the note in release.sh — gh queries the terminal when
-    # its output is a TTY and leaves the reply behind.
-    if env NO_COLOR=1 gh release download "$TAG" --repo "${GH_OWNER}/${GH_REPO}" \
-            --pattern "$ZIP_NAME" --dir "$ASSET_DIR" >/dev/null 2>&1 \
-        && [ -f "${ASSET_DIR}/${ZIP_NAME}" ]; then
-        HASH_SOURCE="${ASSET_DIR}/${ZIP_NAME}"
-    else
-        echo "Error: could not download ${ZIP_NAME} from ${TAG} to checksum it."
-        echo "  Publishing the local file's checksums would advertise bytes no site receives,"
-        echo "  and every update would fail its integrity check. Refusing to publish."
-        rm -rf "$ASSET_DIR"
+    if ! cwm_ars_upload_hosted "$ZIP_PATH" "$ARS_UPLOAD_TARGET" "$(shasum -a 256 "$ZIP_PATH" | cut -d' ' -f1)"; then
         exit 1
     fi
 else
-    echo "  Local artifact matches the published asset (${LOCAL_SIZE} bytes, sha256 verified)."
+    ASSET_INFO=$(gh release view "$TAG" --repo "${GH_OWNER}/${GH_REPO}" --json assets --jq ".assets[] | select(.name==\"${ZIP_NAME}\")")
+
+    if [ -z "$ASSET_INFO" ]; then
+        echo "Error: Asset ${ZIP_NAME} not found in GitHub release ${TAG}."
+        exit 1
+    fi
+
+    FILESIZE=$(echo "$ASSET_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin)['size'])" 2>/dev/null || echo "0")
+    ASSET_DIGEST=$(echo "$ASSET_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin).get('digest') or '')" 2>/dev/null || echo "")
+
+    # --- Checksums must describe the bytes users download ---
+    #
+    # This item is `type: link`: it points at the GitHub asset, so a site downloads
+    # THAT, not whatever is in build/dist right now. Publishing the local file's
+    # checksums when the two differ makes Joomla fetch the asset, compare it
+    # against the advertised sha512 and refuse the update — while the feed stays
+    # valid and ARS reports success (#132).
+    #
+    # So the local file is only trusted once it is shown to be the served bytes.
+    # When it is not, the asset itself is downloaded and hashed.
+    echo "Computing checksums..."
+    HASH_SOURCE="$ZIP_PATH"
+    LOCAL_SIZE=$(wc -c < "$ZIP_PATH" | tr -d ' ')
+    LOCAL_SHA256=$(shasum -a 256 "$ZIP_PATH" 2>/dev/null | cut -d' ' -f1 || echo "")
+
+    # `|| MATCH_STATUS=$?`, not a bare call: this script runs under `set -e`, so a
+    # non-zero return (1 = the asset differs, 2 = no digest) used to end the script
+    # silently right here, before the branch below that hashes the served asset
+    # instead — the one case this check exists for.
+    MATCH_STATUS=0
+    cwm_ars_local_matches_asset "$LOCAL_SIZE" "$LOCAL_SHA256" "$FILESIZE" "$ASSET_DIGEST" || MATCH_STATUS=$?
+
+    if [ "$MATCH_STATUS" -ne 0 ]; then
+        if [ "$MATCH_STATUS" -eq 1 ]; then
+            echo "  The local artifact is NOT the published asset:"
+            echo "    local: ${LOCAL_SIZE} bytes, sha256 ${LOCAL_SHA256}"
+            echo "    asset: ${FILESIZE} bytes, ${ASSET_DIGEST:-no digest reported}"
+            echo "  Hashing the asset instead, so the update stream advertises what sites receive."
+            echo "  (A rebuild between build and publish is the usual cause: gzip records an"
+            echo "   mtime, so .gz output differs from identical sources.)"
+        else
+            echo "  GitHub reported no digest for this asset, so the local file cannot be"
+            echo "  shown to be the served bytes. Hashing the asset to be certain."
+        fi
+
+        ASSET_DIR=$(mktemp -d)
+
+        # NO_COLOR: see the note in release.sh — gh queries the terminal when
+        # its output is a TTY and leaves the reply behind.
+        if env NO_COLOR=1 gh release download "$TAG" --repo "${GH_OWNER}/${GH_REPO}" \
+                --pattern "$ZIP_NAME" --dir "$ASSET_DIR" >/dev/null 2>&1 \
+            && [ -f "${ASSET_DIR}/${ZIP_NAME}" ]; then
+            HASH_SOURCE="${ASSET_DIR}/${ZIP_NAME}"
+        else
+            echo "Error: could not download ${ZIP_NAME} from ${TAG} to checksum it."
+            echo "  Publishing the local file's checksums would advertise bytes no site receives,"
+            echo "  and every update would fail its integrity check. Refusing to publish."
+            rm -rf "$ASSET_DIR"
+            exit 1
+        fi
+    else
+        echo "  Local artifact matches the published asset (${LOCAL_SIZE} bytes, sha256 verified)."
+    fi
 fi
 
 MD5=$(md5 -q "$HASH_SOURCE" 2>/dev/null || md5sum "$HASH_SOURCE" 2>/dev/null | cut -d' ' -f1 || echo "")
@@ -371,6 +406,7 @@ CWM_ARS_NOTES_HTML="$NOTES_HTML" \
 CWM_ARS_RELEASE_DATE="$RELEASE_DATE" \
 CWM_ARS_ZIP_NAME="$ZIP_NAME" \
 CWM_ARS_DOWNLOAD_URL="$GITHUB_DOWNLOAD_URL" \
+CWM_ARS_ITEM_TYPE="$([ "$ARS_HOSTING" = "ars" ] && echo file || echo link)" \
 CWM_ARS_ITEM_DESCRIPTION="${ITEM_DESCRIPTION:-$EXT_NAME}" \
 CWM_ARS_FILESIZE="$FILESIZE" \
 CWM_ARS_MD5="$MD5" \

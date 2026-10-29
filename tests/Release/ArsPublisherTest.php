@@ -474,6 +474,60 @@ final class ArsPublisherTest extends TestCase
     }
 
     #[Test]
+    public function a_hosted_file_item_is_posted_with_its_filename_and_no_url(): void
+    {
+        $http = new FakeTransport([
+            self::itemList([]),
+            self::ok(['data' => ['attributes' => ['id' => 12]]]),
+        ]);
+
+        self::publisher($http)->upsertItem(self::fileItem());
+
+        $sent = json_decode((string) $http->calls[1]['body'], true);
+
+        self::assertSame('POST', $http->calls[1]['method']);
+        self::assertSame('file', $sent['type']);
+        self::assertSame('pkg_x-1.2.0.zip', $sent['filename']);
+        self::assertSame('', $sent['url']);
+    }
+
+    #[Test]
+    public function switching_a_link_item_to_a_hosted_file_updates_it_in_place(): void
+    {
+        // The same zip, previously a GitHub link: moving it into the ARS
+        // repository must PATCH that item, not add a second download.
+        $http = new FakeTransport([
+            self::itemList([['id' => 5, 'url' => 'https://github.com/o/r/releases/download/v1.2.0/pkg_x-1.2.0.zip']]),
+            self::ok(['data' => ['attributes' => ['id' => 5]]]),
+        ]);
+
+        $result = self::publisher($http)->upsertItem(self::fileItem());
+
+        self::assertSame(['id' => 5, 'created' => false], $result);
+        self::assertSame('PATCH', $http->calls[1]['method']);
+    }
+
+    #[Test]
+    public function an_existing_hosted_file_item_is_matched_by_filename(): void
+    {
+        $http = new FakeTransport([
+            self::itemList([['id' => 8, 'url' => '', 'filename' => 'pkg_x-1.2.0.zip']]),
+            self::ok(['data' => ['attributes' => ['id' => 8]]]),
+        ]);
+
+        self::assertSame(['id' => 8, 'created' => false], self::publisher($http)->upsertItem(self::fileItem()));
+    }
+
+    #[Test]
+    public function a_file_item_needs_a_bare_filename(): void
+    {
+        // A path would point ARS outside the category's repository directory.
+        $this->expectException(\InvalidArgumentException::class);
+
+        self::publisher(new FakeTransport([]))->upsertItem(['filename' => '../pkg_x-1.2.0.zip'] + self::fileItem());
+    }
+
+    #[Test]
     public function item_match_is_on_the_whole_basename(): void
     {
         // A suffix match would claim other-pkg_x-1.2.0.zip when looking for
@@ -609,6 +663,11 @@ final class ArsPublisherTest extends TestCase
     /**
      * @return array<string, mixed>
      */
+    private static function fileItem(): array
+    {
+        return ['type' => 'file', 'filename' => 'pkg_x-1.2.0.zip', 'url' => ''] + self::item();
+    }
+
     private static function item(): array
     {
         return [

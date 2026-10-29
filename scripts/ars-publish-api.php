@@ -104,8 +104,11 @@ try {
         'title'             => $title,
         'alias'             => $title,
         'description'       => optionalEnv('CWM_ARS_ITEM_DESCRIPTION', $title),
-        'type'              => 'link',
-        'url'               => requiredEnv('CWM_ARS_DOWNLOAD_URL'),
+        // `ars.hosting: "ars"` serves the zip from the ARS repository (behind the
+        // category's access level / download ID); the default links to GitHub.
+        'type'              => optionalEnv('CWM_ARS_ITEM_TYPE', 'link') === 'file' ? 'file' : 'link',
+        'url'               => optionalEnv('CWM_ARS_ITEM_TYPE', 'link') === 'file' ? '' : requiredEnv('CWM_ARS_DOWNLOAD_URL'),
+        'filename'          => optionalEnv('CWM_ARS_ITEM_TYPE', 'link') === 'file' ? $zipName : '',
         'updatestream'      => $updateStream,
         'md5'               => optionalEnv('CWM_ARS_MD5'),
         'sha1'              => optionalEnv('CWM_ARS_SHA1'),
