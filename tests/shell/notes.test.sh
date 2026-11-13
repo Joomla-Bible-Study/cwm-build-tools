@@ -61,4 +61,23 @@ case "$got" in
     *) FAIL=$((FAIL + 1)); echo "  FAIL: the hand-written notes should open the body" ;;
 esac
 
+# --- Whether hand-written notes still need their changelog entry ---------------
+
+cwm_changelog_needs_entry "" 1.2.3
+assert_equals "1" "$?" "no configured changelog file means nothing to warn about"
+
+cwm_changelog_needs_entry "$WORK/missing-changelog.xml" 1.2.3
+assert_equals "1" "$?" "a missing changelog file means nothing to warn about (step 6 skips it too)"
+
+printf '<changelogs>\n    <changelog><version>1.2.3</version></changelog>\n</changelogs>\n' > "$WORK/changelog.xml"
+cwm_changelog_needs_entry "$WORK/changelog.xml" 1.2.3
+assert_equals "1" "$?" "a version already in the file needs nothing"
+
+cwm_changelog_needs_entry "$WORK/changelog.xml" 1.2.4
+assert_equals "0" "$?" "a version missing from the file needs its entry"
+
+printf '<changelogs>\n    <changelog><version>1.2.30</version></changelog>\n</changelogs>\n' > "$WORK/near.xml"
+cwm_changelog_needs_entry "$WORK/near.xml" 1.2.3
+assert_equals "0" "$?" "1.2.30 is not an entry for 1.2.3"
+
 finish

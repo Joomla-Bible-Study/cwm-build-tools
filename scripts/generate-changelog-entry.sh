@@ -188,6 +188,16 @@ def clean(text):
     return escape(text)
 
 
+# GitHub's generated pull-request list starts at "## What's Changed". When
+# hand-written notes lead the body (release.notesFile), they are the changelog,
+# and "fix: … by @someone in https://…" titles are nothing a site administrator
+# can use. A body that is only the generated list keeps it: there is nothing else.
+generated = re.search(r"^##\s+What['’]s Changed\s*$", body, flags=re.M)
+if generated:
+    written = body[:generated.start()]
+    if any(line.strip() and not line.strip().startswith('#') for line in written.split('\n')):
+        body = written
+
 sections = {}
 current_type = None
 

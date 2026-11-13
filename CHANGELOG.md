@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`cwm-release` warns when hand-written notes have no changelog entry.**
+  Step 6 generates a missing entry from the release body, and from notes that
+  keeps their bullets but not their paragraphs or categories. Pre-flight now
+  warns when `release.notesFile` has notes for the version and
+  `changelog.file` has no entry for it, while there is still time to write
+  one by hand. The generator skips a version that is already there.
+  `docs/releasing.md` lists it under "Before you release".
+
 ### Fixed
+
+- **Changelog entries built from hand-written notes leave out GitHub's
+  pull-request list.** When notes lead the release body,
+  `generate-changelog-entry.sh` stops at GitHub's generated
+  `## What's Changed` list. Its "… by @someone in https://…" titles had been
+  landing in the Joomla changelog; Proclaim 10.7.4's entry had 15. A release
+  without notes still uses the list, since it is all there is.
 
 - **ARS releases carry the changelog link Joomla's Update screen reads.**
   `cwm-ars-publish` sets the release's `changelog_url` from `changelog.url`.
