@@ -6,8 +6,7 @@
 # Required ars.* fields:
 #   endpoint        Base URL of the Joomla site running ARS (no trailing slash)
 #   categoryId      Numeric ARS category id for releases of this extension
-#   updateStreamId  Numeric ARS update-stream id; the changelog URL is also
-#                   patched on this stream when changelogUrl is set
+#   updateStreamId  Numeric ARS update-stream id
 #   environments    Non-empty JSON array of ARS environment ids (Joomla / PHP
 #                   versions). Required: publishing an item with no
 #                   environments makes ARS emit update XML with wrong
@@ -32,11 +31,14 @@
 #                    Uses your ssh agent; the same file name is never replaced
 #                    with different bytes.
 #
-# Note: there is no `ars.changelogUrl` setting any longer. Modern ARS
-# (v7.x) does not expose a changelog field on update streams; Joomla
-# reads `<changelogurl>` from the installed extension manifest instead.
-# The URL belongs in the manifest XML and in `changelog.url` for the
-# publish helper, not on the ARS update stream.
+# Changelog: the release's `changelog_url` is set from `changelog.url`, the
+# raw URL of the project's Joomla changelog XML. Joomla reads a changelog in
+# two places. Extensions → Manage uses `<changelogurl>` from the installed
+# manifest, so the manifest needs the URL too. Extensions → Update uses the
+# update stream's `<changelogurl>`, which the CWM ARS fork takes from that
+# release field. When the field is empty, the fork falls back to `<infourl>`,
+# the HTML download page; Joomla cannot parse it, so the Changelog popup
+# comes up empty.
 #
 # Required github.* fields:
 #   owner, repo                Used to resolve the GitHub release for the

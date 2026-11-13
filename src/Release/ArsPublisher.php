@@ -49,6 +49,18 @@ use CWM\BuildTools\Http\HttpTransport;
  * scripts/render-notes.php does it for the shell pipeline — and
  * {@see assertRenderedNotes} refuses the obvious cases of forgetting.
  *
+ * ## `changelog_url` is what Joomla's Update screen shows
+ *
+ * Extensions → Update reads the changelog from the update stream's
+ * `<changelogurl>`, not from the installed manifest (that one is for
+ * Extensions → Manage). The CWM ARS fork takes the stream's value from the
+ * release's `changelog_url` and, when it is empty, from `<infourl>`: the HTML
+ * download page, which Joomla's changelog parser cannot read, so the Changelog
+ * popup comes up empty (Proclaim 10.7.4). The publish script sets it from the
+ * project's `changelog.url` on every publish, because a PATCH that leaves a
+ * field out gets the form default and would put the HTML page back.
+ * {@see assertChangelogUrl} refuses a value Joomla could not fetch.
+ *
  * ## Two silent-coercion traps this refuses to walk into
  *
  * - **`maturity`.** ReleaseTable::check() replaces anything outside
@@ -561,6 +573,32 @@ final class ArsPublisher
                 . 'the changelog collapsed onto one line (this is what shipped on Proclaim 10.3.6). '
                 . 'Convert first — scripts/render-notes.php reads Markdown on stdin and writes the HTML '
                 . 'fragment ARS expects.'
+            );
+        }
+    }
+
+    /**
+     * Reject a changelog URL Joomla could not fetch.
+     *
+     * Empty means none is sent. Anything else is advertised to every site that
+     * is offered the update, so a relative path or another scheme would fail
+     * there, where nobody sees why.
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function assertChangelogUrl(string $url): void
+    {
+        if ($url === '') {
+            return;
+        }
+
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+
+        if (filter_var($url, FILTER_VALIDATE_URL) === false || !\in_array($scheme, ['http', 'https'], true)) {
+            throw new \InvalidArgumentException(
+                'changelog.url must be an absolute http(s) URL to the project\'s Joomla changelog XML, such as '
+                . 'https://raw.githubusercontent.com/<owner>/<repo>/main/build/<name>-changelog.xml. ARS '
+                . 'advertises it as the update\'s <changelogurl>, which Joomla fetches for its Changelog popup.'
             );
         }
     }

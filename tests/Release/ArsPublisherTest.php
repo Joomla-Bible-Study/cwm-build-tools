@@ -599,6 +599,52 @@ final class ArsPublisherTest extends TestCase
     }
 
     #[Test]
+    public function changelog_url_validation_accepts_only_what_joomla_can_fetch(): void
+    {
+        foreach (['', 'https://raw.githubusercontent.com/o/r/main/build/x-changelog.xml', 'http://example.com/c.xml'] as $ok) {
+            ArsPublisher::assertChangelogUrl($ok);
+        }
+
+        foreach (['build/x-changelog.xml', '//example.com/c.xml', 'ftp://example.com/c.xml', 'javascript:alert(1)', 'not a url'] as $bad) {
+            try {
+                ArsPublisher::assertChangelogUrl($bad);
+                self::fail('accepted an unusable changelog URL: ' . $bad);
+            } catch (\InvalidArgumentException) {
+                // expected
+            }
+        }
+
+        $this->addToAssertionCount(1);
+    }
+
+    #[Test]
+    public function a_changelog_url_goes_out_on_create_and_on_update(): void
+    {
+        // A PATCH that leaves a field out gets the form default, so a
+        // re-publish without it would put the HTML download page back as the
+        // changelog Joomla's Update screen reads.
+        $url = 'https://raw.githubusercontent.com/o/r/main/build/x-changelog.xml';
+
+        $create = new FakeTransport([
+            self::releaseList([]),
+            self::ok(['data' => ['attributes' => ['id' => 77]]]),
+        ]);
+        self::publisher($create)->upsertRelease(self::release('1.2.0', ['ordering' => 42, 'changelog_url' => $url]));
+
+        self::assertSame('POST', $create->calls[1]['method']);
+        self::assertSame($url, json_decode((string) $create->calls[1]['body'], true)['changelog_url']);
+
+        $update = new FakeTransport([
+            self::releaseList([['id' => 42, 'version' => '1.2.0', 'ordering' => 12]]),
+            self::ok(['data' => ['attributes' => ['id' => 42]]]),
+        ]);
+        self::publisher($update)->upsertRelease(self::release('1.2.0', ['changelog_url' => $url]));
+
+        self::assertSame('PATCH', $update->calls[1]['method']);
+        self::assertSame($url, json_decode((string) $update->calls[1]['body'], true)['changelog_url']);
+    }
+
+    #[Test]
     public function publish_threads_the_release_id_into_the_item(): void
     {
         $http = new FakeTransport([
