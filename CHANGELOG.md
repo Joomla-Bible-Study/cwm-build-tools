@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.40.0] - 2026-11-13
+
 ### Added
 
 - **`cwm-release` warns when hand-written notes have no changelog entry.**
