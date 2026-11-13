@@ -154,40 +154,53 @@ HEADING_MAP = {
     'highlights': 'note', 'overview': 'note', 'summary': 'note',
 }
 
+def blocks(text):
+    """Yield ('heading', text) and ('item', text) in order.
+
+    An item is its bullet line plus every line that continues it. Release notes
+    wrap their bullets, and Markdown joins the lines of a list item; only a
+    blank line, a new bullet or a heading ends one, the same rule
+    ReleaseNotesFormatter applies to the ARS notes. Taking the bullet line
+    alone cut every wrapped item off mid-sentence.
+    """
+    item = None
+    for line in text.split('\n'):
+        line = line.strip()
+        heading_match = re.match(r'^#{2,3}\s+(.+)', line)
+        item_match = re.match(r'^[-*]\s+(.+)', line)
+        if heading_match or item_match or not line:
+            if item is not None:
+                yield 'item', item
+                item = None
+        if heading_match:
+            yield 'heading', heading_match.group(1).strip()
+        elif item_match:
+            item = item_match.group(1).strip()
+        elif line and item is not None:
+            item += ' ' + line
+    if item is not None:
+        yield 'item', item
+
+
+def clean(text):
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+    return escape(text)
+
+
 sections = {}
 current_type = None
-current_items = []
 
-for line in body.split('\n'):
-    line = line.strip()
-    heading_match = re.match(r'^#{2,3}\s+(.+)', line)
-    if heading_match:
-        if current_type and current_items:
-            sections.setdefault(current_type, []).extend(current_items)
-        heading = heading_match.group(1).strip().rstrip(':').lower()
+for kind, value in blocks(body):
+    if kind == 'heading':
+        heading = value.rstrip(':').lower()
         heading = re.sub(r'^v?\d+\.\d+\S*\s*[—–-]\s*', '', heading).strip().lower()
         current_type = HEADING_MAP.get(heading)
-        current_items = []
-        continue
-    item_match = re.match(r'^[-*]\s+(.+)', line)
-    if item_match and current_type:
-        text = item_match.group(1).strip()
-        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
-        text = re.sub(r'`([^`]+)`', r'\1', text)
-        current_items.append(escape(text))
-
-if current_type and current_items:
-    sections.setdefault(current_type, []).extend(current_items)
+    elif current_type:
+        sections.setdefault(current_type, []).append(clean(value))
 
 if not sections:
-    items = []
-    for line in body.split('\n'):
-        line = line.strip()
-        item_match = re.match(r'^[-*]\s+(.+)', line)
-        if item_match:
-            text = re.sub(r'\*\*([^*]+)\*\*', r'\1', item_match.group(1).strip())
-            text = re.sub(r'`([^`]+)`', r'\1', text)
-            items.append(escape(text))
+    items = [clean(value) for kind, value in blocks(body) if kind == 'item']
     if items:
         sections['note'] = items
 

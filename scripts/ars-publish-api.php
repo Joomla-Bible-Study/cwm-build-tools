@@ -79,6 +79,11 @@ try {
     // Fails before the first request rather than after the release exists.
     ArsPublisher::assertEnvironments($environments);
 
+    // What Joomla's Extensions → Update screen shows as the changelog; without
+    // it ARS advertises the HTML download page, which Joomla cannot read.
+    $changelogUrl = trim((string) $config->get('changelog.url', ''));
+    ArsPublisher::assertChangelogUrl($changelogUrl);
+
     $version   = requiredEnv('CWM_ARS_VERSION');
     $zipName   = requiredEnv('CWM_ARS_ZIP_NAME');
     $token     = requiredEnv('CWM_ARS_TOKEN');
@@ -97,6 +102,10 @@ try {
         'redirect_unauth'   => '',
         'language'          => '*',
     ];
+
+    if ($changelogUrl !== '') {
+        $release['changelog_url'] = $changelogUrl;
+    }
 
     $title = preg_replace('/\.zip$/', '', $zipName) ?? $zipName;
 

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **ARS releases carry the changelog link Joomla's Update screen reads.**
+  `cwm-ars-publish` sets the release's `changelog_url` from `changelog.url`.
+  - Extensions → Update reads the update stream's `<changelogurl>`. When the
+    field was empty, the CWM ARS fork fell back to the HTML download page,
+    which Joomla could not parse, so the Changelog popup was empty
+    (Proclaim 10.7.4).
+  - The URL is validated before the first request. It is sent on every
+    publish, because a PATCH that leaves it out resets it.
+  - The old note saying Joomla reads the manifest's `<changelogurl>` instead
+    was only true of Extensions → Manage.
+- **Wrapped bullets no longer truncate changelog entries.**
+  `generate-changelog-entry.sh` took each bullet's first line as the whole
+  item, so every wrapped bullet was cut off mid-sentence. Lines that continue
+  a list item are now joined, by the same rule `ReleaseNotesFormatter` uses:
+  only a blank line, a new bullet or a heading ends an item.
+
 ## [1.39.0] - 2026-10-28
 
 ### Added
