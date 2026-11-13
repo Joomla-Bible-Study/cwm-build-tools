@@ -214,6 +214,17 @@ rather than forking the fetcher.
 
 - **CHANGELOG.** Move the `## [Unreleased]` section's content under a new
   `## [X.Y.Z] - YYYY-MM-DD` heading. `cwm-release` / `cwm-changelog` read this.
+- **The Joomla changelog entry, with the notes.** When you write release notes
+  (`release.notesFile`), write the version's entry in `changelog.file` by hand
+  in the same PR.
+  - Step 6 only generates an entry when the file has none. From notes, that
+    keeps their bullets but not their paragraphs or categories.
+  - `cwm-release` warns in pre-flight when the notes exist but the entry
+    does not.
+  - The entry is what Joomla's Changelog buttons show. Extensions → Manage
+    reads it through the manifest's `<changelogurl>`. Extensions → Update
+    reads it through the ARS release's `changelog_url`, which
+    `cwm-ars-publish` sets from `changelog.url`.
 - **Clean dev links.** `composer cwm-link-check` should be green; the build
   walks the working tree, so stale symlinks or unbuilt assets ship.
 - **Lint.** `composer lint-deprecations` for J6/7 readiness if you're touching

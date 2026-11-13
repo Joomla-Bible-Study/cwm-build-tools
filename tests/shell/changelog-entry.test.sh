@@ -56,7 +56,19 @@ cat > "${WORK}/cwm-build.config.json" <<'JSON'
 }
 JSON
 
-OUT="$(cd "${WORK}" && PATH="${WORK}/bin:${PATH}" bash "${ROOT}/scripts/generate-changelog-entry.sh" 1.2.3 --dry-run 2>&1)"
+# assert_absent <haystack> <needle> <description>
+assert_absent() {
+    case "$1" in
+        *"$2"*) assert_equals "absent" "present" "$3" ;;
+        *)      assert_equals "absent" "absent" "$3" ;;
+    esac
+}
+
+generate() {
+    (cd "${WORK}" && PATH="${WORK}/bin:${PATH}" bash "${ROOT}/scripts/generate-changelog-entry.sh" 1.2.3 --dry-run 2>&1)
+}
+
+OUT="$(generate)"
 assert_equals "0" "$?" "the dry run succeeds"
 
 assert_contains "$OUT" \
@@ -75,14 +87,51 @@ assert_contains "$OUT" \
     "<item>Checks are cached for two minutes, shared by every visitor.</item>" \
     "a heading ends the item before it, and code markers are stripped"
 
-case "$OUT" in
-    *"This paragraph"*) assert_equals "absent" "present" "a paragraph outside any bullet is not an item" ;;
-    *)                  assert_equals "absent" "absent" "a paragraph outside any bullet is not an item" ;;
-esac
+assert_absent "$OUT" "This paragraph" "a paragraph outside any bullet is not an item"
 
 FIX_BLOCK="$(printf '%s\n' "$OUT" | sed -n '/<fix>/,/<\/fix>/p')"
 assert_equals "4" "$(printf '%s\n' "$FIX_BLOCK" | grep -c '<item>')" "the four Fixed bullets land in <fix>"
 CHANGE_BLOCK="$(printf '%s\n' "$OUT" | sed -n '/<change>/,/<\/change>/p')"
 assert_equals "1" "$(printf '%s\n' "$CHANGE_BLOCK" | grep -c '<item>')" "the Changes bullet lands in <change>"
+
+# --- GitHub's generated pull-request list ---------------------------------------
+# cwm-release puts hand-written notes first, then "## Changes" and GitHub's
+# generated list. The notes are the changelog; the list's "… by @someone in
+# https://…" titles are not something a site administrator can use. Notes
+# written for people have headings no category matches, which is what sends the
+# generator to its collect-every-bullet fallback, where the list got swept in.
+
+cat > "${WORK}/body.md" <<'MD'
+Release 1.2.3 is a maintenance release.
+
+## Every message gets its own address
+
+- A hand-written fix that matters,
+  wrapped over two lines.
+
+## Changes
+
+## What's Changed
+* fix: repair the thing by @someone in https://github.com/o/r/pull/9
+
+**Full Changelog**: https://github.com/o/r/compare/v1.2.2...v1.2.3
+MD
+
+OUT="$(generate)"
+assert_contains "$OUT" "<item>A hand-written fix that matters, wrapped over two lines.</item>" \
+    "hand-written notes still make the entry"
+assert_absent "$OUT" "by @someone" "the generated pull-request list is left out when notes lead"
+
+# A release nobody wrote notes for: the generated list is all there is.
+cat > "${WORK}/body.md" <<'MD'
+## What's Changed
+* fix: repair the thing by @someone in https://github.com/o/r/pull/9
+
+**Full Changelog**: https://github.com/o/r/compare/v1.2.2...v1.2.3
+MD
+
+OUT="$(generate)"
+assert_contains "$OUT" "<item>fix: repair the thing by @someone in https://github.com/o/r/pull/9</item>" \
+    "with no notes, the generated list still makes the entry"
 
 finish

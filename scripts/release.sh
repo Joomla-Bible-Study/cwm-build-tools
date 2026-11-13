@@ -282,6 +282,18 @@ else
     fi
 fi
 
+# --- Pre-flight: a changelog entry to go with hand-written notes ---
+# Without one, step 6 generates it from the release body, which keeps the
+# notes' bullets but not their paragraphs or categories. A warning rather than
+# a stop: an entry generated from notes is still better than none.
+PREFLIGHT_NOTES=$(cwm_resolve_notes_file "$(read_config "release.notesFile")" "$VERSION" || true)
+PREFLIGHT_CHANGELOG=$(read_config "changelog.file")
+if [ -n "$PREFLIGHT_NOTES" ] && cwm_changelog_needs_entry "$PREFLIGHT_CHANGELOG" "$VERSION"; then
+    echo "[pre-flight] WARNING: ${PREFLIGHT_CHANGELOG} has no ${VERSION} entry to go with ${PREFLIGHT_NOTES}."
+    echo "  Step 6 would generate one from the notes' bullets alone, without their paragraphs or categories."
+    echo "  Write it by hand in the notes PR; the generator skips a version that is already there."
+fi
+
 echo ""
 echo "=== ${PKG_NAME} Release ${VERSION} ==="
 echo ""

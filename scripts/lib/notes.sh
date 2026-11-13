@@ -65,3 +65,27 @@ cwm_assemble_release_notes() {
 
     printf '%s\n\n## Changes\n\n%s\n' "$(cat "$notes_file")" "$generated"
 }
+
+# Whether a release with hand-written notes still needs its changelog entry.
+#
+# Step 6 generates the Joomla changelog entry from the release body when the
+# changelog file has none. From hand-written notes that keeps their bullets
+# but none of their paragraphs or categories, so the entry is better written
+# alongside the notes; the generator skips a version that is already there.
+# The release pre-flight warns while there is still time to add one.
+#
+# Arguments:
+#   $1  path to the changelog XML, may be empty (unconfigured)
+#   $2  version
+#
+# Returns:
+#   0 the file exists and has no entry for the version, 1 otherwise.
+cwm_changelog_needs_entry() {
+    local changelog="$1" version="$2"
+
+    if [ -z "$changelog" ] || [ ! -f "$changelog" ]; then
+        return 1
+    fi
+
+    ! grep -qF "<version>${version}</version>" "$changelog"
+}
