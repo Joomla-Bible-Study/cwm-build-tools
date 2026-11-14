@@ -225,6 +225,10 @@ rather than forking the fetcher.
     reads it through the manifest's `<changelogurl>`. Extensions → Update
     reads it through the ARS release's `changelog_url`, which
     `cwm-ars-publish` sets from `changelog.url`.
+  - Write each `<item>` in plain ASCII. Joomla starts a new bullet at every
+    entity and every non-ASCII character, so `&#x27;`, an em dash or an `é`
+    breaks an item into pieces. Raw `'`, `"` and `>` are fine; write ` - `
+    for a dash, `->` for an arrow and "and" for `&`.
 - **Clean dev links.** `composer cwm-link-check` should be green; the build
   walks the working tree, so stale symlinks or unbuilt assets ship.
 - **Lint.** `composer lint-deprecations` for J6/7 readiness if you're touching

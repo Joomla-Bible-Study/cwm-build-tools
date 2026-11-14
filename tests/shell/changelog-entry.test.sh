@@ -75,10 +75,10 @@ assert_contains "$OUT" \
     "<item>Where records share an alias, the one the address already showed keeps it: the published record with the lowest ID.</item>" \
     "an indented continuation line is joined to its bullet"
 assert_contains "$OUT" \
-    "<item>A message can&#x27;t be saved with an alias another message already has, and the same goes for series.</item>" \
+    "<item>A message can't be saved with an alias another message already has, and the same goes for series.</item>" \
     "an unindented (lazy) continuation line is joined too"
 assert_contains "$OUT" \
-    "<item>The template&#x27;s Email when comments entered setting sends again.</item>" \
+    "<item>The template's Email when comments entered setting sends again.</item>" \
     "bold that spans the wrap is stripped once the lines are joined"
 assert_contains "$OUT" \
     "<item>A single-line bullet stays as it is.</item>" \
@@ -93,6 +93,46 @@ FIX_BLOCK="$(printf '%s\n' "$OUT" | sed -n '/<fix>/,/<\/fix>/p')"
 assert_equals "4" "$(printf '%s\n' "$FIX_BLOCK" | grep -c '<item>')" "the four Fixed bullets land in <fix>"
 CHANGE_BLOCK="$(printf '%s\n' "$OUT" | sed -n '/<change>/,/<\/change>/p')"
 assert_equals "1" "$(printf '%s\n' "$CHANGE_BLOCK" | grep -c '<item>')" "the Changes bullet lands in <change>"
+
+# --- Plain text, so Joomla shows each item as one bullet --------------------------
+# Joomla's Changelog::characterData() adds every text chunk inside an <item> as a
+# new item, and the XML parser starts a new chunk at each entity and each
+# non-ASCII character. An item that is not plain ASCII shows as fragments.
+
+cat > "${WORK}/body.md" <<'MD'
+## Fixed
+
+- Bumps the library 1.1.0 → 1.1.5 — the “Café” module’s <changelogurl> & icons…
+MD
+
+OUT="$(generate)"
+assert_contains "$OUT" \
+    "<item>Bumps the library 1.1.0 -> 1.1.5 - the \"Cafe\" module's changelogurl and icons...</item>" \
+    "typography becomes ASCII, quotes and > stay raw, & becomes and, and a <tag> loses its brackets"
+assert_absent "$OUT" "&#x27;" "apostrophes are not written as entities"
+assert_absent "$OUT" "&quot;" "quotes are not written as entities"
+assert_equals "0" "$(printf '%s' "$OUT" | LC_ALL=C grep -c "$(printf '[\200-\377]')")" \
+    "nothing outside ASCII reaches the entry"
+assert_absent "$OUT" "WARNING" "an item folded to plain ASCII raises no warning"
+
+# What has no ASCII form stays as written, and the release is told which item
+# Joomla will show in pieces. NFKD turns the half into "1", U+2044, "2", which
+# is no better, so it is kept too.
+
+cat > "${WORK}/body.md" <<'MD'
+## Fixed
+
+- The R&D page shows ½ of the © notice.
+MD
+
+OUT="$(generate)"
+assert_equals "0" "$?" "an item that cannot be folded does not stop the entry"
+assert_contains "$OUT" "<item>The R&amp;D page shows ½ of the © notice.</item>" \
+    "a character with no ASCII form is kept, not mangled"
+assert_contains "$OUT" "WARNING: Joomla will show this 1.2.3 item in pieces" \
+    "the item that will split is reported"
+assert_contains "$OUT" "by hand: The R&amp;D page shows ½ of the © notice." \
+    "the report names the item"
 
 # --- GitHub's generated pull-request list ---------------------------------------
 # cwm-release puts hand-written notes first, then "## Changes" and GitHub's
