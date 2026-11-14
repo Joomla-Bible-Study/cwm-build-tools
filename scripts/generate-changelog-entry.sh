@@ -130,8 +130,7 @@ fi
 # --- Parse markdown into changelog XML ---
 export CHANGELOG_BODY="$BODY"
 ENTRY=$(python3 - "$VERSION" "$RELEASE_DATE" "$ELEMENT" "$TYPE" <<'PYTHON_SCRIPT'
-import os, sys, re
-from html import escape
+import os, sys, re, unicodedata
 
 version = sys.argv[1]
 date    = sys.argv[2]
@@ -182,10 +181,43 @@ def blocks(text):
         yield 'item', item
 
 
+# Joomla's changelog parser (Changelog::characterData) adds every text chunk
+# inside an <item> as a new item, and the XML parser starts a new chunk at each
+# entity and each non-ASCII character. So "The module&#x27;s badge" shows as
+# three bullets in the Changelog popup, and an em dash splits a sentence in two.
+# An item has to be plain ASCII, with no entity, to show as one bullet.
+TYPOGRAPHY = {
+    '\u2014': ' - ',               # em dash
+    '\u2013': '-',                 # en dash
+    '\u2018': "'", '\u2019': "'",  # curly single quotes
+    '\u201c': '"', '\u201d': '"',  # curly double quotes
+    '\u2192': ' -> ',              # arrow, as in "Admin Center -> Scripture tab"
+    '\u2022': '-',                 # bullet
+}
+
+
+def plain(text):
+    out = []
+    for char in text:
+        if char in TYPOGRAPHY:
+            out.append(TYPOGRAPHY[char])
+            continue
+        # NFKD takes accents off and turns no-break spaces and the ellipsis into
+        # ASCII. What it cannot reduce to ASCII (Cyrillic, a symbol) stays, and
+        # the warning below names the item.
+        folded = ''.join(c for c in unicodedata.normalize('NFKD', char) if not unicodedata.combining(c))
+        out.append(folded if folded.isascii() else char)
+    return re.sub(r' {2,}', ' ', ''.join(out))
+
+
 def clean(text):
     text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
     text = re.sub(r'`([^`]+)`', r'\1', text)
-    return escape(text)
+    text = plain(text).replace(' & ', ' and ')
+    text = re.sub(r'<([^<>\s]+)>', r'\1', text)
+    # Quotes and > stay raw: they are valid in element content, and as entities
+    # they would split the item. Only & and < have to be escaped.
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace(']]>', ']]&gt;')
 
 
 # GitHub's generated pull-request list starts at "## What's Changed". When
@@ -213,6 +245,14 @@ if not sections:
     items = [clean(value) for kind, value in blocks(body) if kind == 'item']
     if items:
         sections['note'] = items
+
+# Whatever plain() could not fold still shows in pieces. Name it while there is
+# time to reword it by hand; the release itself goes on.
+for change_type in sections:
+    for item in sections[change_type]:
+        if '&' in item or not item.isascii():
+            print(f"WARNING: Joomla will show this {version} item in pieces (non-ASCII, & or <).", file=sys.stderr)
+            print(f"         Reword it in the changelog file by hand: {item}", file=sys.stderr)
 
 TYPE_ORDER = ['security', 'fix', 'addition', 'change', 'remove', 'language', 'note']
 

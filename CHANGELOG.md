@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.40.1] - 2026-11-13
+
+### Fixed
+
+- **Generated changelog entries show each item as one bullet in Joomla.**
+  Joomla's changelog parser starts a new item at every entity and every
+  non-ASCII character. `generate-changelog-entry.sh` wrote apostrophes and
+  quotes as `&#x27;` and `&quot;`, so most generated items showed in pieces;
+  LivingWord 5.7.0's 18 came out as 36. Items are now plain ASCII: quotes and
+  `>` stay raw, dashes become ` - `, arrows `->`, curly quotes straight ones,
+  and accents come off. A character with no ASCII form is kept, and the
+  generator warns which item Joomla will split so it can be reworded by hand.
+  `docs/releasing.md` asks the same of hand-written entries.
+
 ## [1.40.0] - 2026-11-13
 
 ### Added
