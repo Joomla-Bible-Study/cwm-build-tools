@@ -55,6 +55,18 @@
 #   pointer and can quietly decide it has nothing to do (#101). Read the
 #   variable, not the file.
 #
+# Tag-only (--tag-only):
+#   For a version with nothing worth publishing on its own, such as a
+#   dependency or changelog-only release that consumers pick up by pinning the
+#   tag. Steps 1-4 run as usual, so placeholders are substituted and the built
+#   artifact passes the token gate. Step 6 then tags the release commit and
+#   pushes the tag, never with --force. Nothing is published: no GitHub release
+#   (5), no ARS publish (7), no versions.json update (8), no announcement (9)
+#   and no post-flight stream check. Pre-flight refuses when the changelog has
+#   no entry for the version, since there is no GitHub release to generate one
+#   from, and when the tag already exists. Before this flag such releases were
+#   cut by hand, and the hand path skipped step 2 and the gate (#176).
+#
 # Prerequisites:
 #   - Clean working tree, on the configured release branch (default: main)
 #   - gh CLI authenticated
@@ -88,12 +100,15 @@ usage() {
 cwm-release — full release pipeline for a CWM Joomla extension.
 
 Usage:
-  composer release -- <version> [--dry-run|-n] [--skip-tests]
+  composer release -- <version> [--dry-run|-n] [--skip-tests] [--tag-only]
   composer release                  # prompts for the version
 
 Options:
   -n, --dry-run     Print every mutating command instead of running it.
   --skip-tests      Skip the composer test:release gate.
+  --tag-only        Bump, substitute, build, gate, commit and push a new tag.
+                    Publish nothing: no GitHub release, ARS item,
+                    versions.json update or announcement.
   -h, --help        Show this and exit.
 USAGE
 }
@@ -112,6 +127,7 @@ fi
 
 DRY_RUN="$CWM_DRY_RUN"
 SKIP_TESTS="$CWM_SKIP_TESTS"
+TAG_ONLY="$CWM_TAG_ONLY"
 set -- "${CWM_ARGS[@]+"${CWM_ARGS[@]}"}"
 
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"
@@ -288,10 +304,48 @@ fi
 # a stop: an entry generated from notes is still better than none.
 PREFLIGHT_NOTES=$(cwm_resolve_notes_file "$(read_config "release.notesFile")" "$VERSION" || true)
 PREFLIGHT_CHANGELOG=$(read_config "changelog.file")
-if [ -n "$PREFLIGHT_NOTES" ] && cwm_changelog_needs_entry "$PREFLIGHT_CHANGELOG" "$VERSION"; then
+if [ "$TAG_ONLY" != "1" ] && [ -n "$PREFLIGHT_NOTES" ] && cwm_changelog_needs_entry "$PREFLIGHT_CHANGELOG" "$VERSION"; then
     echo "[pre-flight] WARNING: ${PREFLIGHT_CHANGELOG} has no ${VERSION} entry to go with ${PREFLIGHT_NOTES}."
     echo "  Step 6 would generate one from the notes' bullets alone, without their paragraphs or categories."
     echo "  Write it by hand in the notes PR; the generator skips a version that is already there."
+fi
+
+# --- Pre-flight: what a tag-only release needs (#176) ---
+# Both refusals come before step 1, where they cost nothing.
+#
+# The changelog entry must already be committed: step 6 generates one from the
+# GitHub release, and a tag-only release has none.
+#
+# The tag must be new. Step 6 creates it without --force, because moving a tag
+# a consumer may already pin is not something to do as a side effect.
+if [ "$TAG_ONLY" = "1" ]; then
+    echo "[pre-flight] Tag-only release: nothing will be published (no GitHub release, ARS item,"
+    echo "             versions.json update or announcement)."
+
+    TAG_ONLY_PROBLEMS=()
+    if cwm_changelog_needs_entry "$PREFLIGHT_CHANGELOG" "$VERSION"; then
+        TAG_ONLY_PROBLEMS+=("${PREFLIGHT_CHANGELOG} has no ${VERSION} entry. Write it by hand and commit it first: with no GitHub release, step 6 has nothing to generate one from.")
+    fi
+    if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null \
+        || git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+        TAG_ONLY_PROBLEMS+=("Tag ${TAG} already exists. A tag-only release creates a new tag and never moves one.")
+    fi
+
+    for problem in "${TAG_ONLY_PROBLEMS[@]+"${TAG_ONLY_PROBLEMS[@]}"}"; do
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  WARNING: ${problem}"
+            echo "           A real run would stop here."
+        else
+            echo "Error: ${problem}"
+        fi
+    done
+    if [ "${#TAG_ONLY_PROBLEMS[@]}" -gt 0 ] && [ "$DRY_RUN" != "1" ]; then
+        exit 1
+    fi
+
+    if [ "$(git config --type=bool --get tag.gpgSign 2>/dev/null || true)" != "true" ]; then
+        echo "  Note: tag.gpgSign is not set, so ${TAG} will be an unsigned annotated tag."
+    fi
 fi
 
 echo ""
@@ -428,76 +482,87 @@ echo ""
 # --- Step 5: GitHub release ---
 echo "[5/9] Creating GitHub release ${TAG}..."
 
-# The changelog base is "since the last thing anyone could install", so
-# pre-release tags are skipped. `git describe` answers with the nearest tag,
-# which straight after a release candidate is the candidate — and the range
-# then holds only the version bump, producing an entry with nothing in it
-# while the real description sits under a tag no site was offered (#74).
-PREV_TAG=$(cwm_latest_stable_tag "$(git tag --merged HEAD --sort=v:refname 2>/dev/null || echo "")")
-if [ -n "$PREV_TAG" ] && [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
-    NOTES=$(gh api "repos/${GH_OWNER}/${GH_REPO}/releases/generate-notes" \
-        -f tag_name="$TAG" -f target_commitish="$RELEASE_BRANCH" -f previous_tag_name="$PREV_TAG" \
-        --jq '.body' 2>/dev/null || echo "Release ${VERSION}")
+if [ "$TAG_ONLY" = "1" ]; then
+    echo "  Skipped (--tag-only): no GitHub release. Step 6 creates the tag."
 else
-    NOTES="Release ${VERSION}"
+    # The changelog base is "since the last thing anyone could install", so
+    # pre-release tags are skipped. `git describe` answers with the nearest tag,
+    # which straight after a release candidate is the candidate — and the range
+    # then holds only the version bump, producing an entry with nothing in it
+    # while the real description sits under a tag no site was offered (#74).
+    PREV_TAG=$(cwm_latest_stable_tag "$(git tag --merged HEAD --sort=v:refname 2>/dev/null || echo "")")
+    if [ -n "$PREV_TAG" ] && [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
+        NOTES=$(gh api "repos/${GH_OWNER}/${GH_REPO}/releases/generate-notes" \
+            -f tag_name="$TAG" -f target_commitish="$RELEASE_BRANCH" -f previous_tag_name="$PREV_TAG" \
+            --jq '.body' 2>/dev/null || echo "Release ${VERSION}")
+    else
+        NOTES="Release ${VERSION}"
+    fi
+
+    # Hand-written notes, if this release has any.
+    #
+    # What GitHub generates is a list of pull request titles — accurate, and written
+    # for us rather than for the person deciding whether to update. Those same notes
+    # are republished on the ARS download page, where they are the only changelog a
+    # site administrator following an update link ever sees.
+    #
+    # So a notes file, when present, leads; the generated list is kept beneath it so
+    # nothing is lost. Configure `release.notesFile` with a {version} placeholder,
+    # e.g. "build/release-notes-{version}.md". Absent file, absent config, or a
+    # release nobody wrote notes for: unchanged behaviour.
+    #
+    # Resolution and assembly live in lib/notes.sh so they can be tested — see #52.
+    NOTES_FILE_PATTERN=$(read_config "release.notesFile")
+    NOTES_FILE=$(cwm_resolve_notes_file "$NOTES_FILE_PATTERN" "$VERSION" || true)
+    if [ -n "$NOTES_FILE" ]; then
+        echo "  Using hand-written release notes: ${NOTES_FILE}"
+    elif [ -n "$NOTES_FILE_PATTERN" ]; then
+        echo "  No hand-written notes at ${NOTES_FILE_PATTERN//\{version\}/$VERSION}; using generated notes."
+    fi
+    NOTES=$(cwm_assemble_release_notes "$NOTES_FILE" "$NOTES")
+
+    GH_REPO_ARG=""
+    if [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
+        GH_REPO_ARG="--repo ${GH_OWNER}/${GH_REPO}"
+    fi
+
+    # shellcheck disable=SC2086
+    # ⚠️ NO_COLOR, because gh probes the terminal when its output is a TTY.
+    # Its markdown renderer asks for the background colour (OSC 11) and the
+    # cursor position (CPR) to pick a light or dark theme, then exits without
+    # consuming the replies -- so the terminal's answers land in the input
+    # buffer and are echoed at the next prompt, as
+    #
+    #     11;rgb:1919/1a1a/1c1c;1R
+    #
+    # after a release that otherwise finished cleanly. Cosmetic, but it looks
+    # like a fault and it is the last thing a release prints.
+    #
+    # Only the calls whose output reaches a terminal need this; the ones whose
+    # output is captured into a variable are not a TTY and never query. Setting
+    # it per-call rather than exporting it keeps our own coloured PASS/FAIL
+    # output intact.
+    cwm_mutate env NO_COLOR=1 gh release create "$TAG" "${ARTIFACTS[@]}" \
+        $GH_REPO_ARG \
+        --target "$RELEASE_BRANCH" \
+        --title "${TAG}" \
+        --notes "$NOTES" \
+        $PRERELEASE_FLAG
 fi
-
-# Hand-written notes, if this release has any.
-#
-# What GitHub generates is a list of pull request titles — accurate, and written
-# for us rather than for the person deciding whether to update. Those same notes
-# are republished on the ARS download page, where they are the only changelog a
-# site administrator following an update link ever sees.
-#
-# So a notes file, when present, leads; the generated list is kept beneath it so
-# nothing is lost. Configure `release.notesFile` with a {version} placeholder,
-# e.g. "build/release-notes-{version}.md". Absent file, absent config, or a
-# release nobody wrote notes for: unchanged behaviour.
-#
-# Resolution and assembly live in lib/notes.sh so they can be tested — see #52.
-NOTES_FILE_PATTERN=$(read_config "release.notesFile")
-NOTES_FILE=$(cwm_resolve_notes_file "$NOTES_FILE_PATTERN" "$VERSION" || true)
-if [ -n "$NOTES_FILE" ]; then
-    echo "  Using hand-written release notes: ${NOTES_FILE}"
-elif [ -n "$NOTES_FILE_PATTERN" ]; then
-    echo "  No hand-written notes at ${NOTES_FILE_PATTERN//\{version\}/$VERSION}; using generated notes."
-fi
-NOTES=$(cwm_assemble_release_notes "$NOTES_FILE" "$NOTES")
-
-GH_REPO_ARG=""
-if [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
-    GH_REPO_ARG="--repo ${GH_OWNER}/${GH_REPO}"
-fi
-
-# shellcheck disable=SC2086
-# ⚠️ NO_COLOR, because gh probes the terminal when its output is a TTY.
-# Its markdown renderer asks for the background colour (OSC 11) and the
-# cursor position (CPR) to pick a light or dark theme, then exits without
-# consuming the replies -- so the terminal's answers land in the input
-# buffer and are echoed at the next prompt, as
-#
-#     11;rgb:1919/1a1a/1c1c;1R
-#
-# after a release that otherwise finished cleanly. Cosmetic, but it looks
-# like a fault and it is the last thing a release prints.
-#
-# Only the calls whose output reaches a terminal need this; the ones whose
-# output is captured into a variable are not a TTY and never query. Setting
-# it per-call rather than exporting it keeps our own coloured PASS/FAIL
-# output intact.
-cwm_mutate env NO_COLOR=1 gh release create "$TAG" "${ARTIFACTS[@]}" \
-    $GH_REPO_ARG \
-    --target "$RELEASE_BRANCH" \
-    --title "${TAG}" \
-    --notes "$NOTES" \
-    $PRERELEASE_FLAG
-
 echo ""
 
 # --- Step 6: Changelog ---
 echo "[6/9] Updating changelog..."
 CHANGELOG_FILE=$(read_config "changelog.file")
-if [ -n "$CHANGELOG_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
+if [ "$TAG_ONLY" = "1" ]; then
+    # Pre-flight proved any entry is already committed, and the generator would
+    # read a GitHub release that does not exist. What is left is the tag, which
+    # step 5 makes on a full release. Pre-flight also proved it is new, so no
+    # --force. Signed when tag.gpgSign is set.
+    echo "  Tag-only: nothing to generate. Tagging the release commit."
+    cwm_mutate git tag -a "$TAG" -m "$TAG"
+    cwm_mutate git push origin "$TAG"
+elif [ -n "$CHANGELOG_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
     cwm_mutate bash "${TOOLS_DIR}/scripts/generate-changelog-entry.sh" "$VERSION"
     # Stage the changelog and nothing else. This used to be `git add -A` behind
     # a `git diff --quiet` guard, and those two disagree: the guard inspects
@@ -548,7 +613,9 @@ echo ""
 echo "[7/9] Publishing to ARS..."
 ARS_ENDPOINT=$(read_config "ars.endpoint")
 ARS_FAILED=0
-if [ -n "$ARS_ENDPOINT" ]; then
+if [ "$TAG_ONLY" = "1" ]; then
+    echo "  Skipped (--tag-only): nothing is published to ARS."
+elif [ -n "$ARS_ENDPOINT" ]; then
     # The GitHub release now carries the hand-written notes plus the generated
     # list, so ARS reads them back from there and both pages agree.
     cwm_mutate bash "${TOOLS_DIR}/scripts/ars-publish.sh" -v "$VERSION" -f "${ARTIFACTS[0]}" || ARS_FAILED=$?
@@ -569,7 +636,11 @@ DEV_BRANCH=$(read_config "github.developmentBranch")
 # touches versionsJson alone). Both commits below stage exactly it.
 VERSIONS_FILE=$(php "${TOOLS_DIR}/scripts/resolve-tracking.php" versionsJson)
 
-if [ -z "$VERSIONS_FILE" ]; then
+if [ "$TAG_ONLY" = "1" ]; then
+    # `current` names the last *published* release, and verify-update-stream
+    # checks the stream against it. A tag nobody is offered must not move it.
+    echo "  Skipped (--tag-only): versions.json tracks published releases."
+elif [ -z "$VERSIONS_FILE" ]; then
     echo "  Skipped: no versionTracking.versionsJson configured."
 elif [ "$DRY_RUN" = "1" ]; then
     # Described rather than wrapped in mutate: this branch stashes and checks
@@ -637,7 +708,9 @@ BULLETS_DIR="${BULLETS_DIR:-build}"
 BULLETS_FILE="${BULLETS_DIR}/release-bullets-${VERSION}.txt"
 ARTICLE_CMD=$(read_config "announcement.command")
 
-if [ "$ARS_FAILED" -ne 0 ]; then
+if [ "$TAG_ONLY" = "1" ]; then
+    echo "  Skipped (--tag-only): nothing was published to announce."
+elif [ "$ARS_FAILED" -ne 0 ]; then
     echo "  Deferred: the ARS publish failed, so the download this would announce"
     echo "  does not exist yet. Announce after finishing step 7 by hand."
 elif [ -n "$ARTICLE_CMD" ] && [ -f "$BULLETS_FILE" ]; then
@@ -670,7 +743,7 @@ if [ "$ARS_FAILED" -ne 0 ]; then
     : # The stream cannot serve an item that was never published; the debt
       # block below says so once, instead of a verification failing to
       # discover what is already known.
-elif [ "$DRY_RUN" != "1" ] && [ -n "$PKG_MANIFEST" ]; then
+elif [ "$DRY_RUN" != "1" ] && [ "$TAG_ONLY" != "1" ] && [ -n "$PKG_MANIFEST" ]; then
     echo "[post-flight] Verifying the published update stream..."
 
     if php "${TOOLS_DIR}/scripts/verify-update-stream.php" "$VERSION"; then
@@ -707,6 +780,8 @@ elif [ "$ARS_FAILED" -ne 0 ]; then
     echo "  and post the announcement when ready."
 
     exit 1
+elif [ "$TAG_ONLY" = "1" ]; then
+    echo "=== Tag-only release ${VERSION} complete: ${TAG} pushed, nothing published ==="
 else
     echo "=== Release ${VERSION} complete! ==="
     if [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`cwm-release --tag-only` cuts a release that publishes nothing (#176).**
+  It is for a version with no runtime change worth offering on its own, which
+  consumers pick up by pinning the tag. Steps 1-4 run as usual, so
+  `__DEPLOY_VERSION__` is substituted and the artifact must pass the token
+  gate. Step 6 tags the release commit and pushes the tag without `--force`.
+  Nothing is published: no GitHub release, ARS item, versions.json update,
+  announcement or post-flight stream check. Pre-flight refuses, before
+  anything changes, when the changelog has no entry for the version or the tag
+  already exists. Such releases used to be cut by hand, with `cwm-bump`,
+  commits and a tag. That path never substituted placeholders or ran the gate,
+  so lib_cwmscripture v1.1.23 and v1.1.24 were tagged with a literal
+  `@since __DEPLOY_VERSION__`.
+
 ## [1.40.1] - 2026-11-13
 
 ### Fixed
