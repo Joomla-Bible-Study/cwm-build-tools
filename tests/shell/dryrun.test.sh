@@ -99,6 +99,27 @@ assert_equals "1" "$CWM_SKIP_TESTS" "both flags are recognised together..."
 assert_equals "1" "$CWM_DRY_RUN" "...regardless of order..."
 assert_equals "1.2.3" "${CWM_ARGS[*]}" "...leaving only the version behind"
 
+# --- --tag-only, parsed in the same pass (#176) ------------------------------
+# A release that publishes nothing. If the flag were dropped, the run would
+# publish a GitHub release and an ARS item, so it must parse every time.
+cwm_parse_dry_run 1.2.3
+assert_equals "0" "$CWM_TAG_ONLY" "no flag means a full release"
+
+cwm_parse_dry_run 1.2.3 --tag-only
+assert_equals "1" "$CWM_TAG_ONLY" "--tag-only after the version is found"
+assert_equals "1.2.3" "${CWM_ARGS[*]}" "and is removed from the arguments"
+
+cwm_parse_dry_run --tag-only --dry-run --skip-tests 1.2.3
+assert_equals "1" "$CWM_TAG_ONLY" "--tag-only combines with the other flags..."
+assert_equals "1" "$CWM_DRY_RUN" "...--dry-run still applies..."
+assert_equals "1.2.3" "${CWM_ARGS[*]}" "...and only the version is left"
+
+if cwm_parse_dry_run 1.2.3 --tag-onyl; then
+    assert_equals "non-zero" "0" "a mistyped --tag-only must not be accepted"
+else
+    assert_equals "--tag-onyl" "$CWM_BAD_FLAG" "a mistyped --tag-only is rejected, not ignored"
+fi
+
 # --- The wrapper actually withholds the command ------------------------------
 CWM_DRY_RUN=1
 rm -f "${WORK}/evidence"

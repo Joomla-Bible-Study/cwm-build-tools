@@ -14,9 +14,9 @@
 
 # Split release.sh's top-level flags out of the argument list.
 #
-# Both flags are stripped in the same pass so a caller can put either one
+# Every flag is stripped in the same pass, so a caller can put any of them
 # anywhere relative to the version: `release.sh --dry-run 1.2.3`,
-# `release.sh 1.2.3 --skip-tests`, and combinations of both all work.
+# `release.sh 1.2.3 --skip-tests --tag-only`, and other combinations all work.
 #
 # Arguments:
 #   The caller's "$@".
@@ -34,6 +34,7 @@
 # Sets:
 #   CWM_DRY_RUN    1 when --dry-run/-n was present, else 0.
 #   CWM_SKIP_TESTS 1 when --skip-tests was present, else 0.
+#   CWM_TAG_ONLY   1 when --tag-only was present, else 0.
 #   CWM_HELP       1 when --help/-h was present, else 0.
 #   CWM_ARGS       Array of the non-flag arguments (may be empty).
 #   CWM_BAD_FLAG   The offending option when the return status is non-zero.
@@ -43,16 +44,18 @@
 cwm_parse_dry_run() {
     CWM_DRY_RUN=0
     CWM_SKIP_TESTS=0
+    CWM_TAG_ONLY=0
     CWM_HELP=0
     CWM_ARGS=()
     CWM_BAD_FLAG=''
 
     local arg
     for arg in "$@"; do
-        # shellcheck disable=SC2034  # CWM_SKIP_TESTS/CWM_HELP are read by release.sh, not this file
+        # shellcheck disable=SC2034  # CWM_SKIP_TESTS/CWM_TAG_ONLY/CWM_HELP are read by release.sh, not this file
         case "$arg" in
             --dry-run|-n)  CWM_DRY_RUN=1 ;;
             --skip-tests)  CWM_SKIP_TESTS=1 ;;
+            --tag-only)    CWM_TAG_ONLY=1 ;;
             --help|-h)     CWM_HELP=1 ;;
             --)            ;;
             -*)            CWM_BAD_FLAG="$arg"; return 1 ;;

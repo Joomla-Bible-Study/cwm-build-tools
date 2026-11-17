@@ -195,6 +195,38 @@ stay in the project. `UpdateStreamVerifier::entriesFor()` returns the parsed
 entries in document order with their positions, so a project asserts on top
 rather than forking the fetcher.
 
+## Tag-only releases
+
+Some versions carry nothing worth offering on their own: dependency bumps,
+CI changes, rewritten changelog entries. A consumer still needs a tag to pin,
+because pins land on tags. For those:
+
+```bash
+composer cwm-release -- X.Y.Z --tag-only --dry-run   # read the plan first
+composer cwm-release -- X.Y.Z --tag-only
+```
+
+- **What still runs:** the pre-flight and the release gate, then steps 1-4:
+  bump, `__DEPLOY_VERSION__` substitution, the build and its
+  [token gate](#the-token-gate), and the release commit.
+- **Step 6 tags the release commit** with an annotated tag and pushes it, never
+  with `--force`. The tag is signed when git has `tag.gpgSign` set.
+- **Nothing is published:** no GitHub release, no ARS item, no
+  `versions.json` update (`current` tracks published releases), no
+  announcement, and no post-flight stream check.
+- **Pre-flight refuses** before anything changes when:
+    - the changelog has no entry for the version. There is no GitHub release
+      to generate one from, so write it by hand and commit it first;
+    - the tag already exists, locally or on origin.
+- **Commit everything first.** The clean-tree check also covers a submodule
+  pin that should move with the release, such as a package's bundled library.
+
+!!! warning "Don't cut these by hand"
+    Bumping with `cwm-bump`, committing and tagging skips step 2 and the token
+    gate. `cwm-bump` deliberately leaves placeholders alone, because it also
+    opens release cycles. lib_cwmscripture v1.1.23 and v1.1.24 shipped tags
+    with a literal `@since __DEPLOY_VERSION__` that way.
+
 ## Step-by-step (when you don't want the full pipeline)
 
 | Step | Command |
