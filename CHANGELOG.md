@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.41.0] - 2026-11-17
+
 ### Added
 
 - **`cwm-release --tag-only` cuts a release that publishes nothing (#176).**
