@@ -72,10 +72,13 @@ const sourceRoot = process.env.SOURCE_ROOT || '../../build/media_source/css/';
  * The Sass compiler: sass-embedded when the project installs it, else sass.
  *
  * Both expose the same compile() and produce the same CSS. sass-embedded runs
- * the native Dart Sass. Unlike sass, it does not depend on @parcel/watcher,
- * which exists for `sass --watch`, a mode this build never uses, and which
- * brings in picomatch (GHSA-fc5q-39xc-vjpf, no fixed release). A package that is
- * installed but broken still throws, rather than being skipped for the other.
+ * the native Dart Sass, and on a platform it has a native build for it never
+ * installs @parcel/watcher. That package exists for `sass --watch`, a mode this
+ * build never uses, and brings in picomatch (GHSA-fc5q-39xc-vjpf, no fixed
+ * release). Its fallback for other platforms still lists sass, and so picomatch,
+ * in package-lock.json, so npm audit and Dependabot report picomatch either way.
+ * A package that is installed but broken still throws, rather than being skipped
+ * for the other.
  */
 function loadSass() {
     for (const name of ['sass-embedded', 'sass']) {
