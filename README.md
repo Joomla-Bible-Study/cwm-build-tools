@@ -81,7 +81,7 @@ jobs:
   ci:
     uses: Joomla-Bible-Study/cwm-build-tools/.github/workflows/joomla-package-ci.yml@v1
     with:
-      php-version: '8.3'
+      php-version: '8.5'
       node-version: '24'
 ```
 

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Requires PHP 8.4** (was 8.3). Every consumer's `config.platform.php` is
+  8.4 or later now that the CWM extensions moved their floor to 8.4.
+  Composer won't select a release the platform can't run, so a project still
+  pinned to 8.3 keeps resolving 1.41.x until its pin moves. That includes
+  Proclaim's `11.0.0-dev` until it next merges `development`.
+- **The shared CI workflows default to PHP 8.4** (was 8.3), in
+  `joomla-package-ci.yml` and `joomla-library-ci.yml`. cwm-build-tools no
+  longer installs on 8.3. A consumer that passes `php-version` is unaffected.
+  The CWM consumers pass `'8.5'`, and the examples now show that.
+- **`cwm-site-create` defaults to PHP 8.4** (was 8.3). Every CWM extension's
+  installer now refuses 8.3, so a default site could not install the extension
+  it was created for. `--php` still overrides.
+
 ### Fixed
 
 - **`build-scss.js` writes source maps without absolute paths (#179).** It kept
