@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.43.1] - 2026-11-18
+
 ### Fixed
 
 - **`cwm-link` now creates a component's `admin/<manifest>` and
