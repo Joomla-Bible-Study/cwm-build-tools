@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`build-scss.js` compiles with `sass-embedded` when it is installed**, and
+  falls back to `sass`. The two have the same API and produce the same output.
+  sass-embedded runs the native Dart Sass and, unlike sass, does not depend on
+  `@parcel/watcher`. That package is only used by `sass --watch` and brings in
+  `picomatch` (GHSA-fc5q-39xc-vjpf), which has no fixed release.
+
+### Changed
+
+- **The Rollup template no longer requires `@rollup/plugin-node-resolve`
+  (#178).** The plugin bundles npm packages that a source imports, and no CWM
+  consumer's sources import one. If it is installed, it is used as before. If
+  not, builds run without it, and a source that does import a package fails
+  the build with the command to install the plugin. Rollup on its own would
+  only warn, and leave a global the browser does not have. Uninstalling the
+  plugin removes `@rollup/pluginutils` and `picomatch` from a consumer's tree.
+  LivingWord, lib_cwmscripture, License Portal, cwmconnect and Proclaim build
+  byte-identical output with and without it.
+
 ## [1.42.0] - 2026-11-17
 
 ### Changed

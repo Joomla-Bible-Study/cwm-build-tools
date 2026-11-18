@@ -50,6 +50,8 @@
  * absolute file: URLs Dart Sass reports, so a map does not carry the path of
  * the checkout it was built in (#179).
  *
+ * The compiler is sass-embedded when installed, else sass (see loadSass()).
+ *
  * Usage from a consuming project's package.json:
  *   "build:scss": "SOURCE_DIR=build/media_source/css OUTPUT_DIR=media/myext/css node vendor/cwm/build-tools/templates/build-scss.js"
  *
@@ -60,11 +62,35 @@
 const fs                = require('fs');
 const path              = require('path');
 const { fileURLToPath } = require('url');
-const sass              = require('sass');
+const sass              = loadSass();
 
 const sourceDir  = path.resolve(process.cwd(), required('SOURCE_DIR'));
 const outputDir  = path.resolve(process.cwd(), required('OUTPUT_DIR'));
 const sourceRoot = process.env.SOURCE_ROOT || '../../build/media_source/css/';
+
+/**
+ * The Sass compiler: sass-embedded when the project installs it, else sass.
+ *
+ * Both expose the same compile() and produce the same CSS. sass-embedded runs
+ * the native Dart Sass. Unlike sass, it does not depend on @parcel/watcher,
+ * which exists for `sass --watch`, a mode this build never uses, and which
+ * brings in picomatch (GHSA-fc5q-39xc-vjpf, no fixed release). A package that is
+ * installed but broken still throws, rather than being skipped for the other.
+ */
+function loadSass() {
+    for (const name of ['sass-embedded', 'sass']) {
+        try {
+            return require(name);
+        } catch (error) {
+            if (error.code !== 'MODULE_NOT_FOUND' || !String(error.message).includes(`'${name}'`)) {
+                throw error;
+            }
+        }
+    }
+
+    console.error('Error: build-scss.js needs a Sass compiler: npm install --save-dev sass-embedded');
+    process.exit(1);
+}
 
 function required(name) {
     const value = process.env[name];

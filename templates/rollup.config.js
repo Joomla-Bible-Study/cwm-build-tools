@@ -11,9 +11,9 @@
  * drops the .es6.js / .es6.mjs suffix (both land on a plain .js).
  *
  * Output format is chosen by source suffix:
- *   *.es6.js   -> IIFE (the historical default). Every import is bundled in
- *                via @rollup/plugin-node-resolve. Register as a normal
- *                <script> asset. Unchanged from earlier versions.
+ *   *.es6.js   -> IIFE (the historical default). Every import is bundled in;
+ *                an npm package needs @rollup/plugin-node-resolve (below).
+ *                Register as a normal <script> asset.
  *   *.es6.mjs  -> ES module (`format: 'es'`). Bare `joomla.*` specifiers
  *                (e.g. `import JoomlaDialog from 'joomla.dialog'`) are marked
  *                EXTERNAL so the import survives to the browser and Joomla's
@@ -34,15 +34,25 @@
  *                     as external in *.es6.mjs builds, on top of the built-in
  *                     `joomla.` prefix (e.g. "vue,@vue/"). Ignored for IIFE.
  *
+ * @rollup/plugin-node-resolve is optional (#178). It is what bundles an npm
+ * package a source imports (`import x from 'some-package'`), and only a
+ * project whose sources do that needs to install it. Installed, it is used as
+ * before. Not installed, a source that imports a package fails the build with
+ * the command to install it; without that check rollup would only warn and
+ * leave the import as a global the browser does not have. Projects that import
+ * no package can drop the plugin, and with it @rollup/pluginutils and
+ * picomatch (GHSA-fc5q-39xc-vjpf, which has no fixed release).
+ *
  * Usage from a consuming project's package.json:
  *   "build:js": "SOURCE_DIR=build/media_source/js OUTPUT_DIR=media/myext/js rollup -c vendor/cwm/build-tools/templates/rollup.config.js"
  */
 
-const resolve    = require('@rollup/plugin-node-resolve');
 const terser     = require('@rollup/plugin-terser');
 const gzipPlugin = require('rollup-plugin-gzip').default;
 const fs         = require('fs');
 const path       = require('path');
+
+const nodeResolve = optional('@rollup/plugin-node-resolve');
 
 const sourceDir = path.resolve(process.cwd(), required('SOURCE_DIR'));
 const outputDir = path.resolve(process.cwd(), required('OUTPUT_DIR'));
@@ -56,6 +66,49 @@ function required(name) {
     }
 
     return value;
+}
+
+/**
+ * Require a package the project may not have installed.
+ *
+ * Returns null only when the package itself is missing. A package that is
+ * present but broken still throws, rather than quietly building without it.
+ */
+function optional(name) {
+    try {
+        return require(name);
+    } catch (error) {
+        if (error.code === 'MODULE_NOT_FOUND' && String(error.message).includes(`'${name}'`)) {
+            return null;
+        }
+
+        throw error;
+    }
+}
+
+/**
+ * Fail the build on an npm package import that cannot be bundled.
+ *
+ * Without @rollup/plugin-node-resolve, rollup cannot resolve a bare specifier.
+ * It warns and treats the import as external, which in an IIFE bundle becomes a
+ * global the browser does not have: a build that passes and a page that breaks.
+ * A relative import rollup cannot find is not this case, and stays the warning
+ * it always was.
+ */
+function onwarn(warning, warn) {
+    const source = String(warning.exporter || '');
+
+    if (warning.code === 'UNRESOLVED_IMPORT' && nodeResolve === null && source !== ''
+        && !source.startsWith('.') && !path.isAbsolute(source)) {
+        const importer = warning.id ? path.relative(process.cwd(), warning.id) : 'a source';
+
+        throw new Error(
+            `${importer} imports "${source}", an npm package. Bundling it needs `
+            + '@rollup/plugin-node-resolve: npm install --save-dev @rollup/plugin-node-resolve'
+        );
+    }
+
+    warn(warning);
 }
 
 if (!fs.existsSync(outputDir)) {
@@ -107,11 +160,13 @@ module.exports = sourceFiles.flatMap(fileObj => {
     // `name` is only meaningful for iife/umd; `external` only for es output.
     const formatOpts   = fileObj.isModule ? {} : { name: variableName };
     const externalOpts = fileObj.isModule ? { external: isExternalModuleId } : {};
+    const resolvers    = nodeResolve ? [nodeResolve()] : [];
 
     return [
         {
             input: fileObj.path,
             ...externalOpts,
+            onwarn,
             output: {
                 file:      path.join(outputDir, `${fileObj.outputName}.js`),
                 format,
@@ -119,12 +174,13 @@ module.exports = sourceFiles.flatMap(fileObj => {
                 sourcemap: false,
             },
             plugins: [
-                resolve(),
+                ...resolvers,
             ],
         },
         {
             input: fileObj.path,
             ...externalOpts,
+            onwarn,
             output: {
                 file:      path.join(outputDir, `${fileObj.outputName}.min.js`),
                 format,
@@ -132,7 +188,7 @@ module.exports = sourceFiles.flatMap(fileObj => {
                 sourcemap: true,
             },
             plugins: [
-                resolve(),
+                ...resolvers,
                 terser({
                     module: fileObj.isModule,
                     format: { comments: false },
