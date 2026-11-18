@@ -39,9 +39,16 @@
  *               maps to. Conventionally media/<extension>/css.
  *
  * Optional env vars:
- *   SOURCE_ROOT Source-map sourceRoot value. Defaults to
- *               '../../build/media_source/css/' for consistency with
- *               build-css.js. A same-dir project should set this to './'.
+ *   SOURCE_ROOT Source-map sourceRoot: the path from a map in OUTPUT_DIR to
+ *               SOURCE_DIR. Defaults to '../../build/media_source/css/' for
+ *               consistency with build-css.js. A same-dir project should set
+ *               this to './'. A map for an entry point in a subdirectory
+ *               sits deeper, so a relative SOURCE_ROOT gets one '../' per
+ *               level there.
+ *
+ * Each map's `sources` are written relative to SOURCE_DIR, never as the
+ * absolute file: URLs Dart Sass reports, so a map does not carry the path of
+ * the checkout it was built in (#179).
  *
  * Usage from a consuming project's package.json:
  *   "build:scss": "SOURCE_DIR=build/media_source/css OUTPUT_DIR=media/myext/css node vendor/cwm/build-tools/templates/build-scss.js"
@@ -50,9 +57,10 @@
  *   "build:scss": "SOURCE_DIR=component/media/css OUTPUT_DIR=component/media/css SOURCE_ROOT=./ node vendor/cwm/build-tools/templates/build-scss.js"
  */
 
-const fs   = require('fs');
-const path = require('path');
-const sass = require('sass');
+const fs                = require('fs');
+const path              = require('path');
+const { fileURLToPath } = require('url');
+const sass              = require('sass');
 
 const sourceDir  = path.resolve(process.cwd(), required('SOURCE_DIR'));
 const outputDir  = path.resolve(process.cwd(), required('OUTPUT_DIR'));
@@ -77,6 +85,49 @@ function ensureDir(dir) {
 
 function isPartial(filename) {
     return filename.startsWith('_');
+}
+
+/**
+ * Rewrite a map's sources relative to SOURCE_DIR.
+ *
+ * Dart Sass reports every file it loaded as an absolute file: URL. Written out
+ * as-is, that put the developer's checkout path into each map, committed to
+ * the repository and shipped in the package (#179), and the same sources built
+ * to different maps in different checkouts. sourceRoot already leads from the
+ * map to SOURCE_DIR, so each source only needs its path below that. Anything
+ * that is not a file: URL is left as it is.
+ *
+ * @param {string[]} sources The map's sources, as Dart Sass returned them.
+ * @return {string[]}
+ */
+function relativeSources(sources) {
+    return sources.map(source => {
+        if (!source.startsWith('file:')) {
+            return source;
+        }
+
+        return path.relative(sourceDir, fileURLToPath(source)).split(path.sep).join('/');
+    });
+}
+
+/**
+ * The sourceRoot for a map written to outDir.
+ *
+ * SOURCE_ROOT leads from OUTPUT_DIR to SOURCE_DIR. The map for an entry point
+ * in a subdirectory sits that many levels deeper, so a relative SOURCE_ROOT
+ * gets one ../ per level. An absolute path or a URL is used as it is.
+ *
+ * @param {string} outDir The directory the map is written to.
+ * @return {string}
+ */
+function sourceRootFor(outDir) {
+    if (sourceRoot.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(sourceRoot)) {
+        return sourceRoot;
+    }
+
+    const depth = path.relative(outputDir, outDir).split(path.sep).filter(Boolean).length;
+
+    return depth === 0 ? sourceRoot : path.posix.normalize('../'.repeat(depth) + sourceRoot);
 }
 
 function compileDir(srcDir, outDir) {
@@ -112,7 +163,8 @@ function compileDir(srcDir, outDir) {
         });
 
         const sourceMap      = result.sourceMap;
-        sourceMap.sourceRoot = sourceRoot;
+        sourceMap.sourceRoot = sourceRootFor(outDir);
+        sourceMap.sources    = relativeSources(sourceMap.sources);
 
         const cssWithMapRef = `${result.css}\n/*# sourceMappingURL=${mapName} */`;
 
