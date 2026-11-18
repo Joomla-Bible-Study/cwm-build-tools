@@ -39,6 +39,19 @@ final class LinkResolver
     /**
      * Internal symlinks (within the project repo).
      *
+     * Explicit `dev.internalLinks[]` entries come first. Then, unless
+     * `dev.deriveLinks` is false, each component manifest that sits outside
+     * its admin folder gets two derived links: `admin/<manifest>` to the
+     * manifest, and `admin/<scriptfile>` to the install script it declares.
+     *
+     * Joomla's installer copies both files into
+     * `administrator/components/<name>/`. On a dev site that folder is a
+     * symlink to the repo's admin folder, so without these links the site has
+     * no manifest there. The dashboard then has no version to show, and the
+     * site has no install script to uninstall with.
+     *
+     * An explicit entry wins over a derived one with the same target.
+     *
      * @return list<LinkPair>
      */
     public function internalLinks(): array
@@ -56,7 +69,111 @@ final class LinkResolver
             $out[] = ['source' => $source, 'target' => $link];
         }
 
+        if (($this->config['dev']['deriveLinks'] ?? true) === false) {
+            return $out;
+        }
+
+        $taken = array_column($out, 'target');
+
+        foreach ($this->deriveInternalLinks() as $pair) {
+            if (!\in_array($pair['target'], $taken, true)) {
+                $out[]   = $pair;
+                $taken[] = $pair['target'];
+            }
+        }
+
         return $out;
+    }
+
+    /**
+     * Derived internal links: admin/<manifest> and admin/<scriptfile> for every
+     * component manifest the config names.
+     *
+     * The candidates are `manifests.extensions[]` (packages such as Proclaim
+     * list their component there) and, for a top-level component, its
+     * `build.manifest`. The manifest's own `type` decides, so a library or
+     * plugin manifest derives nothing.
+     *
+     * @return iterable<LinkPair>
+     */
+    private function deriveInternalLinks(): iterable
+    {
+        $paths = [];
+
+        foreach ($this->config['manifests']['extensions'] ?? [] as $entry) {
+            $paths[] = $this->resolveProject((string) ($entry['path'] ?? ''));
+        }
+
+        if (($this->config['extension']['type'] ?? null) === 'component') {
+            $paths[] = $this->resolveProject((string) ($this->config['build']['manifest'] ?? ''));
+        }
+
+        foreach (array_unique(array_filter($paths)) as $manifestPath) {
+            if (!is_file($manifestPath)) {
+                continue;
+            }
+
+            $xml = $this->loadManifest($manifestPath);
+
+            if ($xml === null || strtolower((string) $xml['type']) !== 'component') {
+                continue;
+            }
+
+            yield from $this->componentManifestLinks($manifestPath, $xml);
+        }
+    }
+
+    /**
+     * The admin/<manifest> and admin/<scriptfile> links for one component manifest.
+     *
+     * The admin folder is the one the manifest declares
+     * (`<administration><files folder="…">`), `admin` by default. Nothing is
+     * derived when the manifest or the script already sits in that folder.
+     *
+     * A target that exists as a real file or directory is skipped.
+     * `Linker::link()` replaces whatever sits at a target, and a derived link
+     * must never delete work. Only explicit entries can do that.
+     *
+     * @return iterable<LinkPair>
+     */
+    private function componentManifestLinks(string $manifestPath, \SimpleXMLElement $xml): iterable
+    {
+        $base   = \dirname($manifestPath);
+        $folder = trim((string) ($xml->administration->files['folder'] ?? ''), '/');
+        $admin  = $base . '/' . ($folder !== '' ? $folder : 'admin');
+
+        if (!is_dir($admin)) {
+            return;
+        }
+
+        $sources = [$manifestPath];
+        $script  = trim((string) $xml->scriptfile);
+
+        if ($script !== '' && is_file($base . '/' . $script)) {
+            $sources[] = $base . '/' . $script;
+        }
+
+        foreach ($sources as $source) {
+            if ($this->samePath(\dirname($source), $admin)) {
+                continue;
+            }
+
+            $target = $admin . '/' . basename($source);
+
+            if (file_exists($target) && !is_link($target)) {
+                continue;
+            }
+
+            yield ['source' => $source, 'target' => $target];
+        }
+    }
+
+    /**
+     * Whether two paths name the same directory, after resolving symlinks.
+     */
+    private function samePath(string $a, string $b): bool
+    {
+        return (realpath($a) ?: $a) === (realpath($b) ?: $b);
     }
 
     /**

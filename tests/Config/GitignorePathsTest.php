@@ -148,4 +148,24 @@ class GitignorePathsTest extends TestCase
 
         self::assertSame(['/one/', '/two/'], GitignorePaths::outputPaths($config));
     }
+
+    #[Test]
+    public function internal_link_paths_are_the_dev_links_cwm_link_creates_relative_to_the_project(): void
+    {
+        // A component manifest at the repo root derives admin/<manifest> and
+        // admin/<scriptfile>; cwm-sync-configs ignores them so a fresh
+        // cwm-link leaves nothing untracked.
+        $root = realpath(__DIR__ . '/../fixtures/project-component-rootmanifest');
+        self::assertNotFalse($root);
+
+        $config = [
+            'extension' => ['type' => 'package', 'name' => 'pkg_example'],
+            'manifests' => ['extensions' => [['type' => 'component', 'path' => 'example.xml']]],
+        ];
+
+        self::assertSame(
+            ['/admin/example.xml', '/admin/example.script.php'],
+            GitignorePaths::internalLinkPaths($root, $config)
+        );
+    }
 }

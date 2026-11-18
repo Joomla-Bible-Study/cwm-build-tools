@@ -395,4 +395,132 @@ final class LinkResolverTest extends TestCase
 
         self::assertSame(self::FIXTURES . '/component-unsafe-media/media', $source);
     }
+
+    /**
+     * A project whose component manifest sits at the repo root, beside admin/.
+     * That's how Proclaim, Living Word, CWM Connect and License Portal lay out.
+     */
+    private const ROOT_MANIFEST = __DIR__ . '/../fixtures/project-component-rootmanifest';
+
+    /**
+     * @param  list<array<string, string>>  $extensions
+     * @param  array<string, mixed>         $dev
+     * @return list<array{source: string, target: string}>
+     */
+    private static function internalFor(array $extensions, array $dev = [], array $extra = []): array
+    {
+        $root = realpath(self::ROOT_MANIFEST);
+        self::assertNotFalse($root);
+
+        $config = array_merge([
+            'extension' => ['type' => 'package', 'name' => 'pkg_example'],
+            'manifests' => ['extensions' => $extensions],
+            'dev'       => $dev,
+        ], $extra);
+
+        return array_map(
+            static fn (array $p): array => [
+                'source' => substr($p['source'], \strlen($root) + 1),
+                'target' => substr($p['target'], \strlen($root) + 1),
+            ],
+            (new LinkResolver($root, $config))->internalLinks()
+        );
+    }
+
+    #[Test]
+    public function derives_admin_manifest_and_script_links_for_a_component_manifest_outside_admin(): void
+    {
+        // Joomla's installer copies the manifest and the <scriptfile> into
+        // administrator/components/<name>/, which on a dev site is admin/.
+        self::assertSame(
+            [
+                ['source' => 'example.xml', 'target' => 'admin/example.xml'],
+                ['source' => 'example.script.php', 'target' => 'admin/example.script.php'],
+            ],
+            self::internalFor([['type' => 'component', 'path' => 'example.xml']])
+        );
+    }
+
+    #[Test]
+    public function derives_only_the_manifest_link_when_no_script_is_declared(): void
+    {
+        self::assertSame(
+            [['source' => 'noscript.xml', 'target' => 'admin/noscript.xml']],
+            self::internalFor([['type' => 'component', 'path' => 'noscript.xml']])
+        );
+    }
+
+    #[Test]
+    public function skips_a_declared_script_that_is_not_on_disk(): void
+    {
+        self::assertSame(
+            [['source' => 'missingscript.xml', 'target' => 'admin/missingscript.xml']],
+            self::internalFor([['type' => 'component', 'path' => 'missingscript.xml']])
+        );
+    }
+
+    #[Test]
+    public function skips_a_script_that_already_sits_in_the_admin_folder(): void
+    {
+        self::assertSame(
+            [['source' => 'scriptinadmin.xml', 'target' => 'admin/scriptinadmin.xml']],
+            self::internalFor([['type' => 'component', 'path' => 'scriptinadmin.xml']])
+        );
+    }
+
+    #[Test]
+    public function never_derives_a_link_over_a_real_file(): void
+    {
+        // Linker::link() replaces whatever sits at the target; admin/real.xml is
+        // a real file, so deriving a link there would delete it.
+        self::assertSame([], self::internalFor([['type' => 'component', 'path' => 'real.xml']]));
+    }
+
+    #[Test]
+    public function derives_nothing_for_a_manifest_that_is_not_a_component(): void
+    {
+        self::assertSame([], self::internalFor([['type' => 'library', 'path' => 'library.xml']]));
+    }
+
+    #[Test]
+    public function an_explicit_internal_link_wins_over_a_derived_one_with_the_same_target(): void
+    {
+        self::assertSame(
+            [
+                ['source' => 'noscript.xml', 'target' => 'admin/example.xml'],
+                ['source' => 'example.script.php', 'target' => 'admin/example.script.php'],
+            ],
+            self::internalFor(
+                [['type' => 'component', 'path' => 'example.xml']],
+                ['internalLinks' => [['source' => 'noscript.xml', 'link' => 'admin/example.xml']]]
+            )
+        );
+    }
+
+    #[Test]
+    public function derive_links_false_keeps_only_the_explicit_internal_links(): void
+    {
+        self::assertSame(
+            [['source' => 'noscript.xml', 'target' => 'admin/noscript.xml']],
+            self::internalFor(
+                [['type' => 'component', 'path' => 'example.xml']],
+                ['deriveLinks' => false, 'internalLinks' => [['source' => 'noscript.xml', 'link' => 'admin/noscript.xml']]]
+            )
+        );
+    }
+
+    #[Test]
+    public function a_top_level_component_derives_from_its_build_manifest(): void
+    {
+        self::assertSame(
+            [
+                ['source' => 'example.xml', 'target' => 'admin/example.xml'],
+                ['source' => 'example.script.php', 'target' => 'admin/example.script.php'],
+            ],
+            self::internalFor([], [], [
+                'extension' => ['type' => 'component', 'name' => 'com_example'],
+                'build'     => ['manifest' => 'example.xml'],
+            ])
+        );
+    }
 }

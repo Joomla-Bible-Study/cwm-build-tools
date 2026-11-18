@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="component" method="upgrade">
+    <name>com_scriptinadmin</name>
+    <version>1.0.0</version>
+    <scriptfile>admin/install.php</scriptfile>
+    <administration>
+        <files folder="admin">
+            <folder>src</folder>
+        </files>
+    </administration>
+</extension>
