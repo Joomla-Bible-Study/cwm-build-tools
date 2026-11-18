@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="component" method="upgrade">
+    <name>com_noscript</name>
+    <version>1.0.0</version>
+    <administration>
+        <files folder="admin">
+            <folder>src</folder>
+        </files>
+    </administration>
+</extension>

@@ -296,10 +296,21 @@ Symlinks are derived automatically from the project's
 get `admin/` + `site/` + `media/` mirrored, libraries get
 `libraries/<name>` + the manifest stub under
 `administrator/manifests/libraries/`, plugins land at
-`plugins/<group>/<element>`, modules at `modules/[admin]/<name>`. Anything
-that doesn't fit those rules (cross-repo libs, language file overrides,
-submodules) goes in `dev.links[]` explicitly. Fully custom layouts can set
-`dev.deriveLinks: false` and list every link by hand.
+`plugins/<group>/<element>`, modules at `modules/[admin]/<name>`.
+
+A component whose manifest sits outside `admin/` also gets two links inside
+the repo: `admin/<manifest>` and `admin/<scriptfile>`, the install script the
+manifest declares. Joomla's installer copies both into
+`administrator/components/<name>/`, which on a dev site is `admin/`.
+Without them, the site has no manifest there and the dashboard shows no
+version. `cwm-sync-configs` adds both to the managed `.gitignore` block, so
+they never show up untracked. A real file at either path is never replaced.
+
+Anything that doesn't fit those rules (cross-repo libs, language file
+overrides, submodules) goes in `dev.links[]`, or in `dev.internalLinks[]` for
+links inside the repo. An explicit entry wins over a derived one with the
+same target. Fully custom layouts can set `dev.deriveLinks: false` and list
+every link by hand.
 
 **All symlinks are created with relative paths** so the dev tree remains
 portable across machines and CI. (Earlier toolchains baked absolute paths
@@ -336,10 +347,6 @@ created on.)
   },
   "dev": {
     "deriveLinks": true,
-    "internalLinks": [
-      { "source": "yourextension.xml",        "link": "admin/yourextension.xml" },
-      { "source": "yourextension.script.php", "link": "admin/yourextension.script.php" }
-    ],
     "links": [
       {
         "source": "language/admin/en-GB/en-GB.com_yourextension.ini",

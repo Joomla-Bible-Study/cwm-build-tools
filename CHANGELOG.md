@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`cwm-link` now creates a component's `admin/<manifest>` and
+  `admin/<scriptfile>` links.** Joomla's installer copies the manifest and
+  the install script it declares into `administrator/components/<name>/`.
+  On a dev site that folder is the repo's `admin/`. So for a component
+  whose manifest sits at the repo root, as in Proclaim, Living Word, CWM
+  Connect and License Portal, the site had no manifest there: the
+  dashboard's version read `null`, and PHP printed a warning into the page.
+  Only projects that listed the two links under `dev.internalLinks[]` had
+  them, and cwmconnect was the only one that did.
+  - They are derived from each component manifest in
+    `manifests.extensions[]` (or a top-level component's `build.manifest`),
+    into the admin folder the manifest declares.
+  - An explicit `internalLinks[]` entry with the same target wins, and
+    `dev.deriveLinks: false` turns derivation off.
+  - A real file at either path is never replaced, because `Linker::link()`
+    would delete it.
+  - `cwm-sync-configs` adds the links to the managed `.gitignore` block,
+    so a fresh `cwm-link` leaves nothing untracked.
+
 - **What 1.43.0 said `sass-embedded` drops.** It never installs
   `@parcel/watcher` or `picomatch` on a platform it has a native build for.
   But its fallback for other platforms still lists `sass`, and with it

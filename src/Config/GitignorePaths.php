@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CWM\BuildTools\Config;
 
+use CWM\BuildTools\Dev\LinkResolver;
+
 /**
  * Derives the generated-file paths `cwm-sync-configs` writes into a consumer's
  * .gitignore.
@@ -88,5 +90,33 @@ final class GitignorePaths
             "/media/{$stripped}/css/*.min.css",
             "/media/{$stripped}/css/*.min.css.map",
         ];
+    }
+
+    /**
+     * Repo-relative paths of the dev links `cwm-link` creates inside the project.
+     *
+     * These are the explicit `dev.internalLinks[]` entries plus the derived
+     * component manifest and install-script links; see
+     * LinkResolver::internalLinks(). They are symlinks into the developer's own
+     * checkout, so they never belong in a commit.
+     *
+     * Ignoring a path that is already tracked changes nothing for it, so a
+     * project that commits one of these links is unaffected.
+     *
+     * @param  array<string, mixed>  $config
+     * @return list<string>
+     */
+    public static function internalLinkPaths(string $projectRoot, array $config): array
+    {
+        $root  = rtrim($projectRoot, '/') . '/';
+        $paths = [];
+
+        foreach ((new LinkResolver($projectRoot, $config))->internalLinks() as $pair) {
+            if (str_starts_with($pair['target'], $root)) {
+                $paths[] = '/' . substr($pair['target'], \strlen($root));
+            }
+        }
+
+        return array_values(array_unique($paths));
     }
 }

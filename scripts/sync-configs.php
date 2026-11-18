@@ -41,6 +41,8 @@ require_once __DIR__ . '/../src/Config/GitignorePaths.php';
 require_once __DIR__ . '/../src/Config/ManagedBlock.php';
 require_once __DIR__ . '/../src/Config/ManagedFile.php';
 require_once __DIR__ . '/../src/Config/PhpCsFixerWrapper.php';
+// GitignorePaths::internalLinkPaths() asks LinkResolver for the dev links to ignore.
+require_once __DIR__ . '/../src/Dev/LinkResolver.php';
 
 $projectRoot = getcwd();
 $toolsRoot   = realpath(__DIR__ . '/..');
@@ -193,7 +195,7 @@ function syncGitignore(string $projectRoot, string $templates, array $config, bo
     $existing = is_file($target) ? file_get_contents($target) : '';
 
     $managedBlock   = file_get_contents($templates . '/gitignore-managed.txt') ?: '';
-    $extensionBlock = renderExtensionPathsBlock($config);
+    $extensionBlock = renderExtensionPathsBlock($config, $projectRoot);
 
     $newContent = \CWM\BuildTools\Config\ManagedBlock::upsert($existing, 'managed', $managedBlock);
     $newContent = \CWM\BuildTools\Config\ManagedBlock::upsert($newContent, 'extension paths', $extensionBlock);
@@ -232,8 +234,16 @@ function syncGitignore(string $projectRoot, string $templates, array $config, bo
  *      `build/artifacts/` don't get a stale `/build/dist/` ignore. Media
  *      patterns are emitted ONLY for libraries and components (`pkg_X` is
  *      a wrapper that doesn't own a media dir of its own — issue #4.2).
+ *
+ *   3. The dev links cwm-link creates inside the project: a component's
+ *      admin/<manifest> and admin/<scriptfile>, plus `dev.internalLinks[]`.
+ *      They come from LinkResolver, so the ignore list and the links cannot
+ *      drift apart. This layer needs the project root.
+ *
+ * @param  array<string, mixed>  $config
+ * @param  string                $projectRoot  Empty skips layer 3.
  */
-function renderExtensionPathsBlock(array $config): string
+function renderExtensionPathsBlock(array $config, string $projectRoot = ''): string
 {
     $name = $config['extension']['name'] ?? null;
     $type = $config['extension']['type'] ?? null;
@@ -250,6 +260,13 @@ function renderExtensionPathsBlock(array $config): string
 
     foreach (\CWM\BuildTools\Config\GitignorePaths::mediaPaths($config, (string) $name, (string) $type) as $path) {
         $lines[] = $path;
+    }
+    // The dev links cwm-link creates inside the project: the component's
+    // admin/<manifest> and admin/<scriptfile>, and any dev.internalLinks[].
+    if ($projectRoot !== '') {
+        foreach (\CWM\BuildTools\Config\GitignorePaths::internalLinkPaths($projectRoot, $config) as $path) {
+            $lines[] = $path;
+        }
     }
 
     if ($lines === []) {
