@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`build-scss.js` writes source maps without absolute paths (#179).** It kept
+  `sources` exactly as Dart Sass returns them: absolute `file:` URLs. So every
+  map carried the path of the checkout it was built in. release-system committed
+  and shipped maps reading `file:///Volumes/.../component/media/css/j5.scss`,
+  and the same sources built to different maps in every checkout. Sources are
+  now relative to `SOURCE_DIR`, where `sourceRoot` leads. A map for an entry
+  point in a subdirectory gets one more `../` on a relative `SOURCE_ROOT` per
+  level of nesting. The compiled CSS does not change.
+
 ## [1.41.0] - 2026-11-17
 
 ### Added
