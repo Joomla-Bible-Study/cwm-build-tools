@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.43.0] - 2026-11-17
+
 ### Added
 
 - **`build-scss.js` compiles with `sass-embedded` when it is installed**, and
