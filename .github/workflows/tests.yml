@@ -52,8 +52,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 8.3 is the composer.json floor; 8.4 and 8.5 are what the maintainers
-        # actually run, and a release that only works on one of them should
+        # 8.4 is the composer.json floor and 8.5 is what the maintainers
+        # actually run, so a release that only works on one of them should
         # fail here rather than at a consumer.
         #
         # 8.5 is in the matrix because leaving it out made CI greener than
@@ -65,7 +65,7 @@ jobs:
         # ArsPublisher is tested through FakeTransport so publishing decisions
         # can be checked without the network. Catching #80 needs coverage of
         # StreamTransport as well as this matrix entry.
-        php: ['8.3', '8.4', '8.5']
+        php: ['8.4', '8.5']
 
     steps:
       - uses: actions/checkout@v7
@@ -174,7 +174,7 @@ jobs:
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.4'
           extensions: json, simplexml, zip
           coverage: none
           tools: composer:v2
@@ -184,13 +184,13 @@ jobs:
       # job that could not survive GitHub rate-limiting them: during the
       # 2026-08-17 incident the three PHP jobs restored from cache and passed
       # while this one failed four times on HTTP 429, before running a single
-      # check. The key matches the test job's 8.3 entry so either can warm it.
+      # check. The key matches the test job's 8.4 entry so either can warm it.
       - name: Cache Composer packages
         uses: actions/cache@v6
         with:
           path: ~/.cache/composer
-          key: composer-8.3-${{ hashFiles('composer.lock') }}
-          restore-keys: composer-8.3-
+          key: composer-8.4-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-8.4-
 
       - name: Install dependencies
         run: composer install --no-interaction --no-progress --prefer-dist

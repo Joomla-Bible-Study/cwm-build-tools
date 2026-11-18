@@ -94,7 +94,7 @@ USAGE
 OPTIONS
       --path <dir>      Where the site lives. Default: a folder named <id> beside
                         the project.
-      --php <x.y>       PHP version. Default 8.3.
+      --php <x.y>       PHP version. Default 8.4.
       --db-port <n>     Host port for the database. Default: first free port from
                         33061, so several sites can run together.
       --source <dir>    Source tree to mount. Default: the current project.
@@ -161,7 +161,7 @@ try {
     $spec = new SiteSpec(
         $id,
         $path,
-        Flags::value($argv, '--php') ?? '8.3',
+        Flags::value($argv, '--php') ?? '8.4',
         $port !== null ? (int) $port : (new PortFinder())->firstFree(33061),
         [$source],
         Flags::has($argv, ['--force']),

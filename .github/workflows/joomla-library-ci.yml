@@ -25,7 +25,7 @@ name: Joomla Library CI (reusable)
 #     ci:
 #       uses: Joomla-Bible-Study/cwm-build-tools/.github/workflows/joomla-library-ci.yml@v1
 #       with:
-#         php-version: '8.3'
+#         php-version: '8.5'
 #         node-version: '24'
 #
 # `v1` is a moving tag re-pointed at each release, so consumers pick up
@@ -40,7 +40,8 @@ on:
         description: 'PHP version to use'
         required: false
         type: string
-        default: '8.3'
+        # cwm-build-tools itself requires PHP 8.4, so nothing older can run this.
+        default: '8.4'
       node-version:
         description: 'Node version to use'
         required: false
