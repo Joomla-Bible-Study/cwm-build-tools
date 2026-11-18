@@ -124,4 +124,33 @@ assert_equals "../" "$(field "${Q}/component/media/css/sub/nested.css.map" sourc
 leaks="$(grep -l -e 'file:' -e "${WORK}" -r "${WORK}/split/media" "${WORK}/samedir/component" --include='*.map' 2>/dev/null)"
 assert_equals "" "${leaks}" "no map carries a file: URL or the build directory"
 
+# --- the compiler: sass-embedded when installed, else sass ---------------------------
+#
+# sass-embedded has the same compile() but no @parcel/watcher, so no picomatch.
+# A second stub tree carries both packages, each marking the CSS it writes.
+
+mkdir -p "${WORK}/both/sass" "${WORK}/both/sass-embedded"
+sed "s/a{color:red}/a{compiler:sass}/" "${WORK}/stub/sass/index.js" > "${WORK}/both/sass/index.js"
+sed "s/a{color:red}/a{compiler:embedded}/" "${WORK}/stub/sass/index.js" > "${WORK}/both/sass-embedded/index.js"
+
+compile_with() { # compile_with <NODE_PATH> -> the compiled top.css, or "exit <code>: <stderr>"
+    local out="${WORK}/which" err rc
+    rm -rf "${out}" && make_tree "${out}/css"
+    err="$(cd "${out}" && NODE_PATH="$1" SOURCE_DIR=css OUTPUT_DIR=css SOURCE_ROOT=./ node "${BUILD}" 2>&1 >/dev/null)"
+    rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        echo "exit ${rc}: ${err}"
+    else
+        head -1 "${out}/css/top.css"
+    fi
+}
+
+assert_equals "a{compiler:embedded}" "$(compile_with "${WORK}/both")" \
+    "with both installed, sass-embedded compiles"
+assert_equals "a{color:red}" "$(compile_with "${WORK}/stub")" \
+    "with only sass installed, sass compiles, as before"
+mkdir -p "${WORK}/none"
+assert_contains "$(compile_with "${WORK}/none")" "exit 1: Error: build-scss.js needs a Sass compiler: npm install --save-dev sass-embedded" \
+    "with neither installed, the build stops and says what to install"
+
 finish
