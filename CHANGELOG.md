@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **What 1.43.0 said `sass-embedded` drops.** It never installs
+  `@parcel/watcher` or `picomatch` on a platform it has a native build for.
+  But its fallback for other platforms still lists `sass`, and with it
+  `picomatch`, in `package-lock.json`, so `npm audit` and Dependabot report
+  picomatch either way. `build-scss.js`'s comment now says so. The
+  `@rollup/plugin-node-resolve` change does remove picomatch from the lock.
+
 ## [1.43.0] - 2026-11-17
 
 ### Added

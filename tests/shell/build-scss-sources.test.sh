@@ -126,7 +126,8 @@ assert_equals "" "${leaks}" "no map carries a file: URL or the build directory"
 
 # --- the compiler: sass-embedded when installed, else sass ---------------------------
 #
-# sass-embedded has the same compile() but no @parcel/watcher, so no picomatch.
+# sass-embedded has the same compile(), and installs no @parcel/watcher where it
+# has a native build.
 # A second stub tree carries both packages, each marking the CSS it writes.
 
 mkdir -p "${WORK}/both/sass" "${WORK}/both/sass-embedded"
