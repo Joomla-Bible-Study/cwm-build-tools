@@ -109,12 +109,34 @@ on top of auto-derive (deduped by target).
 
 ### Release flow
 
-1. Edit `CHANGELOG.md` — move `## [Unreleased]` content under a new
+The release commit goes through a pull request like any other change.
+Two rulesets protect `main`:
+- one requires a pull request plus the `Coding standards`, `PHP 8.4` and
+  `PHP 8.5` checks;
+- one blocks deletion and force pushes.
+
+Admins can bypass the pull-request rule. Don't: the checks are the point.
+
+1. Branch `chore/release-vX.Y.Z` from an up-to-date `main`. In
+   `CHANGELOG.md`, move the `## [Unreleased]` content under a new
    `## [X.Y.Z] - YYYY-MM-DD` heading.
-2. `git commit -m "chore(release): cut vX.Y.Z"` on `main`.
-3. `git tag -a vX.Y.Z -m "vX.Y.Z"`.
-4. `git push origin main && git push origin vX.Y.Z`.
-5. `gh release create vX.Y.Z --title 'vX.Y.Z' --notes "..."`.
+2. `git commit -m "chore(release): cut vX.Y.Z"`, push the branch, and open a
+   PR with the same title.
+3. Once the checks pass, merge with
+   `gh pr merge <n> --squash --subject "chore(release): cut vX.Y.Z"`. The
+   explicit subject keeps out the `(#n)` that a squash merge appends, so
+   release commits keep their usual subject.
+4. Tag the merge commit and push the tag. The rulesets don't cover tags.
+   Check first that `origin/main` is the release commit, in case something
+   else merged in between:
+   `git fetch origin && git tag -a vX.Y.Z -m "vX.Y.Z" origin/main && git push origin vX.Y.Z`.
+5. `gh release create vX.Y.Z --title 'vX.Y.Z' --notes-file <notes>`. The notes
+   are the new version's `CHANGELOG.md` section, copied verbatim.
+
+When a change renames or drops a CI job, for example a PHP version leaving
+the matrix, update the ruleset's required checks in the same change.
+Otherwise every PR waits on a check that never reports. That is what
+happened with `PHP 8.3` at v1.42.0.
 
 The moving major tag re-points itself. Publishing the release fires
 `.github/workflows/major-tag.yml`, which force-moves `v1` onto the released
