@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.42.0] - 2026-11-17
+
 ### Changed
 
 - **Requires PHP 8.4** (was 8.3). Every consumer's `config.platform.php` is
