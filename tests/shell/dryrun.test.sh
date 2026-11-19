@@ -114,6 +114,21 @@ assert_equals "1" "$CWM_TAG_ONLY" "--tag-only combines with the other flags..."
 assert_equals "1" "$CWM_DRY_RUN" "...--dry-run still applies..."
 assert_equals "1.2.3" "${CWM_ARGS[*]}" "...and only the version is left"
 
+# --- --pr, parsed in the same pass ---------------------------------------------
+# Releases through pull requests. Dropped, the run would push straight to a
+# branch a ruleset protects, so it must parse every time too.
+cwm_parse_dry_run 1.2.3
+assert_equals "0" "$CWM_PR" "no flag means a plain run"
+
+cwm_parse_dry_run 1.2.3 --pr
+assert_equals "1" "$CWM_PR" "--pr after the version is found"
+assert_equals "1.2.3" "${CWM_ARGS[*]}" "and is removed from the arguments"
+
+cwm_parse_dry_run --pr --dry-run --tag-only 1.2.3
+assert_equals "1" "$CWM_PR" "--pr combines with the other flags..."
+assert_equals "1" "$CWM_TAG_ONLY" "...--tag-only still applies..."
+assert_equals "1.2.3" "${CWM_ARGS[*]}" "...and only the version is left"
+
 if cwm_parse_dry_run 1.2.3 --tag-onyl; then
     assert_equals "non-zero" "0" "a mistyped --tag-only must not be accepted"
 else

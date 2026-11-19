@@ -39,6 +39,17 @@ exit 1
 STUB
     chmod +x "${WORK}/bin/${tool}"
 done
+# One gh call publishes nothing: the pre-flight reads the release branch's rules
+# to learn whether it requires a pull request. No ruleset applies here.
+cat > "${WORK}/bin/gh" <<STUB
+#!/usr/bin/env bash
+case "\$*" in
+    "api repos/"*"/rules/branches/"*) echo "[]"; exit 0 ;;
+esac
+echo "gh \$*" >> "${WORK}/published"
+exit 1
+STUB
+chmod +x "${WORK}/bin/gh"
 export PATH="${WORK}/bin:${PATH}"
 
 # assert_not_contains <haystack> <needle> <description>

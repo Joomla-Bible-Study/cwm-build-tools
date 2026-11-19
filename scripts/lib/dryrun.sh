@@ -35,6 +35,7 @@
 #   CWM_DRY_RUN    1 when --dry-run/-n was present, else 0.
 #   CWM_SKIP_TESTS 1 when --skip-tests was present, else 0.
 #   CWM_TAG_ONLY   1 when --tag-only was present, else 0.
+#   CWM_PR         1 when --pr was present, else 0.
 #   CWM_HELP       1 when --help/-h was present, else 0.
 #   CWM_ARGS       Array of the non-flag arguments (may be empty).
 #   CWM_BAD_FLAG   The offending option when the return status is non-zero.
@@ -45,17 +46,19 @@ cwm_parse_dry_run() {
     CWM_DRY_RUN=0
     CWM_SKIP_TESTS=0
     CWM_TAG_ONLY=0
+    CWM_PR=0
     CWM_HELP=0
     CWM_ARGS=()
     CWM_BAD_FLAG=''
 
     local arg
     for arg in "$@"; do
-        # shellcheck disable=SC2034  # CWM_SKIP_TESTS/CWM_TAG_ONLY/CWM_HELP are read by release.sh, not this file
+        # shellcheck disable=SC2034  # CWM_SKIP_TESTS/CWM_TAG_ONLY/CWM_PR/CWM_HELP are read by release.sh, not this file
         case "$arg" in
             --dry-run|-n)  CWM_DRY_RUN=1 ;;
             --skip-tests)  CWM_SKIP_TESTS=1 ;;
             --tag-only)    CWM_TAG_ONLY=1 ;;
+            --pr)          CWM_PR=1 ;;
             --help|-h)     CWM_HELP=1 ;;
             --)            ;;
             -*)            CWM_BAD_FLAG="$arg"; return 1 ;;
