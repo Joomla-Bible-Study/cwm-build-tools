@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.44.0] - 2026-11-18
+
 ### Added
 
 - **`cwm-release --pr` releases through pull requests,** for a release branch
