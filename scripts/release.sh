@@ -67,6 +67,33 @@
 #   from, and when the tag already exists. Before this flag such releases were
 #   cut by hand, and the hand path skipped step 2 and the gate (#176).
 #
+# Pull requests (--pr, or release.viaPullRequest in cwm-build.config.json):
+#   For a branch a ruleset protects. A plain run pushes its release commits
+#   straight to the branch, and on a branch that requires pull requests that
+#   push either fails or, for a bypass actor, goes through by bypassing the
+#   rule. So a plain run now refuses such a branch, and --pr releases through
+#   pull requests instead (lib/pr.sh):
+#
+#     - Steps 1-3 run on chore/release-vX.Y.Z, which becomes the release
+#       commit and a pull request into the branch the release commit belongs
+#       on: github.developmentBranch when the project has one, else the
+#       release branch. The run waits for every check to pass and
+#       squash-merges it.
+#     - The merged commit is rebuilt and must reproduce: nothing tracked may
+#       change. For a project with a development branch, the release branch
+#       is then fast-forwarded to it, which needs a rule that lets admins
+#       update it, not one that requires a pull request.
+#     - Steps 5-7 tag and publish that exact commit. The changelog entry has
+#       to be in the release commit, since there is no published release to
+#       generate one from.
+#     - Step 8's versions.json update goes through a pull request of its own.
+#
+#   This version's notes file and the changelog may stay uncommitted when the
+#   run starts; the release commit carries them, so one pull request holds the
+#   whole release. Anything else uncommitted stops the run. A run interrupted
+#   while waiting resumes on the open pull request, and one whose pull request
+#   was merged by hand finds the release commit in place and carries on.
+#
 # Prerequisites:
 #   - Clean working tree, on the configured release branch (default: main)
 #   - gh CLI authenticated
@@ -87,6 +114,8 @@ source "${SCRIPT_DIR}/lib/notes.sh"
 source "${SCRIPT_DIR}/lib/dryrun.sh"
 # shellcheck source=lib/testgate.sh
 source "${SCRIPT_DIR}/lib/testgate.sh"
+# shellcheck source=lib/pr.sh
+source "${SCRIPT_DIR}/lib/pr.sh"
 PROJECT_ROOT="$(pwd)"
 
 # --- Parse flags ---
@@ -100,7 +129,7 @@ usage() {
 cwm-release — full release pipeline for a CWM Joomla extension.
 
 Usage:
-  composer release -- <version> [--dry-run|-n] [--skip-tests] [--tag-only]
+  composer release -- <version> [--dry-run|-n] [--skip-tests] [--tag-only] [--pr]
   composer release                  # prompts for the version
 
 Options:
@@ -109,6 +138,12 @@ Options:
   --tag-only        Bump, substitute, build, gate, commit and push a new tag.
                     Publish nothing: no GitHub release, ARS item,
                     versions.json update or announcement.
+  --pr              Release through pull requests, for a branch a ruleset
+                    protects: the release commit is a pull request that is
+                    merged once every check passes, then the merged commit is
+                    tagged and published, and versions.json follows in a pull
+                    request of its own. release.viaPullRequest in
+                    cwm-build.config.json turns it on for every run.
   -h, --help        Show this and exit.
 USAGE
 }
@@ -128,6 +163,7 @@ fi
 DRY_RUN="$CWM_DRY_RUN"
 SKIP_TESTS="$CWM_SKIP_TESTS"
 TAG_ONLY="$CWM_TAG_ONLY"
+PR_FLAG="$CWM_PR"
 set -- "${CWM_ARGS[@]+"${CWM_ARGS[@]}"}"
 
 CONFIG_FILE="${PROJECT_ROOT}/cwm-build.config.json"
@@ -149,6 +185,37 @@ GH_OWNER=$(read_config "github.owner")
 GH_REPO=$(read_config "github.repo")
 PKG_NAME=$(read_config "extension.name")
 PKG_MANIFEST=$(read_config "manifests.package")
+DEV_BRANCH=$(read_config "github.developmentBranch")
+GH_SLUG="${GH_OWNER}/${GH_REPO}"
+
+# The project-relative path to versions.json, when the project tracks one. Read
+# here rather than at step 8 because the pre-flight below needs to know whether
+# step 8 will write anywhere.
+VERSIONS_FILE=$(php "${TOOLS_DIR}/scripts/resolve-tracking.php" versionsJson)
+
+# --pr, or release.viaPullRequest in the config: the release commit and the
+# versions.json update reach their branches through pull requests. See the
+# header and lib/pr.sh.
+PR_MODE=0
+case "${PR_FLAG}:$(read_config "release.viaPullRequest")" in
+    1:*|*:1|*:true) PR_MODE=1 ;;
+esac
+
+# The branch the release commit goes into. A plain run commits on the release
+# branch. In PR mode it is the development branch when the project has one: the
+# release commit merges there like any other change, and the release branch is
+# fast-forwarded to it afterwards.
+TARGET_BRANCH="$RELEASE_BRANCH"
+if [ "$PR_MODE" = "1" ] && [ -n "$DEV_BRANCH" ]; then
+    TARGET_BRANCH="$DEV_BRANCH"
+fi
+
+# PR-mode state, filled in as the run goes.
+REL_PR_BRANCH=""
+RESUME_PR=""
+RESUME_HEAD=""
+RELEASE_SHA=""
+VERSIONS_OWED=""
 
 # --- Pre-checks ---
 #
@@ -162,18 +229,50 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 BRANCH=$(git branch --show-current)
-if [ "$BRANCH" != "$RELEASE_BRANCH" ]; then
+if [ "$BRANCH" != "$TARGET_BRANCH" ]; then
     if [ "$DRY_RUN" = "1" ]; then
-        echo "  [dry-run] WARNING: on '$BRANCH', not the release branch '$RELEASE_BRANCH'."
+        echo "  [dry-run] WARNING: on '$BRANCH', not the branch the release commit goes into, '$TARGET_BRANCH'."
         echo "            A real run would stop here."
     else
-        echo "Error: Must be on $RELEASE_BRANCH branch (currently on '$BRANCH')."
-        echo "Switch with: git checkout $RELEASE_BRANCH && git pull"
+        if [ "$TARGET_BRANCH" != "$RELEASE_BRANCH" ]; then
+            echo "Error: With --pr the release commit goes into $TARGET_BRANCH, so run it from there (currently on '$BRANCH')."
+        else
+            echo "Error: Must be on $TARGET_BRANCH branch (currently on '$BRANCH')."
+        fi
+        echo "Switch with: git checkout $TARGET_BRANCH && git pull"
         exit 1
     fi
 fi
 
-if [ -n "$(git status --porcelain)" ]; then
+if [ "$PR_MODE" = "1" ]; then
+    # Two files may stay uncommitted in PR mode: the changelog and this
+    # version's notes file. The release commit carries them, so one pull
+    # request holds the whole release. The notes file is named after the
+    # version, so it has to be known before the tree is judged.
+    if [ -z "${1:-}" ]; then
+        echo "Error: --pr needs the version as an argument: composer release -- <version> --pr"
+        exit 1
+    fi
+    PR_NOTES_PATH=""
+    PR_NOTES_PATTERN=$(read_config "release.notesFile")
+    if [ -n "$PR_NOTES_PATTERN" ]; then
+        PR_NOTES_PATH="${PR_NOTES_PATTERN//\{version\}/$1}"
+    fi
+    UNEXPECTED_CHANGES=$(cwm_unexpected_dirty_paths "$(read_config "changelog.file")" "$PR_NOTES_PATH")
+    if [ -n "$UNEXPECTED_CHANGES" ]; then
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  [dry-run] WARNING: uncommitted changes besides the changelog and this version's notes."
+            echo "            A real run would stop here:"
+        else
+            echo "Error: Uncommitted changes the release commit can't carry. With --pr, only the changelog"
+            echo "       and this version's notes file may be uncommitted. Commit or stash these first:"
+        fi
+        printf '%s\n' "$UNEXPECTED_CHANGES" | sed 's/^/    /'
+        if [ "$DRY_RUN" != "1" ]; then
+            exit 1
+        fi
+    fi
+elif [ -n "$(git status --porcelain)" ]; then
     if [ "$DRY_RUN" = "1" ]; then
         echo "  [dry-run] WARNING: working tree is not clean. A real run would stop here."
         echo "            It matters beyond tidiness: step 4 commits with 'git add -A',"
@@ -197,30 +296,30 @@ git fetch origin --prune --tags
 
 if [ "$DRY_RUN" = "1" ]; then
     # Report what a fast-forward pull would do, without moving anything.
-    echo "[pre-flight] Comparing ${RELEASE_BRANCH} with origin (no pull under --dry-run)..."
-    BEHIND=$(git rev-list --count "HEAD..origin/${RELEASE_BRANCH}" 2>/dev/null || echo "?")
-    AHEAD=$(git rev-list --count "origin/${RELEASE_BRANCH}..HEAD" 2>/dev/null || echo "?")
+    echo "[pre-flight] Comparing ${TARGET_BRANCH} with origin (no pull under --dry-run)..."
+    BEHIND=$(git rev-list --count "HEAD..origin/${TARGET_BRANCH}" 2>/dev/null || echo "?")
+    AHEAD=$(git rev-list --count "origin/${TARGET_BRANCH}..HEAD" 2>/dev/null || echo "?")
 
     if [ "$BEHIND" = "0" ] && [ "$AHEAD" = "0" ]; then
-        echo "  In sync with origin/${RELEASE_BRANCH}."
+        echo "  In sync with origin/${TARGET_BRANCH}."
     elif [ "$AHEAD" != "0" ] && [ "$BEHIND" != "0" ]; then
-        echo "  WARNING: diverged from origin/${RELEASE_BRANCH} (${AHEAD} ahead, ${BEHIND} behind)."
+        echo "  WARNING: diverged from origin/${TARGET_BRANCH} (${AHEAD} ahead, ${BEHIND} behind)."
         echo "           A real run would stop here."
     elif [ "$BEHIND" != "0" ]; then
-        echo "  ${BEHIND} commit(s) behind origin/${RELEASE_BRANCH}; a real run would fast-forward."
+        echo "  ${BEHIND} commit(s) behind origin/${TARGET_BRANCH}; a real run would fast-forward."
     else
-        echo "  ${AHEAD} unpushed commit(s) on ${RELEASE_BRANCH}."
+        echo "  ${AHEAD} unpushed commit(s) on ${TARGET_BRANCH}."
     fi
 
     cwm_skip_in_dry_run "git submodule update (would move submodule working trees)"
 else
-    echo "[pre-flight] Pulling ${RELEASE_BRANCH} (fast-forward only)..."
-    if ! git pull --ff-only origin "$RELEASE_BRANCH"; then
+    echo "[pre-flight] Pulling ${TARGET_BRANCH} (fast-forward only)..."
+    if ! git pull --ff-only origin "$TARGET_BRANCH"; then
         echo ""
-        echo "Error: Local ${RELEASE_BRANCH} has diverged from origin/${RELEASE_BRANCH}."
+        echo "Error: Local ${TARGET_BRANCH} has diverged from origin/${TARGET_BRANCH}."
         echo "Resolve manually before running release."
         echo "  Inspect: git status && git log @{u}.."
-        echo "  Rebase:  git pull --rebase origin ${RELEASE_BRANCH}"
+        echo "  Rebase:  git pull --rebase origin ${TARGET_BRANCH}"
         exit 1
     fi
 
@@ -276,6 +375,160 @@ cwm_validate_release_version "$VERSION" || exit 1
 TAG=$(cwm_tag_for_version "$VERSION")
 PRERELEASE_FLAG=$(cwm_prerelease_flag "$VERSION")
 
+# The changelog the pre-flights below read. Defined ahead of them all, since the
+# pull-request checks run before the release gate.
+PREFLIGHT_CHANGELOG=$(read_config "changelog.file")
+
+# --- Pre-flight: pull requests ---
+#
+# Everything below reads; nothing is bumped until it has all passed.
+if [ "$PR_MODE" = "1" ]; then
+    echo "[pre-flight] Releasing through pull requests: the release commit goes into ${TARGET_BRANCH} by pull request."
+    PR_PROBLEMS=()
+
+    if [ -z "$GH_OWNER" ] || [ -z "$GH_REPO" ]; then
+        PR_PROBLEMS+=("github.owner and github.repo are not set in cwm-build.config.json, and pull requests need them.")
+    fi
+
+    # A branch left by an earlier run.
+    #
+    # Only a pull request this checkout opened is resumed: a run that resumes
+    # one merges it and publishes the result, and a pull request is outside
+    # input. Matching on the branch name alone would find one opened from a
+    # fork under the same name. So release_commit_pr records the number and
+    # head it pushed, inside .git where nothing is committed, and a resume
+    # needs that record, the same repository, the right base and the same
+    # head. Anything else is for a person to review: merge or close it by
+    # hand, and a run after a hand merge finds the release commit in place.
+    REL_PR_BRANCH="chore/release-${TAG}"
+    PR_RECORD="$(git rev-parse --git-dir)/cwm-release/${TAG}"
+    if [ "$DRY_RUN" != "1" ] && git ls-remote --exit-code --heads origin "$REL_PR_BRANCH" >/dev/null 2>&1; then
+        RESUME_STATE=""
+        if [ -f "$PR_RECORD" ]; then
+            REC_NUMBER=""
+            REC_HEAD=""
+            read -r REC_NUMBER REC_HEAD < "$PR_RECORD" || true
+            REC_LINE=$(gh pr view "$REC_NUMBER" --repo "$GH_SLUG" \
+                --json state,headRefOid,headRefName,baseRefName,isCrossRepository 2>/dev/null | php -r '
+                    $pr = json_decode(stream_get_contents(STDIN), true) ?: [];
+                    echo implode(" ", [$pr["state"] ?? "-", $pr["headRefOid"] ?? "-", $pr["headRefName"] ?? "-",
+                        $pr["baseRefName"] ?? "-", empty($pr["isCrossRepository"]) ? "same" : "fork"]);' || true)
+            read -r REC_STATE REC_PR_HEAD REC_PR_BRANCH REC_BASE REC_ORIGIN <<<"$REC_LINE" || true
+            if [ "${REC_STATE:-}" = "OPEN" ] && [ "${REC_PR_HEAD:-}" = "$REC_HEAD" ] \
+                && [ "${REC_PR_BRANCH:-}" = "$REL_PR_BRANCH" ] && [ "${REC_BASE:-}" = "$TARGET_BRANCH" ] \
+                && [ "${REC_ORIGIN:-}" = "same" ]; then
+                RESUME_PR="$REC_NUMBER"
+                RESUME_HEAD="$REC_HEAD"
+                RESUME_STATE="OPEN"
+                echo "  Resuming: this checkout's pull request #${RESUME_PR} is still open, so this run waits for it."
+            elif [ "${REC_STATE:-}" = "MERGED" ]; then
+                RESUME_STATE="MERGED"
+                rm -f "$PR_RECORD"
+                echo "  Pull request #${REC_NUMBER} for ${REL_PR_BRANCH} is already merged."
+            fi
+        fi
+        if [ -z "$RESUME_STATE" ]; then
+            FOUND=$(gh pr list --repo "$GH_SLUG" --head "$REL_PR_BRANCH" --state all \
+                --json number,state,isCrossRepository 2>/dev/null | php -r '
+                    $open = [];
+                    $merged = [];
+                    foreach (json_decode(stream_get_contents(STDIN), true) ?: [] as $pr) {
+                        if (!empty($pr["isCrossRepository"])) {
+                            $open[] = "#" . $pr["number"] . " (from a fork)";
+                            continue;
+                        }
+                        if (($pr["state"] ?? "") === "OPEN") {
+                            $open[] = "#" . $pr["number"];
+                        } elseif (($pr["state"] ?? "") === "MERGED") {
+                            $merged[] = "#" . $pr["number"];
+                        }
+                    }
+                    echo $open ? "open " . implode(", ", $open) : ($merged ? "merged " . implode(", ", $merged) : "none");' || echo "none")
+            case "$FOUND" in
+                open\ *)
+                    PR_PROBLEMS+=("Pull request ${FOUND#open } for ${REL_PR_BRANCH} is open, and this checkout didn't open it, so it won't be merged unattended. Review it, merge or close it by hand, then run again.")
+                    ;;
+                merged\ *)
+                    echo "  Pull request ${FOUND#merged } for ${REL_PR_BRANCH} is already merged."
+                    ;;
+                *)
+                    PR_PROBLEMS+=("${REL_PR_BRANCH} exists on origin with no open pull request. Delete it (git push origin --delete ${REL_PR_BRANCH}) and run again.")
+                    ;;
+            esac
+        fi
+    fi
+
+    # The entry has to reach the release commit: with no published release yet,
+    # step 6 has nothing to generate one from. It may stay uncommitted. A
+    # resumed pull request already holds it.
+    if [ -z "$RESUME_PR" ] && cwm_changelog_needs_entry "$PREFLIGHT_CHANGELOG" "$VERSION"; then
+        PR_PROBLEMS+=("${PREFLIGHT_CHANGELOG} has no ${VERSION} entry. Write it by hand; it can stay uncommitted, since the release commit carries it.")
+    fi
+
+    if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null \
+        || git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+        PR_PROBLEMS+=("Tag ${TAG} already exists.")
+    fi
+
+    # The release branch is fast-forwarded to the merged release commit. Find
+    # out now whether it can be, rather than after a merge that would leave the
+    # release commit stranded on the development branch.
+    if [ "$TARGET_BRANCH" != "$RELEASE_BRANCH" ]; then
+        if ! git merge-base --is-ancestor "origin/${RELEASE_BRANCH}" "origin/${TARGET_BRANCH}" 2>/dev/null; then
+            PR_PROBLEMS+=("origin/${RELEASE_BRANCH} has commits origin/${TARGET_BRANCH} doesn't, so the release can't fast-forward it.")
+        fi
+        RULE_RC=0
+        cwm_branch_requires_pr "$GH_SLUG" "$RELEASE_BRANCH" || RULE_RC=$?
+        if [ "$RULE_RC" = "0" ]; then
+            PR_PROBLEMS+=("${RELEASE_BRANCH} requires a pull request, which can't fast-forward it to ${TARGET_BRANCH}. Give it a rule that lets admins update it (rule type 'update') instead.")
+        elif [ "$RULE_RC" = "2" ]; then
+            echo "  Note: couldn't read ${RELEASE_BRANCH}'s rules. If it requires a pull request, fast-forwarding it will fail."
+        fi
+    fi
+
+    for problem in "${PR_PROBLEMS[@]+"${PR_PROBLEMS[@]}"}"; do
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  WARNING: ${problem}"
+            echo "           A real run would stop here."
+        else
+            echo "Error: ${problem}"
+        fi
+    done
+    if [ "${#PR_PROBLEMS[@]}" -gt 0 ] && [ "$DRY_RUN" != "1" ]; then
+        exit 1
+    fi
+else
+    # A plain run pushes to the release branch (steps 4 and 6), and step 8 to the
+    # development branch when versions.json lives there. Where a ruleset requires
+    # a pull request, that push either fails or, for one of its bypass actors,
+    # goes through by bypassing the rule. Neither is a release anyone meant to
+    # make, so stop before step 1 and point at --pr.
+    DIRECT_BRANCHES=("$RELEASE_BRANCH")
+    if [ "$TAG_ONLY" != "1" ] && [ -n "$VERSIONS_FILE" ] && [ -n "$DEV_BRANCH" ] && [ "$DEV_BRANCH" != "$RELEASE_BRANCH" ]; then
+        DIRECT_BRANCHES+=("$DEV_BRANCH")
+    fi
+    if [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
+        for direct_branch in "${DIRECT_BRANCHES[@]}"; do
+            RULE_RC=0
+            cwm_branch_requires_pr "$GH_SLUG" "$direct_branch" || RULE_RC=$?
+            if [ "$RULE_RC" = "0" ]; then
+                if [ "$DRY_RUN" = "1" ]; then
+                    echo "[pre-flight] WARNING: ${direct_branch} requires a pull request, and this run would push to it directly."
+                    echo "             A real run would stop here. Release with --pr, or set release.viaPullRequest."
+                else
+                    echo "Error: ${direct_branch} requires a pull request, and this run would push to it directly."
+                    echo "  That push only succeeds by bypassing the ruleset. Release through pull requests instead:"
+                    echo "    composer release -- ${VERSION} --pr"
+                    echo "  or set \"release\": {\"viaPullRequest\": true} in cwm-build.config.json."
+                    exit 1
+                fi
+            elif [ "$RULE_RC" = "2" ]; then
+                echo "[pre-flight] Note: couldn't read ${direct_branch}'s rules from GitHub. If it requires pull requests, release with --pr."
+            fi
+        done
+    fi
+fi
+
 # --- Pre-flight: release gate (composer test:release) ---
 # Verifies the commit about to be released, not the commit that results from
 # bumping/building it — so this runs before step 1, against what's on disk
@@ -303,8 +556,7 @@ fi
 # notes' bullets but not their paragraphs or categories. A warning rather than
 # a stop: an entry generated from notes is still better than none.
 PREFLIGHT_NOTES=$(cwm_resolve_notes_file "$(read_config "release.notesFile")" "$VERSION" || true)
-PREFLIGHT_CHANGELOG=$(read_config "changelog.file")
-if [ "$TAG_ONLY" != "1" ] && [ -n "$PREFLIGHT_NOTES" ] && cwm_changelog_needs_entry "$PREFLIGHT_CHANGELOG" "$VERSION"; then
+if [ "$TAG_ONLY" != "1" ] && [ "$PR_MODE" != "1" ] && [ -n "$PREFLIGHT_NOTES" ] && cwm_changelog_needs_entry "$PREFLIGHT_CHANGELOG" "$VERSION"; then
     echo "[pre-flight] WARNING: ${PREFLIGHT_CHANGELOG} has no ${VERSION} entry to go with ${PREFLIGHT_NOTES}."
     echo "  Step 6 would generate one from the notes' bullets alone, without their paragraphs or categories."
     echo "  Write it by hand in the notes PR; the generator skips a version that is already there."
@@ -348,139 +600,297 @@ if [ "$TAG_ONLY" = "1" ]; then
     fi
 fi
 
+
 echo ""
 echo "=== ${PKG_NAME} Release ${VERSION} ==="
 echo ""
 
-# --- Step 1: Version bump ---
-echo "[1/9] Bumping version to ${VERSION}..."
-cwm_mutate php "${TOOLS_DIR}/scripts/bump.php" -v "$VERSION"
-echo ""
+# Steps 1 and 2 are one function, and step 3 with the token gate another, so
+# a --pr release can build a second time from the merged commit without
+# bumping again: the bump stamps today's date, and a merge that lands after
+# midnight UTC would otherwise change the commit it is meant to reproduce.
+release_bump() {
+    # --- Step 1: Version bump ---
+    echo "[1/9] Bumping version to ${VERSION}..."
+    cwm_mutate php "${TOOLS_DIR}/scripts/bump.php" -v "$VERSION"
+    echo ""
 
-# --- Step 2: Substitute __DEPLOY_VERSION__ placeholder ---
-# Replaces the configured placeholder token (default __DEPLOY_VERSION__) with
-# the release version across configured source paths. Joomla core uses this
-# convention for @since PHPDoc tags on in-flight code where the author can't
-# predict the release number. Substitution runs BEFORE the build so the
-# packaged zip carries the real version, not the placeholder.
-echo "[2/9] Substituting __DEPLOY_VERSION__ placeholder..."
-cwm_mutate php "${TOOLS_DIR}/scripts/substitute-tokens.php" -v "$VERSION"
-echo ""
+    # --- Step 2: Substitute __DEPLOY_VERSION__ placeholder ---
+    # Replaces the configured placeholder token (default __DEPLOY_VERSION__) with
+    # the release version across configured source paths. Joomla core uses this
+    # convention for @since PHPDoc tags on in-flight code where the author can't
+    # predict the release number. Substitution runs BEFORE the build so the
+    # packaged zip carries the real version, not the placeholder.
+    echo "[2/9] Substituting __DEPLOY_VERSION__ placeholder..."
+    cwm_mutate php "${TOOLS_DIR}/scripts/substitute-tokens.php" -v "$VERSION"
+    echo ""
+}
 
-# --- Step 3: Build ---
-echo "[3/9] Building package..."
-BUILD_CMD=$(read_config "build.command")
-if [ -z "$BUILD_CMD" ]; then
-    echo "Error: build.command not set in cwm-build.config.json"
-    exit 1
-fi
-cwm_mutate bash -c "$BUILD_CMD"
-
-OUTPUT_GLOB=$(read_config "build.outputGlob")
-if [ -z "$OUTPUT_GLOB" ]; then
-    echo "Error: build.outputGlob not set in cwm-build.config.json"
-    exit 1
-fi
-
-# Resolve the artifact for *this* version.
-#
-# The selection lives in lib/artifacts.sh so it can be tested — see #52. It was
-# wrong once already: cwm-release took the first glob match, and bash sorts
-# lexically, so Proclaim 10.3.3 published pkg_proclaim-10.3.2.zip to GitHub and
-# ARS while reporting success.
-if [ "$DRY_RUN" = "1" ]; then
-    # No build ran, so the artifact for this version normally will not exist.
-    # Still worth attempting: the selection is exactly the step that shipped
-    # the wrong zip once, and running it against whatever is already on disk
-    # shows which file a real run would pick up — including a stale one left
-    # over from a previous release, which is the failure mode #51 describes.
-    if ARTIFACT="$(cwm_select_artifact_for_version "$VERSION" "$OUTPUT_GLOB" 2>/dev/null)"; then
-        echo "  Would publish (already on disk): ${ARTIFACT}"
-    else
-        echo "  Would publish: the ${OUTPUT_GLOB} entry matching *-${VERSION}.zip (not built yet)."
+release_build() {
+    # --- Step 3: Build ---
+    echo "[3/9] Building package..."
+    BUILD_CMD=$(read_config "build.command")
+    if [ -z "$BUILD_CMD" ]; then
+        echo "Error: build.command not set in cwm-build.config.json"
+        exit 1
     fi
-    ARTIFACTS=( "${ARTIFACT:-<unbuilt>}" )
-else
-    ARTIFACT="$(cwm_select_artifact_for_version "$VERSION" "$OUTPUT_GLOB")" || exit 1
-    ARTIFACTS=( "$ARTIFACT" )
-    echo "  Built: ${ARTIFACTS[*]}"
-fi
-echo ""
+    cwm_mutate bash -c "$BUILD_CMD"
 
-# --- Gate: no unsubstituted placeholder tokens in the artifact ---
-#
-# Deliberately placed between build and push. At this point nothing has been
-# committed, pushed, tagged, released or published, so a failure costs a re-run;
-# thirty lines further down it would cost a cleanup.
-#
-# This asks whether the token is in the bytes about to ship, rather than whether
-# `substituteTokens.paths` looks right — the only form of the question that
-# survives a stale vendored copy of these tools (CWMScriptureLinks#29), a path
-# list that never covered a sub-extension (#27), or the installer blind spot
-# that #75 fixed narrowly. See #85.
-if [ "$DRY_RUN" = "1" ]; then
-    # No build ran, so this is whatever the artifact selection above found on
-    # disk — usually the *previous* release. Scanning it is still informative
-    # (same reasoning as that selection block), but a hit describes that older
-    # zip, not the release being cut, so it must never fail the run.
-    if [ -f "${ARTIFACTS[0]}" ]; then
-        echo "[gate] Scanning ${ARTIFACTS[0]} for unsubstituted tokens (previously built — report only)..."
-        php "${TOOLS_DIR}/scripts/verify-artifact-tokens.php" -f "${ARTIFACTS[0]}" --warn-only || true
-    else
-        echo "[gate] Would scan the built artifact for unsubstituted tokens (nothing built under --dry-run)."
+    OUTPUT_GLOB=$(read_config "build.outputGlob")
+    if [ -z "$OUTPUT_GLOB" ]; then
+        echo "Error: build.outputGlob not set in cwm-build.config.json"
+        exit 1
     fi
-else
-    echo "[gate] Scanning ${ARTIFACTS[0]} for unsubstituted tokens..."
-    php "${TOOLS_DIR}/scripts/verify-artifact-tokens.php" -f "${ARTIFACTS[0]}" || exit 1
+
+    # Resolve the artifact for *this* version.
+    #
+    # The selection lives in lib/artifacts.sh so it can be tested — see #52. It was
+    # wrong once already: cwm-release took the first glob match, and bash sorts
+    # lexically, so Proclaim 10.3.3 published pkg_proclaim-10.3.2.zip to GitHub and
+    # ARS while reporting success.
+    if [ "$DRY_RUN" = "1" ]; then
+        # No build ran, so the artifact for this version normally will not exist.
+        # Still worth attempting: the selection is exactly the step that shipped
+        # the wrong zip once, and running it against whatever is already on disk
+        # shows which file a real run would pick up — including a stale one left
+        # over from a previous release, which is the failure mode #51 describes.
+        if ARTIFACT="$(cwm_select_artifact_for_version "$VERSION" "$OUTPUT_GLOB" 2>/dev/null)"; then
+            echo "  Would publish (already on disk): ${ARTIFACT}"
+        else
+            echo "  Would publish: the ${OUTPUT_GLOB} entry matching *-${VERSION}.zip (not built yet)."
+        fi
+        ARTIFACTS=( "${ARTIFACT:-<unbuilt>}" )
+    else
+        ARTIFACT="$(cwm_select_artifact_for_version "$VERSION" "$OUTPUT_GLOB")" || exit 1
+        ARTIFACTS=( "$ARTIFACT" )
+        echo "  Built: ${ARTIFACTS[*]}"
+    fi
+    echo ""
+
+    # --- Gate: no unsubstituted placeholder tokens in the artifact ---
+    #
+    # Deliberately placed between build and push. At this point nothing has been
+    # committed, pushed, tagged, released or published, so a failure costs a re-run;
+    # thirty lines further down it would cost a cleanup.
+    #
+    # This asks whether the token is in the bytes about to ship, rather than whether
+    # `substituteTokens.paths` looks right — the only form of the question that
+    # survives a stale vendored copy of these tools (CWMScriptureLinks#29), a path
+    # list that never covered a sub-extension (#27), or the installer blind spot
+    # that #75 fixed narrowly. See #85.
+    if [ "$DRY_RUN" = "1" ]; then
+        # No build ran, so this is whatever the artifact selection above found on
+        # disk — usually the *previous* release. Scanning it is still informative
+        # (same reasoning as that selection block), but a hit describes that older
+        # zip, not the release being cut, so it must never fail the run.
+        if [ -f "${ARTIFACTS[0]}" ]; then
+            echo "[gate] Scanning ${ARTIFACTS[0]} for unsubstituted tokens (previously built — report only)..."
+            php "${TOOLS_DIR}/scripts/verify-artifact-tokens.php" -f "${ARTIFACTS[0]}" --warn-only || true
+        else
+            echo "[gate] Would scan the built artifact for unsubstituted tokens (nothing built under --dry-run)."
+        fi
+    else
+        echo "[gate] Scanning ${ARTIFACTS[0]} for unsubstituted tokens..."
+        php "${TOOLS_DIR}/scripts/verify-artifact-tokens.php" -f "${ARTIFACTS[0]}" || exit 1
+    fi
+    echo ""
+}
+
+# In PR mode the release commit is made on its own branch. A resumed run
+# already has one, in the open pull request it waits on.
+if [ "$PR_MODE" = "1" ] && [ -z "$RESUME_PR" ]; then
+    echo "[pr] Making the release commit on ${REL_PR_BRANCH}, for a pull request into ${TARGET_BRANCH}."
+    cwm_mutate git switch -C "$REL_PR_BRANCH"
+    echo ""
 fi
-echo ""
+if [ -z "$RESUME_PR" ]; then
+    release_bump
+    release_build
+fi
 
 # --- Step 4: Commit and push ---
-echo "[4/9] Committing version bump..."
-# Add only files modified by step 1 + 2, not unrelated untracked files. The
-# bump and build steps may dirty several manifests and rebuild the zip; the
-# release branch was clean before step 1 (pre-check), so anything modified or
-# added here is part of the release.
-cwm_mutate git add -u
-# Pull in any new files the build step generated (e.g. a fresh changelog
-# stub, regenerated build artifacts that live in tracked directories).
-#
-# `git add -A` is deliberate here and safe for a reason worth stating: the
-# step 1 pre-check uses `git status --porcelain`, which reports untracked
-# files too, so the tree was empty of them before this run began. Anything
-# untracked now was produced by steps 1-3.
-#
-# It is still listed, because "produced by the build" is an inference about a
-# window several steps wide, and a release commit is a bad place to discover
-# it was wrong.
-UNTRACKED=$(git ls-files --others --exclude-standard)
-if [ -n "$UNTRACKED" ]; then
-    echo "  New files being committed with the version bump:"
-    printf '    %s\n' $UNTRACKED
-fi
-cwm_mutate git add -A
 
-# The bump does not always produce a diff. Bumping first, running the release
-# gate against that build, and only then releasing is a sound workflow — and it
-# leaves the tree already at the target version, so `git commit` exits non-zero
-# with "nothing to commit" and takes the whole release down with it under
-# `set -e`: after the build has run, before anything is tagged.
+# Step 4 as a plain run does it: commit on the release branch and push.
+release_commit_direct() {
+    echo "[4/9] Committing version bump..."
+    # Add only files modified by step 1 + 2, not unrelated untracked files. The
+    # bump and build steps may dirty several manifests and rebuild the zip; the
+    # release branch was clean before step 1 (pre-check), so anything modified or
+    # added here is part of the release.
+    cwm_mutate git add -u
+    # Pull in any new files the build step generated (e.g. a fresh changelog
+    # stub, regenerated build artifacts that live in tracked directories).
+    #
+    # `git add -A` is deliberate here and safe for a reason worth stating: the
+    # step 1 pre-check uses `git status --porcelain`, which reports untracked
+    # files too, so the tree was empty of them before this run began. Anything
+    # untracked now was produced by steps 1-3.
+    #
+    # It is still listed, because "produced by the build" is an inference about a
+    # window several steps wide, and a release commit is a bad place to discover
+    # it was wrong.
+    UNTRACKED=$(git ls-files --others --exclude-standard)
+    if [ -n "$UNTRACKED" ]; then
+        echo "  New files being committed with the version bump:"
+        printf '    %s\n' $UNTRACKED
+    fi
+    cwm_mutate git add -A
+
+    # The bump does not always produce a diff. Bumping first, running the release
+    # gate against that build, and only then releasing is a sound workflow — and it
+    # leaves the tree already at the target version, so `git commit` exits non-zero
+    # with "nothing to commit" and takes the whole release down with it under
+    # `set -e`: after the build has run, before anything is tagged.
+    #
+    # Staged changes are committed exactly as before; an already-bumped tree simply
+    # carries on to the tag.
+    if [ "${CWM_DRY_RUN:-0}" = "1" ]; then
+        cwm_mutate git commit -m "chore: bump version to ${VERSION}"
+    elif git diff --cached --quiet; then
+        echo "  Version already at ${VERSION} — nothing to commit, continuing."
+    else
+        git commit -m "chore: bump version to ${VERSION}"
+    fi
+
+    cwm_mutate git push
+    echo ""
+}
+
+# Step 4 in PR mode: the release commit reaches the branch by pull request.
 #
-# Staged changes are committed exactly as before; an already-bumped tree simply
-# carries on to the tag.
-if [ "${CWM_DRY_RUN:-0}" = "1" ]; then
-    cwm_mutate git commit -m "chore: bump version to ${VERSION}"
-elif git diff --cached --quiet; then
-    echo "  Version already at ${VERSION} — nothing to commit, continuing."
+# Commits steps 1-3 on the release branch, opens the pull request, waits for
+# every check on it to pass and squash-merges it (lib/pr.sh). The merged commit
+# is then checked out and built again, without the bump, and must reproduce:
+# building it may not change a tracked file. That commit, and nothing else, is
+# what steps 5-7 tag and publish. A project with a development branch has its
+# release branch fast-forwarded to it last.
+#
+# Sets RELEASE_SHA.
+release_commit_pr() {
+    local pr_number="" pr_head="" pr_url="" merge_sha="" drift=""
+
+    echo "[4/9] Committing the release commit, for a pull request into ${TARGET_BRANCH}..."
+    if [ -n "$RESUME_PR" ]; then
+        pr_number="$RESUME_PR"
+        pr_head="$RESUME_HEAD"
+        echo "  Waiting on the open pull request #${pr_number} instead of committing again."
+    else
+        # Staged as a plain run stages them; see release_commit_direct. The
+        # pre-check let through only the changelog and this version's notes.
+        cwm_mutate git add -u
+        UNTRACKED=$(git ls-files --others --exclude-standard)
+        if [ -n "$UNTRACKED" ]; then
+            echo "  New files in the release commit:"
+            printf '    %s\n' $UNTRACKED
+        fi
+        cwm_mutate git add -A
+
+        if [ "$DRY_RUN" = "1" ]; then
+            cwm_mutate git commit -m "chore(release): cut ${TAG}"
+            cwm_mutate git push -u origin "$REL_PR_BRANCH"
+            cwm_mutate gh pr create --repo "$GH_SLUG" --base "$TARGET_BRANCH" --head "$REL_PR_BRANCH" --title "chore(release): cut ${TAG}"
+            echo "  [dry-run] would wait for every check on it to pass, then squash-merge it."
+        elif git diff --cached --quiet; then
+            # The release commit is already on the branch: a pull request merged
+            # by hand after an earlier run, or a tree bumped before this one.
+            echo "  The release commit is already on ${TARGET_BRANCH} — nothing to commit, no pull request needed."
+            git switch -q "$TARGET_BRANCH"
+            git branch -D "$REL_PR_BRANCH" >/dev/null 2>&1 || true
+            RELEASE_SHA="$(git rev-parse HEAD)"
+        else
+            git commit -m "chore(release): cut ${TAG}"
+            pr_head="$(git rev-parse HEAD)"
+            git push -u origin "$REL_PR_BRANCH"
+            pr_url="$(gh pr create --repo "$GH_SLUG" --base "$TARGET_BRANCH" --head "$REL_PR_BRANCH" \
+                --title "chore(release): cut ${TAG}" \
+                --body "The release commit for ${TAG}, opened by \`cwm-release --pr\`: the version bump, the \`__DEPLOY_VERSION__\` substitution, and the changelog entry and notes when they came with it. The release run merges it once every check passes, then rebuilds, tags and publishes the merged commit.")"
+            pr_number="$(cwm_pr_number_from_url "$pr_url")"
+            echo "  Opened ${pr_url}"
+            # What a later run may resume, and nothing else (see the pre-flight).
+            mkdir -p "$(dirname "$PR_RECORD")"
+            printf '%s %s\n' "$pr_number" "$pr_head" > "$PR_RECORD"
+        fi
+    fi
+
+    if [ -n "$pr_number" ]; then
+        echo "  Waiting for every check on #${pr_number} to pass, then squash-merging it..."
+        if ! merge_sha="$(cwm_pr_wait_and_merge "$GH_SLUG" "$pr_number" "$pr_head")"; then
+            git switch -q "$TARGET_BRANCH" 2>/dev/null || true
+            echo ""
+            echo "Error: release pull request #${pr_number} was not merged, so nothing has been tagged or published."
+            if [ -z "$RESUME_PR" ]; then
+                echo "  The release commit is on ${REL_PR_BRANCH}, with the changelog entry and notes it carried,"
+                echo "  so they are no longer uncommitted in this checkout."
+            fi
+            echo "  Once it is fixed or merged, run the same command again. It waits on the open pull request,"
+            echo "  or finds the merged release commit in place and carries on."
+            exit 1
+        fi
+        echo "  Merged as ${merge_sha:0:9}."
+        rm -f "$PR_RECORD"
+
+        git fetch -q origin --prune --tags
+        git push -q origin --delete "$REL_PR_BRANCH" 2>/dev/null || true
+        git switch -q --detach "$merge_sha"
+        git branch -D "$REL_PR_BRANCH" >/dev/null 2>&1 || true
+        git submodule update --init --recursive
+        RELEASE_SHA="$merge_sha"
+
+        # The release gate ran before the pull request. Anything else that
+        # reached the branch while it waited is in the merged commit too.
+        if [ -n "$pr_head" ] && ! git diff --quiet "$pr_head" "$RELEASE_SHA"; then
+            echo "  WARNING: ${TARGET_BRANCH} gained other changes while the pull request waited. The merged"
+            echo "           commit includes them, and the release gate ran before they arrived:"
+            git diff --stat "$pr_head" "$RELEASE_SHA" | sed 's/^/    /'
+        fi
+        echo ""
+
+        echo "[4/9] Rebuilding from the merged release commit ${RELEASE_SHA:0:9}..."
+        release_build
+        drift="$(git status --porcelain)"
+        if [ -n "$drift" ]; then
+            echo "Error: building the merged release commit changed files, so it doesn't reproduce:"
+            printf '%s\n' "$drift" | sed 's/^/    /'
+            echo "  Nothing has been tagged or published. The release commit is merged; once the build"
+            echo "  leaves tracked files alone, run the same command again."
+            exit 1
+        fi
+    fi
+
+    if [ "$DRY_RUN" = "1" ]; then
+        RELEASE_SHA="<the merged release commit>"
+    fi
+
+    # A project with a development branch: the release branch follows it. The
+    # pre-flight proved this is a fast-forward and that no rule requires a pull
+    # request for it.
+    if [ "$TARGET_BRANCH" != "$RELEASE_BRANCH" ]; then
+        if [ "$DRY_RUN" = "1" ]; then
+            cwm_mutate git push origin "${RELEASE_SHA}:refs/heads/${RELEASE_BRANCH}"
+        elif [ "$(git rev-parse "origin/${RELEASE_BRANCH}")" != "$RELEASE_SHA" ]; then
+            echo "  Fast-forwarding ${RELEASE_BRANCH} to ${RELEASE_SHA:0:9}..."
+            git push origin "${RELEASE_SHA}:refs/heads/${RELEASE_BRANCH}"
+        fi
+    fi
+    echo ""
+}
+
+if [ "$PR_MODE" = "1" ]; then
+    release_commit_pr
 else
-    git commit -m "chore: bump version to ${VERSION}"
+    release_commit_direct
 fi
-
-cwm_mutate git push
-echo ""
 
 # --- Step 5: GitHub release ---
 echo "[5/9] Creating GitHub release ${TAG}..."
+
+# What the release is made from. A plain run names the release branch, whose
+# tip is the commit it just pushed. A --pr run names the exact commit it merged
+# and rebuilt: the branch may have moved on since.
+RELEASE_TARGET="$RELEASE_BRANCH"
+if [ "$PR_MODE" = "1" ]; then
+    RELEASE_TARGET="$RELEASE_SHA"
+fi
 
 if [ "$TAG_ONLY" = "1" ]; then
     echo "  Skipped (--tag-only): no GitHub release. Step 6 creates the tag."
@@ -493,7 +903,7 @@ else
     PREV_TAG=$(cwm_latest_stable_tag "$(git tag --merged HEAD --sort=v:refname 2>/dev/null || echo "")")
     if [ -n "$PREV_TAG" ] && [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ]; then
         NOTES=$(gh api "repos/${GH_OWNER}/${GH_REPO}/releases/generate-notes" \
-            -f tag_name="$TAG" -f target_commitish="$RELEASE_BRANCH" -f previous_tag_name="$PREV_TAG" \
+            -f tag_name="$TAG" -f target_commitish="$RELEASE_TARGET" -f previous_tag_name="$PREV_TAG" \
             --jq '.body' 2>/dev/null || echo "Release ${VERSION}")
     else
         NOTES="Release ${VERSION}"
@@ -544,7 +954,7 @@ else
     # output intact.
     cwm_mutate env NO_COLOR=1 gh release create "$TAG" "${ARTIFACTS[@]}" \
         $GH_REPO_ARG \
-        --target "$RELEASE_BRANCH" \
+        --target "$RELEASE_TARGET" \
         --title "${TAG}" \
         --notes "$NOTES" \
         $PRERELEASE_FLAG
@@ -560,8 +970,16 @@ if [ "$TAG_ONLY" = "1" ]; then
     # step 5 makes on a full release. Pre-flight also proved it is new, so no
     # --force. Signed when tag.gpgSign is set.
     echo "  Tag-only: nothing to generate. Tagging the release commit."
-    cwm_mutate git tag -a "$TAG" -m "$TAG"
+    if [ "$PR_MODE" = "1" ]; then
+        cwm_mutate git tag -a "$TAG" -m "$TAG" "$RELEASE_SHA"
+    else
+        cwm_mutate git tag -a "$TAG" -m "$TAG"
+    fi
     cwm_mutate git push origin "$TAG"
+elif [ "$PR_MODE" = "1" ]; then
+    # The pre-flight required the entry, and the release commit carries it.
+    # Generating one now would mean another commit, and a tag moved onto it.
+    echo "  The ${VERSION} entry is part of the release commit."
 elif [ -n "$CHANGELOG_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
     cwm_mutate bash "${TOOLS_DIR}/scripts/generate-changelog-entry.sh" "$VERSION"
     # Stage the changelog and nothing else. This used to be `git add -A` behind
@@ -630,11 +1048,10 @@ echo ""
 
 # --- Step 8: versions.json update (current + next.* + _updated) ---
 echo "[8/9] Updating versions.json..."
-DEV_BRANCH=$(read_config "github.developmentBranch")
-# This is the project-relative path to versions.json, and it is the only file
-# `version-tracker.php --mode=release` writes (VersionTracker::updateForRelease
-# touches versionsJson alone). Both commits below stage exactly it.
-VERSIONS_FILE=$(php "${TOOLS_DIR}/scripts/resolve-tracking.php" versionsJson)
+# VERSIONS_FILE and DEV_BRANCH are read at the top. VERSIONS_FILE is the only
+# file `version-tracker.php --mode=release` writes (VersionTracker::
+# updateForRelease touches versionsJson alone), and every commit below stages
+# exactly it.
 
 if [ "$TAG_ONLY" = "1" ]; then
     # `current` names the last *published* release, and verify-update-stream
@@ -642,6 +1059,40 @@ if [ "$TAG_ONLY" = "1" ]; then
     echo "  Skipped (--tag-only): versions.json tracks published releases."
 elif [ -z "$VERSIONS_FILE" ]; then
     echo "  Skipped: no versionTracking.versionsJson configured."
+elif [ "$PR_MODE" = "1" ]; then
+    # The same update as below, by pull request into the branch the release
+    # commit went into. It records a release that is already public, so a
+    # pull request that doesn't merge is reported as owed rather than undoing
+    # anything.
+    V_BRANCH="chore/versions-json-${TAG}"
+    if [ "$DRY_RUN" = "1" ]; then
+        cwm_skip_in_dry_run "branch ${V_BRANCH} from origin/${TARGET_BRANCH}, update ${VERSIONS_FILE}, commit and push it, open a pull request into ${TARGET_BRANCH}, wait for its checks and squash-merge it"
+    else
+        git fetch -q origin "$TARGET_BRANCH"
+        git switch -q -C "$V_BRANCH" "origin/${TARGET_BRANCH}"
+        php "${TOOLS_DIR}/scripts/version-tracker.php" --mode=release -v "$VERSION"
+        if [ -z "$(git status --porcelain -- "$VERSIONS_FILE")" ]; then
+            echo "  ${VERSIONS_FILE} needs no change."
+        else
+            git add -- "$VERSIONS_FILE"
+            git commit -q -m "chore: update versions.json for ${TAG} release"
+            V_HEAD="$(git rev-parse HEAD)"
+            git push -q -u origin "$V_BRANCH"
+            V_URL="$(gh pr create --repo "$GH_SLUG" --base "$TARGET_BRANCH" --head "$V_BRANCH" \
+                --title "chore: update versions.json for ${TAG} release" \
+                --body "Step 8 of the ${TAG} release, after publishing: ${VERSIONS_FILE} records ${VERSION} as released. Opened by \`cwm-release --pr\`, which merges it once every check passes.")"
+            echo "  Opened ${V_URL}"
+            if cwm_pr_wait_and_merge "$GH_SLUG" "$(cwm_pr_number_from_url "$V_URL")" "$V_HEAD" >/dev/null; then
+                echo "  Merged."
+                git push -q origin --delete "$V_BRANCH" 2>/dev/null || true
+            else
+                VERSIONS_OWED="$V_URL"
+                echo "  ✗ Not merged. The release is published; the pull request stays open: ${V_URL}"
+            fi
+        fi
+        git switch -q "$TARGET_BRANCH"
+        git branch -D "$V_BRANCH" >/dev/null 2>&1 || true
+    fi
 elif [ "$DRY_RUN" = "1" ]; then
     # Described rather than wrapped in mutate: this branch stashes and checks
     # out another branch, and a half-applied version of that is worse than not
@@ -700,6 +1151,17 @@ else
     fi
 fi
 echo ""
+
+# A --pr run built and released a detached merge commit. Hand the checkout back
+# on the branch it started on, now carrying that commit and anything merged
+# after it.
+if [ "$PR_MODE" = "1" ] && [ "$DRY_RUN" != "1" ]; then
+    if [ "$(git branch --show-current)" != "$TARGET_BRANCH" ]; then
+        git switch -q "$TARGET_BRANCH"
+    fi
+    git pull -q --ff-only origin "$TARGET_BRANCH" || echo "  Note: couldn't fast-forward ${TARGET_BRANCH}; pull it when ready."
+    git submodule update --init --recursive
+fi
 
 # --- Step 9: CWM article (optional, only if bullets file exists) ---
 echo "[9/9] Posting CWM release announcement..."
@@ -771,6 +1233,9 @@ elif [ "$ARS_FAILED" -ne 0 ]; then
     echo "  DONE and public:   tag ${TAG}, the GitHub release, the version-bump"
     echo "                     commits, and versions.json (step 8 ran anyway)."
     echo "  STILL OWED:        the ARS item — sites are NOT offered ${VERSION} yet."
+    if [ -n "$VERSIONS_OWED" ]; then
+        echo "                     The versions.json pull request didn't merge: ${VERSIONS_OWED}"
+    fi
     echo "  DEFERRED:          the release announcement (step 9)."
     echo ""
     echo "  Finish with (safe to repeat — ars-publish refuses version collisions):"
@@ -779,6 +1244,12 @@ elif [ "$ARS_FAILED" -ne 0 ]; then
     echo "    composer exec -- cwm-verify-update-stream ${VERSION}"
     echo "  and post the announcement when ready."
 
+    exit 1
+elif [ -n "$VERSIONS_OWED" ]; then
+    echo "=== Release ${VERSION} is published, and one step is still owed ==="
+    echo ""
+    echo "  The versions.json pull request didn't merge: ${VERSIONS_OWED}"
+    echo "  Merge it once its checks pass. Nothing else is owed."
     exit 1
 elif [ "$TAG_ONLY" = "1" ]; then
     echo "=== Tag-only release ${VERSION} complete: ${TAG} pushed, nothing published ==="

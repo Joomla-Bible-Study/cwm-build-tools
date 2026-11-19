@@ -227,6 +227,110 @@ composer cwm-release -- X.Y.Z --tag-only
     opens release cycles. lib_cwmscripture v1.1.23 and v1.1.24 shipped tags
     with a literal `@since __DEPLOY_VERSION__` that way.
 
+## Releasing through pull requests (`--pr`)
+
+For a release branch that a ruleset protects. A plain run pushes its release
+commits straight to the branch. Where a ruleset requires pull requests, that
+push either fails or, for one of the ruleset's bypass actors, goes through by
+bypassing the rule, and nothing tells you it did. So a plain run now stops before
+step 1 when the branch it would push to requires a pull request, and points
+here.
+
+```bash
+composer cwm-release -- X.Y.Z --pr --dry-run   # read the plan first
+composer cwm-release -- X.Y.Z --pr
+```
+
+Or set it once in `cwm-build.config.json`, so every run releases this way:
+
+```json
+"release": { "viaPullRequest": true }
+```
+
+What changes:
+
+1. **Steps 1-3 run on `chore/release-vX.Y.Z`.** The bump, the substitution and
+   the build become the release commit, and a pull request is opened. A
+   project with `github.developmentBranch` sends it there, otherwise to the
+   release branch.
+2. **The run waits for every check to pass, then squash-merges.**
+   - **The checks decide, not `mergeStateStatus`.** With no required checks,
+     GitHub reports a pull request as mergeable while its CI is still
+     running.
+   - **A new pull request gets a grace period.** It reports no checks at
+     first, so it isn't treated as checkless straight away.
+   - **It has to stay green.** "Ready" must hold on two polls in a row, and
+     no GitHub Actions run for the commit may still be going. A job held back
+     by `needs:` isn't reported until it is queued, so the checks can read all
+     green before the rest of a workflow has started.
+   - **A brief BLOCKED is waited out.** Required checks that haven't
+     registered yet leave a new pull request BLOCKED with everything else
+     green, so BLOCKED stops the run only once it has outlasted the grace
+     period.
+   - **The merge is pinned with `--match-head-commit`** to the commit whose
+     checks passed.
+3. **The merged commit is rebuilt and must reproduce.** The build runs again,
+   without the bump, and may not change a tracked file. The bump stamps
+   today's date, so bumping again after a merge past midnight UTC would change
+   the commit.
+4. **A project with a development branch has its release branch
+   fast-forwarded** to the merged commit.
+   - **The branch needs the right rule:** one that lets admins update it, such
+     as a ruleset with rule type `update`. A `pull_request` rule won't do,
+     because a pull request can't fast-forward.
+   - **Pre-flight checks this before anything is merged.** It also checks that
+     the fast-forward is possible at all.
+5. **Steps 5-7 tag and publish that exact commit.** `gh release create`
+   gets its SHA as `--target`, so a branch that moved on meanwhile doesn't
+   matter.
+6. **Step 8's `versions.json` update goes through a pull request of its own.**
+   It records a release that is already public. If it doesn't merge, the run
+   ends by naming it as owed instead of undoing anything.
+
+**One pull request holds the whole release.** Two files may stay uncommitted
+when the run starts: the changelog and this version's notes file
+(`release.notesFile`). The release commit carries them, and anything else
+uncommitted stops the run. The notes file is named after the version, so with
+`--pr` the version must be given as an argument.
+
+**The changelog entry is required, written by hand.** Step 6 normally
+generates it from the published release, then commits it and moves the tag
+onto that commit. With `--pr` the entry has to be in the release commit, and
+pre-flight refuses a version that has none. The generator skips a version that
+is already there.
+
+**Interruptions:**
+- **A failed run publishes nothing.** If the checks fail or the wait times
+  out, nothing has been tagged or published, and the pull request stays open.
+- **Running again picks up where it stopped.** It waits on the open pull
+  request rather than opening another. If the pull request was merged by
+  hand meanwhile, it finds the release commit in place and carries on.
+- **Only a pull request this checkout opened is resumed.** A resumed pull
+  request gets merged and published, and a pull request is outside input. One
+  opened from a fork can carry the same branch name.
+  - **The record:** when the run opens its pull request, it records the number
+    and head in `.git/cwm-release/<tag>`. Resuming needs that record, the same
+    repository, the expected base and an unchanged head.
+  - **Anything else stops the run.** Review the pull request, merge or close it
+    by hand, then run again.
+- **A change merged during the wait is reported.** The merged commit includes
+  it, and the run lists it, since the release gate ran before it arrived.
+
+**These checks run before the `test:release` gate,** since they only read. A
+refusal costs seconds rather than a full acceptance run. The same holds for a
+plain run that stops because a branch requires pull requests.
+
+**`--tag-only` works too.** The release commit goes in by pull request, and the
+merged commit is tagged.
+
+The wait can be tuned through the environment:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CWM_PR_POLL_SECONDS` | 20 | Seconds between looks at the pull request |
+| `CWM_PR_GRACE_SECONDS` | 90 | How long a new pull request may report no checks |
+| `CWM_PR_TIMEOUT_SECONDS` | 5400 | When to give up waiting |
+
 ## Step-by-step (when you don't want the full pipeline)
 
 | Step | Command |

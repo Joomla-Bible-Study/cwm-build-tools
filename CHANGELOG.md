@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`cwm-release --pr` releases through pull requests,** for a release branch
+  that a ruleset protects. Set `"release": {"viaPullRequest": true}` in
+  `cwm-build.config.json` to make it the default.
+  - **The release commit:** made on `chore/release-vX.Y.Z` and opened as a pull
+    request. The run waits for every check to pass, squash-merges it pinned to
+    the commit that was checked, and rebuilds the merged commit, which must
+    reproduce. Steps 5-7 tag and publish that exact SHA.
+  - **`versions.json`:** step 8's update follows in a pull request of its own.
+  - **A development branch:** the release commit merges there, and the release
+    branch is fast-forwarded to it.
+  - **What it can carry:** the changelog and this version's notes may stay
+    uncommitted, so one pull request holds the whole release.
+  - **When it merges:** every reported check has passed, on two polls in a row,
+    with no workflow run for the commit still going. A brief BLOCKED is
+    waited out.
+  - **Interruptions:** a stopped run resumes on its open pull request, but only
+    on one this checkout opened. That pull request is recorded in `.git/`, so
+    one from a fork under the same branch name is never merged unattended. A
+    pull request merged by hand is picked up as already in place.
+  - **Pre-flight first:** these checks run before the `test:release` gate.
+
+### Changed
+
+- **A plain `cwm-release` run now stops where a ruleset requires a pull
+  request.** Before step 1 it reads the rules on every branch it would push
+  to. A push there either failed, or for an admin bypassed the rule without
+  a word. It now stops before anything is bumped and points at `--pr`.
+  - CWM's own consumers hit this first: on 2026-11-18, CWMScriptureLinks 1.2.21,
+    Proclaim 10.7.8 and CWMLivingWord 5.8.1 were released by hand in the shape
+    `--pr` now automates.
+
 ## [1.43.1] - 2026-11-18
 
 ### Fixed
