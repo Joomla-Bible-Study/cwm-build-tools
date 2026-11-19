@@ -167,13 +167,21 @@ case "\$1 \$2" in
         ;;
     "pr merge")
         echo "merge \$*" >> "\$log"
+        cp "${WORK}/views" "${WORK}/merged_at_view"
         touch "${WORK}/merged"
+        ;;
+    "run list")
+        # runs.N answers the Nth call; no file means no workflow runs.
+        n=\$(( \$(cat "${WORK}/run_calls" 2>/dev/null || echo 0) + 1 ))
+        echo "\$n" > "${WORK}/run_calls"
+        if [ -f "${WORK}/runs.\$n" ]; then cat "${WORK}/runs.\$n"; else echo '[]'; fi
         ;;
     *) exit 1 ;;
 esac
 STUB
 reset_pr() {
-    rm -f "${WORK}/views" "${WORK}/view."* "${WORK}/merged" "${WORK}/calls"
+    rm -f "${WORK}/views" "${WORK}/view."* "${WORK}/merged" "${WORK}/calls" \
+        "${WORK}/merged_at_view" "${WORK}/run_calls" "${WORK}/runs."*
 }
 export CWM_PR_POLL_SECONDS=0 CWM_PR_GRACE_SECONDS=0 CWM_PR_TIMEOUT_SECONDS=50
 
@@ -210,5 +218,41 @@ touch "${WORK}/merged"
 sha="$(cwm_pr_wait_and_merge owner/repo 7 "$HEAD_SHA" 2>/dev/null)"; rc=$?
 assert_equals "0" "$rc" "a pull request someone else merged counts as merged"
 assert_equals "feedface" "$sha" "with its merge commit"
+
+# --- The moment of merging --------------------------------------------------------------
+# All green for one poll isn't enough: a check that registers a moment later,
+# such as a job held back by `needs:`, has to get its chance to appear.
+reset_pr
+pr_json OPEN "$HEAD_SHA" CLEAN "[$run_ok]" > "${WORK}/view.1"
+pr_json OPEN "$HEAD_SHA" CLEAN "[$run_ok,$run_busy]" > "${WORK}/view.2"
+pr_json OPEN "$HEAD_SHA" CLEAN "[$run_ok]" > "${WORK}/view.last"
+cwm_pr_wait_and_merge owner/repo 7 "$HEAD_SHA" >/dev/null 2>&1; rc=$?
+assert_equals "0" "$rc" "ready, then a late check, then ready: it merges in the end"
+assert_equals "4" "$(cat "${WORK}/merged_at_view" 2>/dev/null)" \
+    "but only on the second ready in a row after the late check, not the first ready"
+
+reset_pr
+pr_json OPEN "$HEAD_SHA" CLEAN "[$run_ok]" > "${WORK}/view.last"
+echo '[{"status":"completed"},{"status":"in_progress"}]' > "${WORK}/runs.1"
+echo '[{"status":"completed"},{"status":"in_progress"}]' > "${WORK}/runs.2"
+echo '[{"status":"completed"},{"status":"completed"}]' > "${WORK}/runs.3"
+cwm_pr_wait_and_merge owner/repo 7 "$HEAD_SHA" >/dev/null 2>&1; rc=$?
+assert_equals "0" "$rc" "a workflow run still going holds the merge until it finishes"
+assert_equals "4" "$(cat "${WORK}/merged_at_view" 2>/dev/null)" \
+    "every check green, but a workflow run in progress: no merge yet"
+
+reset_pr
+pr_json OPEN "$HEAD_SHA" BLOCKED "[$run_ok]" > "${WORK}/view.1"
+pr_json OPEN "$HEAD_SHA" BLOCKED "[$run_ok]" > "${WORK}/view.2"
+pr_json OPEN "$HEAD_SHA" CLEAN "[$run_ok]" > "${WORK}/view.last"
+CWM_PR_GRACE_SECONDS=3 cwm_pr_wait_and_merge owner/repo 7 "$HEAD_SHA" >/dev/null 2>&1; rc=$?
+assert_equals "0" "$rc" "BLOCKED for a moment, as while required checks register, is waited out"
+
+reset_pr
+pr_json OPEN "$HEAD_SHA" BLOCKED "[$run_ok]" > "${WORK}/view.last"
+out="$(CWM_PR_GRACE_SECONDS=3 cwm_pr_wait_and_merge owner/repo 7 "$HEAD_SHA" 2>&1 >/dev/null)"; rc=$?
+assert_equals "1" "$rc" "BLOCKED past the grace period stops"
+assert_contains "$out" "won't merge it" "saying GitHub won't merge it"
+assert_equals "0" "$([ -e "${WORK}/calls" ] && echo 1 || echo 0)" "without trying"
 
 finish

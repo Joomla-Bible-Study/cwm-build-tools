@@ -259,6 +259,14 @@ What changes:
      running.
    - **A new pull request gets a grace period.** It reports no checks at
      first, so it isn't treated as checkless straight away.
+   - **It has to stay green.** "Ready" must hold on two polls in a row, and
+     no GitHub Actions run for the commit may still be going. A job held back
+     by `needs:` isn't reported until it is queued, so the checks can read all
+     green before the rest of a workflow has started.
+   - **A brief BLOCKED is waited out.** Required checks that haven't
+     registered yet leave a new pull request BLOCKED with everything else
+     green, so BLOCKED stops the run only once it has outlasted the grace
+     period.
    - **The merge is pinned with `--match-head-commit`** to the commit whose
      checks passed.
 3. **The merged commit is rebuilt and must reproduce.** The build runs again,
@@ -297,8 +305,20 @@ is already there.
 - **Running again picks up where it stopped.** It waits on the open pull
   request rather than opening another. If the pull request was merged by
   hand meanwhile, it finds the release commit in place and carries on.
+- **Only a pull request this checkout opened is resumed.** A resumed pull
+  request gets merged and published, and a pull request is outside input. One
+  opened from a fork can carry the same branch name.
+  - **The record:** when the run opens its pull request, it records the number
+    and head in `.git/cwm-release/<tag>`. Resuming needs that record, the same
+    repository, the expected base and an unchanged head.
+  - **Anything else stops the run.** Review the pull request, merge or close it
+    by hand, then run again.
 - **A change merged during the wait is reported.** The merged commit includes
   it, and the run lists it, since the release gate ran before it arrived.
+
+**These checks run before the `test:release` gate,** since they only read. A
+refusal costs seconds rather than a full acceptance run. The same holds for a
+plain run that stops because a branch requires pull requests.
 
 **`--tag-only` works too.** The release commit goes in by pull request, and the
 merged commit is tagged.

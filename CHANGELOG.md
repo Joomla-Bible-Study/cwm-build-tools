@@ -21,8 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     branch is fast-forwarded to it.
   - **What it can carry:** the changelog and this version's notes may stay
     uncommitted, so one pull request holds the whole release.
-  - **Interruptions:** a run that is stopped resumes on the open pull request.
-    A pull request merged by hand is picked up as already in place.
+  - **When it merges:** every reported check has passed, on two polls in a row,
+    with no workflow run for the commit still going. A brief BLOCKED is
+    waited out.
+  - **Interruptions:** a stopped run resumes on its open pull request, but only
+    on one this checkout opened. That pull request is recorded in `.git/`, so
+    one from a fork under the same branch name is never merged unattended. A
+    pull request merged by hand is picked up as already in place.
+  - **Pre-flight first:** these checks run before the `test:release` gate.
 
 ### Changed
 

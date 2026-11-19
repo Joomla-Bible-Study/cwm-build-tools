@@ -205,6 +205,38 @@ cwm_pr_verdict() {
         echo "pending";' -- "$2" "$3" "$4"
 }
 
+# Whether a GitHub Actions workflow run for a commit is still going.
+#
+# A check run appears in statusCheckRollup only once its job is queued, and a
+# job held back by `needs:` doesn't exist while the jobs before it run. So the
+# rollup can read all green for a moment before the rest of a workflow starts,
+# as when Proclaim's lint jobs finish before its e2e jobs are created. The
+# workflow run itself stays in progress until its last job is done.
+#
+# Arguments:
+#   $1  owner/repo
+#   $2  The commit SHA
+#
+# Returns:
+#   0  a workflow run for the commit is still going
+#   1  none is, or there are none
+#   2  the runs could not be read
+cwm_pr_runs_pending() {
+    local repo="$1" sha="$2" json
+    json="$(gh run list --repo "$repo" --commit "$sha" --limit 100 --json status 2>/dev/null)" || return 2
+    printf '%s' "$json" | php -r '
+        $runs = json_decode(stream_get_contents(STDIN), true);
+        if (!is_array($runs)) {
+            exit(2);
+        }
+        foreach ($runs as $run) {
+            if (($run["status"] ?? "") !== "completed") {
+                exit(0);
+            }
+        }
+        exit(1);'
+}
+
 # The merge commit SHA from `gh pr view --json mergeCommit` output.
 #
 # Arguments:
@@ -226,6 +258,16 @@ cwm_pr_merge_commit() {
 # --delete-branch also switches and deletes the local branch, and the caller
 # decides what the checkout does next.
 #
+# Three things guard the moment of merging, because a merge here is followed
+# straight away by a tag and a publish:
+#   - "ready" has to hold on two polls in a row, so a check that registers a
+#     moment late is seen;
+#   - no GitHub Actions run for the head commit may still be going, which
+#     covers jobs held back by `needs:` (cwm_pr_runs_pending);
+#   - BLOCKED is taken as final only once it has lasted the grace period.
+#     Required checks that haven't registered yet leave a pull request
+#     BLOCKED, with everything reported so far green, for its first minute.
+#
 # Polls every CWM_PR_POLL_SECONDS (20), gives a new pull request
 # CWM_PR_GRACE_SECONDS (90) to report its checks, and gives up after
 # CWM_PR_TIMEOUT_SECONDS (5400; Proclaim's full CI takes about 15 minutes).
@@ -246,7 +288,7 @@ cwm_pr_wait_and_merge() {
     local poll="${CWM_PR_POLL_SECONDS:-20}"
     local grace="${CWM_PR_GRACE_SECONDS:-90}"
     local timeout="${CWM_PR_TIMEOUT_SECONDS:-5400}"
-    local waited=0 json verdict sha
+    local waited=0 json verdict sha streak=0 blocked_since="" runs_rc
 
     while :; do
         if ! json="$(gh pr view "$number" --repo "$repo" --json state,headRefOid,mergeStateStatus,statusCheckRollup,mergeCommit 2>/dev/null)"; then
@@ -254,6 +296,32 @@ cwm_pr_wait_and_merge() {
             return 1
         fi
         verdict="$(cwm_pr_verdict "$json" "$head" "$waited" "$grace")"
+
+        if [ "$verdict" = "ready" ]; then
+            runs_rc=0
+            cwm_pr_runs_pending "$repo" "$head" || runs_rc=$?
+            if [ "$runs_rc" = "0" ]; then
+                verdict="pending"
+            fi
+        fi
+        if [ "$verdict" = "ready" ]; then
+            streak=$((streak + 1))
+            if [ "$streak" -lt 2 ]; then
+                verdict="pending"
+            fi
+        else
+            streak=0
+        fi
+        if [ "$verdict" = "blocked" ]; then
+            if [ -z "$blocked_since" ]; then
+                blocked_since="$waited"
+            fi
+            if [ $((waited - blocked_since)) -lt "$grace" ]; then
+                verdict="pending"
+            fi
+        else
+            blocked_since=""
+        fi
 
         case "$verdict" in
             merged)

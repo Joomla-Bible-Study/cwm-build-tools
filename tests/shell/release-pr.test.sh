@@ -141,8 +141,11 @@ case "$cmd" in
         [ -f "${d}/merge" ] && merge="{\"oid\":\"$(cat "${d}/merge")\"}"
         status=CLEAN
         [ "$(cat "${W}/${name}.checks" 2>/dev/null)" = "fail" ] && status=UNSTABLE
-        printf '{"state":"%s","headRefOid":"%s","mergeStateStatus":"%s","statusCheckRollup":%s,"mergeCommit":%s}\n' \
-            "$state" "$(head_sha "$d")" "$status" "$(checks_json)" "$merge"
+        printf '{"state":"%s","headRefOid":"%s","headRefName":"%s","baseRefName":"%s","isCrossRepository":false,"mergeStateStatus":"%s","statusCheckRollup":%s,"mergeCommit":%s}\n' \
+            "$state" "$(head_sha "$d")" "$(cat "${d}/head")" "$(cat "${d}/base")" "$status" "$(checks_json)" "$merge"
+        ;;
+    "run list")
+        echo '[]'
         ;;
     "pr list")
         first=1
@@ -152,7 +155,7 @@ case "$cmd" in
             [ "$(cat "${d}head")" = "$head" ] || continue
             [ "$first" = 1 ] || printf ','
             first=0
-            printf '{"number":%s,"state":"%s","headRefOid":"%s"}' "$(basename "$d")" "$(cat "${d}state")" "$(head_sha "${d%/}")"
+            printf '{"number":%s,"state":"%s","headRefOid":"%s","isCrossRepository":false}' "$(basename "$d")" "$(cat "${d}state")" "$(head_sha "${d%/}")"
         done
         printf ']\n'
         ;;
@@ -442,6 +445,48 @@ assert_contains "$out" "already on main — nothing to commit, no pull request n
     "and finds the release commit in place"
 assert_equals "$(cat "${WORK}/failing.prs/1/merge")" "$(git -C "${WORK}/failing.git" rev-parse 'v1.2.3^{commit}' 2>/dev/null)" \
     "the tag is on the commit merged by hand"
+
+# --- Resumed on its own open pull request ------------------------------------------------
+make_project resume
+echo fail > "${WORK}/resume.checks"
+run_release resume 1.2.3 --pr >/dev/null
+echo pass > "${WORK}/resume.checks"
+out="$(run_release resume 1.2.3 --pr)"
+status=$?
+
+assert_equals "0" "$status" "a run after the checks are fixed finishes the release"
+assert_contains "$out" "Resuming: this checkout's pull request #1" "by waiting on the pull request it opened"
+assert_equals "MERGED" "$(cat "${WORK}/resume.prs/1/state")" "which is the one merged"
+assert_equals "$(cat "${WORK}/resume.prs/1/merge")" "$(git -C "${WORK}/resume.git" rev-parse 'v1.2.3^{commit}' 2>/dev/null)" \
+    "and tagged"
+assert_equals "chore: update versions.json for v1.2.3 release" "$(cat "${WORK}/resume.prs/2/title" 2>/dev/null)" \
+    "the next pull request is versions.json"
+assert_equals "0" "$([ -d "${WORK}/resume.prs/3" ] && echo 1 || echo 0)" "and no second release pull request was opened"
+
+# --- A pull request this checkout didn't open is never merged unattended --------------------
+# Someone else's branch and pull request under the release branch's name, as a
+# fork's could be. Resuming it would merge and publish whatever it holds.
+make_project foreign
+(
+    tmp="$(mktemp -d)"
+    git clone -q "${WORK}/foreign.git" "${tmp}/c" \
+        && git -C "${tmp}/c" switch -q -c chore/release-v1.2.3 \
+        && echo "not ours" > "${tmp}/c/payload.txt" \
+        && git -C "${tmp}/c" add -A \
+        && git -C "${tmp}/c" commit -qm "someone else's release" \
+        && git -C "${tmp}/c" push -q origin chore/release-v1.2.3
+    rm -rf "$tmp"
+)
+gh pr create --repo nobody/foreign --base main --head chore/release-v1.2.3 --title "chore(release): cut v1.2.3" >/dev/null
+before="$(git -C "${WORK}/foreign.git" rev-parse main)"
+out="$(run_release foreign 1.2.3 --pr)"
+status=$?
+
+assert_equals "1" "$status" "a release branch with someone else's open pull request stops the run"
+assert_contains "$out" "this checkout didn't open it" "and says why"
+assert_equals "OPEN" "$(cat "${WORK}/foreign.prs/1/state")" "that pull request is not merged"
+assert_equals "$before" "$(git -C "${WORK}/foreign.git" rev-parse main)" "main is untouched"
+assert_equals "" "$(git -C "${WORK}/foreign.git" tag)" "and nothing is tagged"
 
 # --- Another change lands while the pull request waits -----------------------------------
 make_project landing

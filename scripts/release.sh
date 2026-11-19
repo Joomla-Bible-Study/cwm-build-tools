@@ -375,77 +375,9 @@ cwm_validate_release_version "$VERSION" || exit 1
 TAG=$(cwm_tag_for_version "$VERSION")
 PRERELEASE_FLAG=$(cwm_prerelease_flag "$VERSION")
 
-# --- Pre-flight: release gate (composer test:release) ---
-# Verifies the commit about to be released, not the commit that results from
-# bumping/building it — so this runs before step 1, against what's on disk
-# right now. The version above is handed to it as CWM_RELEASE_VERSION, since
-# nothing on disk names it yet. See lib/testgate.sh for both.
-if [ "$SKIP_TESTS" = "1" ]; then
-    echo "[pre-flight] Skipping composer test:release (--skip-tests)."
-elif ! cwm_has_test_release_script "${PROJECT_ROOT}/composer.json"; then
-    echo "[pre-flight] No composer test:release script — skipping pre-release verification."
-else
-    echo "[pre-flight] Running composer test:release (CWM_RELEASE_VERSION=${VERSION})..."
-    if cwm_run_test_release "$VERSION"; then
-        echo "  test:release passed."
-    elif [ "$DRY_RUN" = "1" ]; then
-        echo "  WARNING: test:release failed. A real run would stop here."
-    else
-        echo ""
-        echo "Error: composer test:release failed. Fix the failure, or pass --skip-tests to release anyway."
-        exit 1
-    fi
-fi
-
-# --- Pre-flight: a changelog entry to go with hand-written notes ---
-# Without one, step 6 generates it from the release body, which keeps the
-# notes' bullets but not their paragraphs or categories. A warning rather than
-# a stop: an entry generated from notes is still better than none.
-PREFLIGHT_NOTES=$(cwm_resolve_notes_file "$(read_config "release.notesFile")" "$VERSION" || true)
+# The changelog the pre-flights below read. Defined ahead of them all, since the
+# pull-request checks run before the release gate.
 PREFLIGHT_CHANGELOG=$(read_config "changelog.file")
-if [ "$TAG_ONLY" != "1" ] && [ "$PR_MODE" != "1" ] && [ -n "$PREFLIGHT_NOTES" ] && cwm_changelog_needs_entry "$PREFLIGHT_CHANGELOG" "$VERSION"; then
-    echo "[pre-flight] WARNING: ${PREFLIGHT_CHANGELOG} has no ${VERSION} entry to go with ${PREFLIGHT_NOTES}."
-    echo "  Step 6 would generate one from the notes' bullets alone, without their paragraphs or categories."
-    echo "  Write it by hand in the notes PR; the generator skips a version that is already there."
-fi
-
-# --- Pre-flight: what a tag-only release needs (#176) ---
-# Both refusals come before step 1, where they cost nothing.
-#
-# The changelog entry must already be committed: step 6 generates one from the
-# GitHub release, and a tag-only release has none.
-#
-# The tag must be new. Step 6 creates it without --force, because moving a tag
-# a consumer may already pin is not something to do as a side effect.
-if [ "$TAG_ONLY" = "1" ]; then
-    echo "[pre-flight] Tag-only release: nothing will be published (no GitHub release, ARS item,"
-    echo "             versions.json update or announcement)."
-
-    TAG_ONLY_PROBLEMS=()
-    if cwm_changelog_needs_entry "$PREFLIGHT_CHANGELOG" "$VERSION"; then
-        TAG_ONLY_PROBLEMS+=("${PREFLIGHT_CHANGELOG} has no ${VERSION} entry. Write it by hand and commit it first: with no GitHub release, step 6 has nothing to generate one from.")
-    fi
-    if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null \
-        || git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-        TAG_ONLY_PROBLEMS+=("Tag ${TAG} already exists. A tag-only release creates a new tag and never moves one.")
-    fi
-
-    for problem in "${TAG_ONLY_PROBLEMS[@]+"${TAG_ONLY_PROBLEMS[@]}"}"; do
-        if [ "$DRY_RUN" = "1" ]; then
-            echo "  WARNING: ${problem}"
-            echo "           A real run would stop here."
-        else
-            echo "Error: ${problem}"
-        fi
-    done
-    if [ "${#TAG_ONLY_PROBLEMS[@]}" -gt 0 ] && [ "$DRY_RUN" != "1" ]; then
-        exit 1
-    fi
-
-    if [ "$(git config --type=bool --get tag.gpgSign 2>/dev/null || true)" != "true" ]; then
-        echo "  Note: tag.gpgSign is not set, so ${TAG} will be an unsigned annotated tag."
-    fi
-fi
 
 # --- Pre-flight: pull requests ---
 #
@@ -458,34 +390,72 @@ if [ "$PR_MODE" = "1" ]; then
         PR_PROBLEMS+=("github.owner and github.repo are not set in cwm-build.config.json, and pull requests need them.")
     fi
 
-    # A branch left by an earlier run. Its open pull request is waited on rather
-    # than opened again; a merged one means the release commit should already
-    # be in place, which step 4 finds.
+    # A branch left by an earlier run.
+    #
+    # Only a pull request this checkout opened is resumed: a run that resumes
+    # one merges it and publishes the result, and a pull request is outside
+    # input. Matching on the branch name alone would find one opened from a
+    # fork under the same name. So release_commit_pr records the number and
+    # head it pushed, inside .git where nothing is committed, and a resume
+    # needs that record, the same repository, the right base and the same
+    # head. Anything else is for a person to review: merge or close it by
+    # hand, and a run after a hand merge finds the release commit in place.
     REL_PR_BRANCH="chore/release-${TAG}"
+    PR_RECORD="$(git rev-parse --git-dir)/cwm-release/${TAG}"
     if [ "$DRY_RUN" != "1" ] && git ls-remote --exit-code --heads origin "$REL_PR_BRANCH" >/dev/null 2>&1; then
-        RESUME_LINE=$(gh pr list --repo "$GH_SLUG" --head "$REL_PR_BRANCH" --state all \
-            --json number,state,headRefOid 2>/dev/null | php -r '
-                $prs = json_decode(stream_get_contents(STDIN), true) ?: [];
-                usort($prs, fn ($a, $b) => ($b["number"] ?? 0) <=> ($a["number"] ?? 0));
-                $pr = $prs[0] ?? null;
-                echo $pr ? $pr["number"] . " " . $pr["state"] . " " . $pr["headRefOid"] : "";' || true)
         RESUME_STATE=""
-        read -r RESUME_PR RESUME_STATE RESUME_HEAD <<<"$RESUME_LINE" || true
-        case "$RESUME_STATE" in
-            OPEN)
-                echo "  Resuming: pull request #${RESUME_PR} for ${REL_PR_BRANCH} is open, so this run waits for it."
-                ;;
-            MERGED)
-                echo "  Pull request #${RESUME_PR} for ${REL_PR_BRANCH} is already merged."
-                RESUME_PR=""
-                RESUME_HEAD=""
-                ;;
-            *)
-                PR_PROBLEMS+=("${REL_PR_BRANCH} exists on origin with no open pull request. Delete it (git push origin --delete ${REL_PR_BRANCH}) and run again.")
-                RESUME_PR=""
-                RESUME_HEAD=""
-                ;;
-        esac
+        if [ -f "$PR_RECORD" ]; then
+            REC_NUMBER=""
+            REC_HEAD=""
+            read -r REC_NUMBER REC_HEAD < "$PR_RECORD" || true
+            REC_LINE=$(gh pr view "$REC_NUMBER" --repo "$GH_SLUG" \
+                --json state,headRefOid,headRefName,baseRefName,isCrossRepository 2>/dev/null | php -r '
+                    $pr = json_decode(stream_get_contents(STDIN), true) ?: [];
+                    echo implode(" ", [$pr["state"] ?? "-", $pr["headRefOid"] ?? "-", $pr["headRefName"] ?? "-",
+                        $pr["baseRefName"] ?? "-", empty($pr["isCrossRepository"]) ? "same" : "fork"]);' || true)
+            read -r REC_STATE REC_PR_HEAD REC_PR_BRANCH REC_BASE REC_ORIGIN <<<"$REC_LINE" || true
+            if [ "${REC_STATE:-}" = "OPEN" ] && [ "${REC_PR_HEAD:-}" = "$REC_HEAD" ] \
+                && [ "${REC_PR_BRANCH:-}" = "$REL_PR_BRANCH" ] && [ "${REC_BASE:-}" = "$TARGET_BRANCH" ] \
+                && [ "${REC_ORIGIN:-}" = "same" ]; then
+                RESUME_PR="$REC_NUMBER"
+                RESUME_HEAD="$REC_HEAD"
+                RESUME_STATE="OPEN"
+                echo "  Resuming: this checkout's pull request #${RESUME_PR} is still open, so this run waits for it."
+            elif [ "${REC_STATE:-}" = "MERGED" ]; then
+                RESUME_STATE="MERGED"
+                rm -f "$PR_RECORD"
+                echo "  Pull request #${REC_NUMBER} for ${REL_PR_BRANCH} is already merged."
+            fi
+        fi
+        if [ -z "$RESUME_STATE" ]; then
+            FOUND=$(gh pr list --repo "$GH_SLUG" --head "$REL_PR_BRANCH" --state all \
+                --json number,state,isCrossRepository 2>/dev/null | php -r '
+                    $open = [];
+                    $merged = [];
+                    foreach (json_decode(stream_get_contents(STDIN), true) ?: [] as $pr) {
+                        if (!empty($pr["isCrossRepository"])) {
+                            $open[] = "#" . $pr["number"] . " (from a fork)";
+                            continue;
+                        }
+                        if (($pr["state"] ?? "") === "OPEN") {
+                            $open[] = "#" . $pr["number"];
+                        } elseif (($pr["state"] ?? "") === "MERGED") {
+                            $merged[] = "#" . $pr["number"];
+                        }
+                    }
+                    echo $open ? "open " . implode(", ", $open) : ($merged ? "merged " . implode(", ", $merged) : "none");' || echo "none")
+            case "$FOUND" in
+                open\ *)
+                    PR_PROBLEMS+=("Pull request ${FOUND#open } for ${REL_PR_BRANCH} is open, and this checkout didn't open it, so it won't be merged unattended. Review it, merge or close it by hand, then run again.")
+                    ;;
+                merged\ *)
+                    echo "  Pull request ${FOUND#merged } for ${REL_PR_BRANCH} is already merged."
+                    ;;
+                *)
+                    PR_PROBLEMS+=("${REL_PR_BRANCH} exists on origin with no open pull request. Delete it (git push origin --delete ${REL_PR_BRANCH}) and run again.")
+                    ;;
+            esac
+        fi
     fi
 
     # The entry has to reach the release commit: with no published release yet,
@@ -558,6 +528,78 @@ else
         done
     fi
 fi
+
+# --- Pre-flight: release gate (composer test:release) ---
+# Verifies the commit about to be released, not the commit that results from
+# bumping/building it — so this runs before step 1, against what's on disk
+# right now. The version above is handed to it as CWM_RELEASE_VERSION, since
+# nothing on disk names it yet. See lib/testgate.sh for both.
+if [ "$SKIP_TESTS" = "1" ]; then
+    echo "[pre-flight] Skipping composer test:release (--skip-tests)."
+elif ! cwm_has_test_release_script "${PROJECT_ROOT}/composer.json"; then
+    echo "[pre-flight] No composer test:release script — skipping pre-release verification."
+else
+    echo "[pre-flight] Running composer test:release (CWM_RELEASE_VERSION=${VERSION})..."
+    if cwm_run_test_release "$VERSION"; then
+        echo "  test:release passed."
+    elif [ "$DRY_RUN" = "1" ]; then
+        echo "  WARNING: test:release failed. A real run would stop here."
+    else
+        echo ""
+        echo "Error: composer test:release failed. Fix the failure, or pass --skip-tests to release anyway."
+        exit 1
+    fi
+fi
+
+# --- Pre-flight: a changelog entry to go with hand-written notes ---
+# Without one, step 6 generates it from the release body, which keeps the
+# notes' bullets but not their paragraphs or categories. A warning rather than
+# a stop: an entry generated from notes is still better than none.
+PREFLIGHT_NOTES=$(cwm_resolve_notes_file "$(read_config "release.notesFile")" "$VERSION" || true)
+if [ "$TAG_ONLY" != "1" ] && [ "$PR_MODE" != "1" ] && [ -n "$PREFLIGHT_NOTES" ] && cwm_changelog_needs_entry "$PREFLIGHT_CHANGELOG" "$VERSION"; then
+    echo "[pre-flight] WARNING: ${PREFLIGHT_CHANGELOG} has no ${VERSION} entry to go with ${PREFLIGHT_NOTES}."
+    echo "  Step 6 would generate one from the notes' bullets alone, without their paragraphs or categories."
+    echo "  Write it by hand in the notes PR; the generator skips a version that is already there."
+fi
+
+# --- Pre-flight: what a tag-only release needs (#176) ---
+# Both refusals come before step 1, where they cost nothing.
+#
+# The changelog entry must already be committed: step 6 generates one from the
+# GitHub release, and a tag-only release has none.
+#
+# The tag must be new. Step 6 creates it without --force, because moving a tag
+# a consumer may already pin is not something to do as a side effect.
+if [ "$TAG_ONLY" = "1" ]; then
+    echo "[pre-flight] Tag-only release: nothing will be published (no GitHub release, ARS item,"
+    echo "             versions.json update or announcement)."
+
+    TAG_ONLY_PROBLEMS=()
+    if cwm_changelog_needs_entry "$PREFLIGHT_CHANGELOG" "$VERSION"; then
+        TAG_ONLY_PROBLEMS+=("${PREFLIGHT_CHANGELOG} has no ${VERSION} entry. Write it by hand and commit it first: with no GitHub release, step 6 has nothing to generate one from.")
+    fi
+    if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null \
+        || git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+        TAG_ONLY_PROBLEMS+=("Tag ${TAG} already exists. A tag-only release creates a new tag and never moves one.")
+    fi
+
+    for problem in "${TAG_ONLY_PROBLEMS[@]+"${TAG_ONLY_PROBLEMS[@]}"}"; do
+        if [ "$DRY_RUN" = "1" ]; then
+            echo "  WARNING: ${problem}"
+            echo "           A real run would stop here."
+        else
+            echo "Error: ${problem}"
+        fi
+    done
+    if [ "${#TAG_ONLY_PROBLEMS[@]}" -gt 0 ] && [ "$DRY_RUN" != "1" ]; then
+        exit 1
+    fi
+
+    if [ "$(git config --type=bool --get tag.gpgSign 2>/dev/null || true)" != "true" ]; then
+        echo "  Note: tag.gpgSign is not set, so ${TAG} will be an unsigned annotated tag."
+    fi
+fi
+
 
 echo ""
 echo "=== ${PKG_NAME} Release ${VERSION} ==="
@@ -764,6 +806,9 @@ release_commit_pr() {
                 --body "The release commit for ${TAG}, opened by \`cwm-release --pr\`: the version bump, the \`__DEPLOY_VERSION__\` substitution, and the changelog entry and notes when they came with it. The release run merges it once every check passes, then rebuilds, tags and publishes the merged commit.")"
             pr_number="$(cwm_pr_number_from_url "$pr_url")"
             echo "  Opened ${pr_url}"
+            # What a later run may resume, and nothing else (see the pre-flight).
+            mkdir -p "$(dirname "$PR_RECORD")"
+            printf '%s %s\n' "$pr_number" "$pr_head" > "$PR_RECORD"
         fi
     fi
 
@@ -773,11 +818,16 @@ release_commit_pr() {
             git switch -q "$TARGET_BRANCH" 2>/dev/null || true
             echo ""
             echo "Error: release pull request #${pr_number} was not merged, so nothing has been tagged or published."
+            if [ -z "$RESUME_PR" ]; then
+                echo "  The release commit is on ${REL_PR_BRANCH}, with the changelog entry and notes it carried,"
+                echo "  so they are no longer uncommitted in this checkout."
+            fi
             echo "  Once it is fixed or merged, run the same command again. It waits on the open pull request,"
             echo "  or finds the merged release commit in place and carries on."
             exit 1
         fi
         echo "  Merged as ${merge_sha:0:9}."
+        rm -f "$PR_RECORD"
 
         git fetch -q origin --prune --tags
         git push -q origin --delete "$REL_PR_BRANCH" 2>/dev/null || true
